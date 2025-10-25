@@ -1,67 +1,46 @@
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "1mb"
-    }
-  }
-};
-
-const DEFAULT_REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17";
-const DEFAULT_REALTIME_VOICE = "verse";
+// Vercel Serverless Function: exchange browser SDP with OpenAI Realtime
+export const config = { api: { bodyParser: { sizeLimit: "1mb" } } };
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    res.status(405).json({ error: "Method Not Allowed" });
-    return;
-  }
-
-  const { sdp, voice, instructions } = req.body ?? {};
-  if (typeof sdp !== "string" || sdp.trim() === "") {
-    res.status(400).json({ error: "Missing SDP offer in request body." });
-    return;
-  }
-
-  const model = process.env.OPENAI_REALTIME_MODEL?.trim() || DEFAULT_REALTIME_MODEL;
-  const selectedVoice = typeof voice === "string" && voice.trim() !== ""
-    ? voice.trim()
-    : process.env.OPENAI_REALTIME_VOICE?.trim() || DEFAULT_REALTIME_VOICE;
+  if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
 
   try {
-    const params = new URLSearchParams({ model, voice: selectedVoice });
-    if (typeof instructions === "string" && instructions.trim() !== "") {
-      params.set("instructions", instructions.trim());
+    const { sdp, voice: requestedVoice } = req.body || {};
+    if (typeof sdp !== "string" || !sdp.trim()) {
+      return res.status(400).json({ error: "Missing SDP offer" });
     }
 
-    const response = await fetch(`https://api.openai.com/v1/realtime?${params.toString()}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/sdp",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "OpenAI-Beta": "realtime=v1"
-      },
-      body: sdp
-    });
+    const model = (process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime").trim();
+    const defaultVoice = (process.env.OPENAI_REALTIME_VOICE || "alloy").trim();
+    const voice =
+      typeof requestedVoice === "string" && requestedVoice.trim()
+        ? requestedVoice.trim()
+        : defaultVoice;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Realtime SDP relay failed:", response.status, errorText);
-      res.status(response.status).json({
-        error: "Failed to exchange SDP with OpenAI Realtime API.",
-        details: errorText
-      });
-      return;
+    const betaHeader = /preview/i.test(model) ? { "OpenAI-Beta": "realtime=v1" } : {};
+
+    const resp = await fetch(
+      `https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}&voice=${encodeURIComponent(voice)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/sdp",
+          ...betaHeader,
+        },
+        body: sdp,
+      }
+    );
+
+    if (!resp.ok) {
+      const errTxt = await resp.text().catch(() => "");
+      return res.status(resp.status).json({ error: "Realtime exchange failed", detail: errTxt });
     }
 
-    const answer = await response.text();
-    res.status(200);
-    res.setHeader("Content-Type", "application/sdp");
-    res.send(answer);
+    const answerSdp = await resp.text();
+    return res.status(200).send(answerSdp);
   } catch (err) {
-    console.error("Realtime SDP handler error:", err);
-    res.status(500).json({
-      error: "Unexpected error while contacting OpenAI Realtime API.",
-      details: err instanceof Error ? err.message : String(err)
-    });
+    console.error("voice/sdp error:", err);
+    return res.status(500).json({ error: "Failed to create realtime session" });
   }
 }

@@ -381,7 +381,7 @@ export default function ExactVirtualAssistantPM() {
         <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-indigo-600/90 text-white grid place-items-center font-bold shadow-sm">EX</div>
-            <div className="text-slate-700 font-semibold">Exact Virtual Assistant for Project Management</div>
+            <div className="text-slate-700 font-semibold">Exact Sciences Virtual Assistant for Project Management</div>
           </div>
           <div className="flex items-center gap-2">
             <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800">New Draft</button>

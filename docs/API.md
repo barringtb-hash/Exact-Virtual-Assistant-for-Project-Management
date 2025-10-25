@@ -93,20 +93,12 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   {
     "messages": [
       { "role": "user", "content": "Project kickoff notes..." }
-    ],
-    "attachments": [
-      {
-        "name": "Vision Brief",
-        "mimeType": "application/pdf",
-        "text": "Trimmed file contents..."
-      }
     ]
   }
   ```
 - **Response** – JSON object whose keys align with `templates/charter.schema.json` (falls back to raw string when parsing fails).
 - **Notes**
-  - Prepends the system prompt from `templates/extract_prompt.txt`. When attachments are present, the handler builds a leading block where each entry becomes `### {name}\n{text}` before the base prompt so the model reads attachment context first.
-  - `attachments` is optional. Each object must include a `text` field (trimmed to ~20k characters before submission), along with descriptive `name`/`mimeType` metadata that mirrors the upload.
+  - Prepends the system prompt from `templates/extract_prompt.txt` and forwards the provided chat history to the model. Inline any supporting file text directly inside the chat `messages` payload if you need the model to reference it.
   - Use the response as input to validation/rendering endpoints.
 
 ## Charter validation – `POST /api/charter/validate`
@@ -137,7 +129,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 ## Upload & extraction guidance
 - **Size guardrails** – File uploads larger than 10 MB are rejected; after parsing, text is trimmed to roughly 20k characters. Downstream charter extraction expects callers to honor those limits (surface truncation warnings to users if `truncated: true`).
 - **Suggested client flow**
-  1. Upload each supporting document to `POST /api/files/text` to normalize MIME types and capture the extracted, trimmed text payload.
-  2. Pass the resulting `{ name, mimeType, text }` objects as the `attachments` array when calling `POST /api/charter/extract`, alongside any chat transcript messages.
+  1. Upload each supporting document to `POST /api/files/text` to normalize MIME types and capture the extracted, trimmed text payload for local use.
+  2. Merge the most relevant excerpts from those files into the `messages` array when calling `/api/charter/extract` so the model can reference them alongside the conversational context.
   3. Feed the charter JSON into `/api/charter/validate` and `/api/charter/render` as needed.
   4. Persist attachments/charters on the client or in external storage—these endpoints do not store state between requests.

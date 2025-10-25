@@ -21,9 +21,9 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `OPENAI_STT_MODEL` | `/api/transcribe` | Primary speech-to-text model (defaults to `gpt-4o-mini-transcribe`). |
 
 ### `POST /api/chat`
-- **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }] }`. The frontend sends the running transcript without the system prompt.
+- **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
 - **Response** – `{ reply: string }`. Errors return `{ error }` with appropriate HTTP status codes.
-- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone.
+- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone. When `attachments` is present, the server validates each entry (non-empty `text`, trimmed names) and enforces a 4,000-character limit before folding them into the leading system message as `### {name}` sections above the base prompt.
 
 ### `POST /api/transcribe`
 - **Payload** – `{ audioBase64: string, mimeType: string }` where `audioBase64` is the base64-encoded audio blob captured in the browser.

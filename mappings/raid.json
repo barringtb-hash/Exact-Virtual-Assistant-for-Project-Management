@@ -1,0 +1,32 @@
+[
+  {
+    "label": "Risks",
+    "required": true,
+    "hints": ["Key Risks", "Risk Description", "Risk Details"]
+  },
+  {
+    "label": "Assumptions",
+    "required": true,
+    "hints": ["Key Assumptions", "Planning Assumptions", "Assumed"]
+  },
+  {
+    "label": "Issues",
+    "required": true,
+    "hints": ["Open Issues", "Key Issues", "Issue Description"]
+  },
+  {
+    "label": "Dependencies",
+    "required": true,
+    "hints": ["Key Dependencies", "External Dependencies", "Dependency Description"]
+  },
+  {
+    "label": "Mitigations",
+    "required": false,
+    "hints": ["Mitigation Plan", "Mitigation Actions", "Mitigation Strategy"]
+  },
+  {
+    "label": "Owners",
+    "required": false,
+    "hints": ["Assigned To", "Owner", "Responsible Party"]
+  }
+]

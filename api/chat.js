@@ -5,10 +5,14 @@ import { chunkByTokens } from "./_lib/chunk-by-tokens.js";
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: process.env.CHAT_MAX_BODY || "10mb",
+      sizeLimit: "10mb",
     },
   },
 };
+
+if (process?.env?.CHAT_MAX_BODY) {
+  config.api.bodyParser.sizeLimit = process.env.CHAT_MAX_BODY;
+}
 
 if (process?.env?.CHAT_MAX_DURATION) {
   const duration = Number.parseInt(process.env.CHAT_MAX_DURATION, 10);

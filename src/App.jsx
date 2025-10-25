@@ -191,12 +191,12 @@ export default function ExactVirtualAssistantPM() {
         throw new Error(`SDP exchange failed with status ${response.status}`);
       }
 
-      const answer = await response.json().catch(() => null);
-      if (!answer?.sdp) {
+      const answerSdp = await response.text();
+      if (!answerSdp?.trim()) {
         throw new Error("Invalid SDP answer payload");
       }
 
-      await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       setRtcState("live");
     } catch (error) {
       console.error("Realtime start failed", error);

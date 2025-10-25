@@ -26,6 +26,7 @@ if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
 }
 
 const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
+const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
 
 function resolveChatModel() {
   const env = process?.env ?? {};
@@ -109,10 +110,7 @@ async function summarizeText(client, attachment) {
     ATTACHMENT_PARALLELISM,
     async (chunk, index) => {
       try {
-        const mapCompletion = await client.chat.completions.create({
-          model: CHAT_MODEL,
-          temperature: 0.2,
-          max_tokens: ATTACHMENT_SUMMARY_TOKENS,
+        const summary = await requestChatText(client, {
           messages: [
             { role: "system", content: MAP_SYSTEM_PROMPT },
             {
@@ -120,8 +118,10 @@ async function summarizeText(client, attachment) {
               content: `Attachment: ${name}\nChunk ${index + 1} of ${chunks.length}\n\n${chunk.text}`,
             },
           ],
+          temperature: 0.2,
+          maxTokens: ATTACHMENT_SUMMARY_TOKENS,
         });
-        return mapCompletion.choices?.[0]?.message?.content?.trim() || "";
+        return summary.trim();
       } catch (error) {
         console.error("map step failed", { name, chunkIndex: index, error });
         return "";
@@ -143,10 +143,7 @@ async function summarizeText(client, attachment) {
     .join("\n\n");
 
   try {
-    const reduceCompletion = await client.chat.completions.create({
-      model: CHAT_MODEL,
-      temperature: 0.2,
-      max_tokens: ATTACHMENT_SUMMARY_TOKENS,
+    const reduction = await requestChatText(client, {
       messages: [
         { role: "system", content: REDUCE_SYSTEM_PROMPT },
         {
@@ -154,16 +151,52 @@ async function summarizeText(client, attachment) {
           content: `Attachment: ${name}\n\nChunk summaries:\n${reducePrompt}\n\nDeliver a single consolidated summary.`,
         },
       ],
+      temperature: 0.2,
+      maxTokens: ATTACHMENT_SUMMARY_TOKENS,
     });
 
-    return (
-      reduceCompletion.choices?.[0]?.message?.content?.trim() ||
-      mapSummaries.join("\n\n")
-    );
+    return reduction.trim() || mapSummaries.join("\n\n");
   } catch (error) {
     console.error("reduce step failed", { name, error });
     return mapSummaries.join("\n\n");
   }
+}
+
+function formatMessagesForResponses(messages) {
+  return (messages || [])
+    .map((message) => {
+      const role = (message?.role || "user").toUpperCase();
+      const content =
+        typeof message?.content === "string"
+          ? message.content
+          : JSON.stringify(message?.content ?? "");
+      return `${role}: ${content}`;
+    })
+    .join("\n\n");
+}
+
+async function requestChatText(client, { messages, temperature, maxTokens }) {
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+  if (useResponses) {
+    const prompt = formatMessagesForResponses(messages);
+    const response = await client.responses.create({
+      model: CHAT_MODEL,
+      temperature,
+      input: prompt,
+      ...(Number.isFinite(maxTokens) && maxTokens > 0
+        ? { max_output_tokens: maxTokens }
+        : {}),
+    });
+    return response.output_text ?? "";
+  }
+
+  const completion = await client.chat.completions.create({
+    model: CHAT_MODEL,
+    temperature,
+    messages,
+    ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { max_tokens: maxTokens } : {}),
+  });
+  return completion.choices?.[0]?.message?.content ?? "";
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -216,7 +249,7 @@ export default async function handler(req, res) {
 
     if (INVALID_CHAT_MODEL_PATTERN.test(CHAT_MODEL)) {
       res.status(400).json({
-        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Please configure a non-realtime chat model.`,
+        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Use a non-realtime model.`,
       });
       return;
     }
@@ -259,12 +292,46 @@ export default async function handler(req, res) {
       }
     }
 
-    const completion = await client.chat.completions.create({
-      model: CHAT_MODEL,
-      temperature: 0.3,
-      messages,
-    });
-    const reply = completion.choices?.[0]?.message?.content ?? "";
+    let reply = "";
+    try {
+      reply = await requestChatText(client, {
+        messages,
+        temperature: 0.3,
+      });
+    } catch (apiErr) {
+      const status = apiErr?.status || apiErr?.response?.status;
+      const message =
+        apiErr?.error?.message ||
+        apiErr?.response?.data?.error?.message ||
+        apiErr?.message ||
+        "OpenAI request failed";
+
+      if (status === 400 || /model .*does not exist|unsupported|invalid/i.test(message)) {
+        res.status(400).json({
+          error: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
+        });
+        return;
+      }
+      if (status === 404) {
+        res.status(400).json({ error: `Model "${CHAT_MODEL}" not found for this key.` });
+        return;
+      }
+      if (status === 429) {
+        res.status(429).json({ error: "Rate limit reached. Please retry shortly." });
+        return;
+      }
+      if (status === 503) {
+        res.status(503).json({ error: "OpenAI service unavailable. Please retry shortly." });
+        return;
+      }
+
+      throw apiErr;
+    }
+
+    if (!reply.trim()) {
+      reply = "I couldn’t produce a reply for this prompt.";
+    }
+
     res.status(200).json({ reply });
   } catch (err) {
     try {
@@ -278,7 +345,13 @@ export default async function handler(req, res) {
       // Intentionally ignore logging failures in restricted runtimes.
     }
     const message = err?.message || "Unknown error";
-    const status = message.startsWith("Attachment") ? 400 : 500;
+    const status = message.startsWith("Attachment")
+      ? 400
+      : /rate limit/i.test(message)
+      ? 429
+      : /unavailable|timeout/i.test(message)
+      ? 503
+      : 500;
     res.status(status).json({ error: message });
   }
 }

@@ -80,8 +80,9 @@ export default function ExactVirtualAssistantPM() {
 
   const startRecording = async () => {
     if (rec) return;
+    let stream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferredMime =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
           ? MediaRecorder.isTypeSupported("audio/webm")
@@ -129,6 +130,9 @@ export default function ExactVirtualAssistantPM() {
       setListening(true);
     } catch (error) {
       console.error("Microphone access denied", error);
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       setRec(null);
       setListening(false);
     }

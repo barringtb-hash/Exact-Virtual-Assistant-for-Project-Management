@@ -201,6 +201,13 @@ export default async function handler(req, res) {
       return { name, text };
     });
 
+    if (/realtime/i.test(CHAT_MODEL)) {
+      res.status(400).json({
+        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Please configure a non-realtime chat model.`,
+      });
+      return;
+    }
+
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const attachmentSummaries = await Promise.all(
@@ -228,13 +235,6 @@ export default async function handler(req, res) {
     const historyLimit = 17; // keep total messages (including system) at roughly 18
     const trimmedIncoming = incoming.slice(-historyLimit);
     const messages = [system, ...trimmedIncoming];
-
-    if (/realtime/i.test(CHAT_MODEL)) {
-      res.status(400).json({
-        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Please configure a non-realtime chat model.`,
-      });
-      return;
-    }
 
     if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
       const promptTokens = countTokens(messages, { model: CHAT_MODEL });

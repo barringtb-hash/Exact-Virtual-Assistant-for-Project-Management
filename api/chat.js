@@ -254,7 +254,12 @@ export default async function handler(req, res) {
     const reply = completion.choices?.[0]?.message?.content ?? "";
     res.status(200).json({ reply });
   } catch (err) {
-    console.error("API /api/chat error:", err);
+    console.error("API /api/chat error", {
+      chatModel: CHAT_MODEL,
+      message: err?.message,
+      causeMessage: err?.cause?.message,
+      error: err,
+    });
     const message = err?.message || "Unknown error";
     const status = message.startsWith("Attachment") ? 400 : 500;
     res.status(status).json({ error: message });

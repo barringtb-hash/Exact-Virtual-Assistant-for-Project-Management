@@ -21,7 +21,28 @@ if (process?.env?.CHAT_MAX_DURATION) {
   }
 }
 
-const CHAT_MODEL = process.env.CHAT_MODEL || "gpt-4o-mini";
+function resolveChatModel() {
+  const env = process?.env ?? {};
+  const invalidPattern = /realtime|preview/i;
+  const candidates = [
+    env.CHAT_MODEL,
+    env.OPENAI_MODEL,
+    env.OPENAI_CHAT_MODEL,
+    env.OPENAI_STT_MODEL,
+    env.OPENAI_REALTIME_MODEL,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (!trimmed || invalidPattern.test(trimmed)) continue;
+    return trimmed;
+  }
+
+  return "gpt-4o";
+}
+
+export const CHAT_MODEL = resolveChatModel();
 const CHAT_PROMPT_TOKEN_LIMIT = parsePositiveInt(
   process.env.CHAT_PROMPT_TOKEN_LIMIT,
   0

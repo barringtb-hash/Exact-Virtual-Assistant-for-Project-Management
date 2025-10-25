@@ -425,9 +425,14 @@ export default function ExactVirtualAssistantPM() {
 
     setIsSummarizing(true);
     try {
+      const summarizationPrompt = "Summarize the attached documents.";
+      const historyWithPrompt = [
+        ...messages,
+        { id: Date.now(), role: "user", text: summarizationPrompt },
+      ];
       const reply = await callLLM(
-        "Summarize the attached documents.",
-        [...messages],
+        summarizationPrompt,
+        historyWithPrompt,
         attachments,
       );
       const safeReply = reply || "No summary available.";

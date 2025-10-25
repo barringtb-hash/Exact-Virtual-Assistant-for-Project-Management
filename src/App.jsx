@@ -80,6 +80,7 @@ export default function ExactVirtualAssistantPM() {
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -418,6 +419,39 @@ export default function ExactVirtualAssistantPM() {
     setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
   };
 
+  const handleSummarizeAttachments = async () => {
+    if (isSummarizing) return;
+    if (!attachments || attachments.length === 0) return;
+
+    setIsSummarizing(true);
+    try {
+      const summarizationPrompt = "Summarize the attached documents.";
+      const historyWithPrompt = [
+        ...messages,
+        { id: Date.now(), role: "user", text: summarizationPrompt },
+      ];
+      const reply = await callLLM(
+        summarizationPrompt,
+        historyWithPrompt,
+        attachments,
+      );
+      const safeReply = reply || "No summary available.";
+      setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
+    } catch (error) {
+      const message = error?.message || "Failed to summarize attachments.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + Math.random(),
+          role: "assistant",
+          text: `Summary error: ${message}`,
+        },
+      ]);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
   const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
     const pickedFiles = Array.from(list);
@@ -721,13 +755,26 @@ export default function ExactVirtualAssistantPM() {
                         <IconMic className="h-5 w-5" />
                       </button>
                     )}
-                    <button
-                      onClick={handleSend}
-                      className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                      title="Send"
-                    >
-                      <IconSend className="h-5 w-5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSummarizeAttachments}
+                        disabled={isSummarizing || !attachments.length}
+                        className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
+                          isSummarizing || !attachments.length
+                            ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
+                            : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        {isSummarizing ? "Summarizing…" : "Summarize documents"}
+                      </button>
+                      <button
+                        onClick={handleSend}
+                        className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                        title="Send"
+                      >
+                        <IconSend className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
                   {files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">

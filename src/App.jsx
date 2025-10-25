@@ -112,7 +112,7 @@ export default function ExactVirtualAssistantPM() {
             body: JSON.stringify({ audioBase64, mimeType: blob.type }),
           });
           const data = await res.json().catch(() => ({}));
-          const transcript = data?.transcript || "";
+          const transcript = data?.transcript ?? data?.text ?? "";
           if (transcript) {
             setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
           }

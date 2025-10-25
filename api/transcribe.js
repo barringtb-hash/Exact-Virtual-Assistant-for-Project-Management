@@ -58,7 +58,12 @@ export default async function handler(req, res) {
       model: "whisper-1"
     });
 
-    res.status(200).json({ text: result?.text || "" });
+    const transcript = result?.text || "";
+
+    res.status(200).json({
+      text: transcript,
+      transcript
+    });
   } catch (error) {
     console.error("/api/transcribe error", error);
     res.status(500).json({ error: "Failed to transcribe audio" });

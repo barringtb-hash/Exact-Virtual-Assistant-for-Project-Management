@@ -95,19 +95,24 @@ async function summarizeText(client, attachment) {
     chunks,
     ATTACHMENT_PARALLELISM,
     async (chunk, index) => {
-      const mapCompletion = await client.chat.completions.create({
-        model: CHAT_MODEL,
-        temperature: 0.2,
-        max_tokens: ATTACHMENT_SUMMARY_TOKENS,
-        messages: [
-          { role: "system", content: MAP_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Attachment: ${name}\nChunk ${index + 1} of ${chunks.length}\n\n${chunk.text}`,
-          },
-        ],
-      });
-      return mapCompletion.choices?.[0]?.message?.content?.trim() || "";
+      try {
+        const mapCompletion = await client.chat.completions.create({
+          model: CHAT_MODEL,
+          temperature: 0.2,
+          max_tokens: ATTACHMENT_SUMMARY_TOKENS,
+          messages: [
+            { role: "system", content: MAP_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `Attachment: ${name}\nChunk ${index + 1} of ${chunks.length}\n\n${chunk.text}`,
+            },
+          ],
+        });
+        return mapCompletion.choices?.[0]?.message?.content?.trim() || "";
+      } catch (error) {
+        console.error("map step failed", { name, chunkIndex: index, error });
+        return "";
+      }
     }
   );
 
@@ -124,20 +129,28 @@ async function summarizeText(client, attachment) {
     .map((summary, index) => `(${index + 1}) ${summary}`)
     .join("\n\n");
 
-  const reduceCompletion = await client.chat.completions.create({
-    model: CHAT_MODEL,
-    temperature: 0.2,
-    max_tokens: ATTACHMENT_SUMMARY_TOKENS,
-    messages: [
-      { role: "system", content: REDUCE_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Attachment: ${name}\n\nChunk summaries:\n${reducePrompt}\n\nDeliver a single consolidated summary.`,
-      },
-    ],
-  });
+  try {
+    const reduceCompletion = await client.chat.completions.create({
+      model: CHAT_MODEL,
+      temperature: 0.2,
+      max_tokens: ATTACHMENT_SUMMARY_TOKENS,
+      messages: [
+        { role: "system", content: REDUCE_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Attachment: ${name}\n\nChunk summaries:\n${reducePrompt}\n\nDeliver a single consolidated summary.`,
+        },
+      ],
+    });
 
-  return reduceCompletion.choices?.[0]?.message?.content?.trim() || mapSummaries.join("\n\n");
+    return (
+      reduceCompletion.choices?.[0]?.message?.content?.trim() ||
+      mapSummaries.join("\n\n")
+    );
+  } catch (error) {
+    console.error("reduce step failed", { name, error });
+    return mapSummaries.join("\n\n");
+  }
 }
 
 async function runWithConcurrency(items, limit, worker) {

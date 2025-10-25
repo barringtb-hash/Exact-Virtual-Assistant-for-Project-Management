@@ -25,6 +25,7 @@ function resolveChatModel() {
   const env = process?.env ?? {};
   const invalidPattern = /realtime|preview/i;
   const candidates = [
+    env.CHAT_MODEL,
     env.OPENAI_MODEL,
     env.OPENAI_CHAT_MODEL,
     env.OPENAI_STT_MODEL,

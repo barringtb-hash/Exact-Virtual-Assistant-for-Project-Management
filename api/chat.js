@@ -5,20 +5,24 @@ import { chunkByTokens, countTokens } from "../lib/tokenize.js";
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: "10mb",
+      sizeLimit: "50mb",
     },
   },
 };
 
-if (process?.env?.CHAT_MAX_BODY) {
-  config.api.bodyParser.sizeLimit = process.env.CHAT_MAX_BODY;
+const envSizeLimit = process.env.CHAT_MAX_BODY;
+if (typeof envSizeLimit === "string" && envSizeLimit.trim().length > 0) {
+  config.api.bodyParser.sizeLimit = envSizeLimit;
 }
 
-if (process?.env?.CHAT_MAX_DURATION) {
-  const duration = Number.parseInt(process.env.CHAT_MAX_DURATION, 10);
-  if (Number.isFinite(duration) && duration > 0) {
-    config.api.maxDuration = duration;
-  }
+const rawChatMaxDuration = process.env.CHAT_MAX_DURATION;
+const durationSource =
+  typeof rawChatMaxDuration === "string" && rawChatMaxDuration.trim().length > 0
+    ? rawChatMaxDuration
+    : "60";
+const chatMaxDuration = Number.parseInt(durationSource, 10);
+if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
+  config.api.maxDuration = chatMaxDuration;
 }
 
 function resolveChatModel() {

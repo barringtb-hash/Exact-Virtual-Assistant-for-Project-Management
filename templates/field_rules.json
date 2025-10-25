@@ -1,0 +1,17 @@
+{
+  "project_name": "Use the user-provided project title or the first heading from the uploaded scope document. If missing, ask the user to provide it.",
+  "sponsor": "Identify the sponsor's name. If multiple names appear, ask the user to confirm a single sponsor.",
+  "project_lead": "Capture the name of the project lead (usually the logged-in PM). If missing, default to the current user.",
+  "start_date": "Parse the project start date in ISO format (YYYY-MM-DD). If only month/year is given, set the date to the first day and flag for confirmation.",
+  "end_date": "Parse the project end date in ISO format (YYYY-MM-DD). If only month/year is given, set the date to the last day and flag for confirmation.",
+  "vision": "Summarize the high-level vision or objectives of the project.",
+  "problem": "Describe the problem or opportunity addressed by the project.",
+  "description": "Provide a brief narrative description of the project including context and goals.",
+  "scope_in": "List the items explicitly included in scope. Derive from bullet lists labelled 'In Scope'. If absent, ask the user for scope details.",
+  "scope_out": "List the items explicitly excluded from scope. Derive from bullet lists labelled 'Out of Scope'. If absent, ask the user for exclusions.",
+  "risks": "Capture the known project risks. Extract bullets labelled 'Risks' or ask the user to specify.",
+  "assumptions": "Capture any project assumptions. Extract bullets labelled 'Assumptions' or ask the user to specify.",
+  "milestones": "For each project phase (Initiate, Planning, Execution, Closure), capture deliverables and dates. If a date is missing, leave it blank and ask for confirmation.",
+  "success_metrics": "List success metrics with three parts: benefit, metric, and system of measurement. Reject vague items without a metric.",
+  "core_team": "Create one entry per team member with name and role. If responsibilities are provided, include them; otherwise leave blank."
+}

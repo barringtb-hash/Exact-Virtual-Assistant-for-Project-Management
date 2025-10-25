@@ -259,7 +259,7 @@ export default function ExactVirtualAssistantPM() {
           const res = await fetch("/api/transcribe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audioBase64, mimeType: blob.type }),
+            body: JSON.stringify({ audioBase64, mimeType: (blob.type || "").split(";")[0] }),
           });
           const data = await res.json().catch(() => ({}));
           const transcript = data?.transcript ?? data?.text ?? "";

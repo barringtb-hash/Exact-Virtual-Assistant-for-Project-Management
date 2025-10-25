@@ -229,6 +229,13 @@ export default async function handler(req, res) {
     const trimmedIncoming = incoming.slice(-historyLimit);
     const messages = [system, ...trimmedIncoming];
 
+    if (/realtime/i.test(CHAT_MODEL)) {
+      res.status(400).json({
+        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Please configure a non-realtime chat model.`,
+      });
+      return;
+    }
+
     if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
       const promptTokens = countTokens(messages, { model: CHAT_MODEL });
       if (promptTokens > CHAT_PROMPT_TOKEN_LIMIT) {

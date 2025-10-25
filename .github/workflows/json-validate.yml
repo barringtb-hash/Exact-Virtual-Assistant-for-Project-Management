@@ -1,0 +1,48 @@
+name: Validate package.json
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate package.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Parse package.json
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'));"
+
+      - name: Scan for control characters
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'package.json';
+          const data = fs.readFileSync(path, 'utf8');
+          const disallowed = [];
+          for (let i = 0; i < data.length; i++) {
+            const code = data.charCodeAt(i);
+            if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) {
+              disallowed.push({ index: i, code });
+            }
+          }
+          if (disallowed.length) {
+            console.error(`Disallowed control characters found in ${path}:`);
+            for (const { index, code } of disallowed) {
+              console.error(`  index ${index}: 0x${code.toString(16).padStart(2, '0')}`);
+            }
+            process.exit(1);
+          }
+          NODE

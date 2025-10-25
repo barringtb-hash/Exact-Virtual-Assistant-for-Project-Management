@@ -3,6 +3,7 @@ import pdfParseModule from "pdf-parse";
 import mammothModule from "mammoth";
 
 const MAX_TEXT_LENGTH = 20_000;
+const FILE_TEXT_SIZE_LIMIT = process.env.FILE_TEXT_SIZE_LIMIT ?? "10mb";
 
 const pdfParse = pdfParseModule?.default ?? pdfParseModule;
 const mammoth = mammothModule?.default ?? mammothModule;
@@ -18,7 +19,7 @@ const MIME_ALIASES = {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: process.env.FILE_TEXT_SIZE_LIMIT || "10mb",
+      sizeLimit: FILE_TEXT_SIZE_LIMIT,
     },
   },
 };

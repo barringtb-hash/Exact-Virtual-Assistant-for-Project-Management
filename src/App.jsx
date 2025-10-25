@@ -66,11 +66,12 @@ export default function ExactVirtualAssistantPM() {
     const text = input.trim();
     if (!text) return;
     const userMsg = { id: Date.now(), role: "user", text };
-    setMessages((prev) => [...prev, userMsg]);
+    const nextHistory = [...messages, userMsg];
+    setMessages(nextHistory);
     setInput("");
     let reply = "";
     if (useLLM) {
-      try { reply = await callLLM(text); }
+      try { reply = await callLLM(text, nextHistory); }
       catch (e) { reply = "LLM error (demo): " + (e?.message || "unknown"); }
     } else {
       reply = mockAssistantReply(text);
@@ -352,19 +353,25 @@ function mockAssistantReply(text) {
 }
 
 // --- LLM wiring (placeholder) ---
-async function callLLM(text) {
+async function callLLM(text, history = []) {
   try {
-    // Convert local messages plus new user input into OpenAI messages
-    const history = window.__eva_history__ || [];
-    const payload = { messages: [...history, { role: "user", content: text }] };
+    const normalizedHistory = Array.isArray(history)
+      ? history.map((item) => ({ role: item.role, content: item.text || "" }))
+      : [];
+    const systemMessage = {
+      role: "system",
+      content:
+        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff."
+    };
+    const payload = {
+      messages: [systemMessage, ...normalizedHistory.slice(-19)]
+    };
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    // Update global history (very simple demo store)
-    window.__eva_history__ = payload.messages.concat({ role: "assistant", content: data.reply || "" });
     return data.reply || "";
   } catch (e) {
     return "OpenAI endpoint error: " + (e?.message || "unknown");

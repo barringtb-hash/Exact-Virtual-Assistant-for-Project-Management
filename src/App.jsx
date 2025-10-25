@@ -410,7 +410,7 @@ export default function ExactVirtualAssistantPM() {
     setInput("");
     let reply = "";
     if (useLLM) {
-      try { reply = await callLLM(text, nextHistory); }
+      try { reply = await callLLM(text, nextHistory, attachments); }
       catch (e) { reply = "LLM error (demo): " + (e?.message || "unknown"); }
     } else {
       reply = mockAssistantReply(text);
@@ -1007,10 +1007,15 @@ function mockAssistantReply(text) {
 }
 
 // --- LLM wiring (placeholder) ---
-async function callLLM(text, history = []) {
+async function callLLM(text, history = [], contextAttachments = []) {
   try {
     const normalizedHistory = Array.isArray(history)
       ? history.map((item) => ({ role: item.role, content: item.text || "" }))
+      : [];
+    const preparedAttachments = Array.isArray(contextAttachments)
+      ? contextAttachments
+          .map((attachment) => ({ name: attachment?.name, text: attachment?.text }))
+          .filter((attachment) => attachment.name && attachment.text)
       : [];
     const systemMessage = {
       role: "system",
@@ -1018,7 +1023,8 @@ async function callLLM(text, history = []) {
         "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff."
     };
     const payload = {
-      messages: [systemMessage, ...normalizedHistory.slice(-19)]
+      messages: [systemMessage, ...normalizedHistory.slice(-19)],
+      attachments: preparedAttachments,
     };
     const res = await fetch("/api/chat", {
       method: "POST",

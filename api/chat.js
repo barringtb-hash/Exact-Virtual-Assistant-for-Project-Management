@@ -25,10 +25,12 @@ if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
   config.api.maxDuration = chatMaxDuration;
 }
 
+const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
+
 function resolveChatModel() {
   const env = process?.env ?? {};
-  const invalidPattern = /realtime|preview/i;
   const candidates = [
+    env.chat_model,
     env.CHAT_MODEL,
     env.OPENAI_MODEL,
     env.OPENAI_CHAT_MODEL,
@@ -39,8 +41,19 @@ function resolveChatModel() {
   for (const candidate of candidates) {
     if (typeof candidate !== "string") continue;
     const trimmed = candidate.trim();
-    if (!trimmed || invalidPattern.test(trimmed)) continue;
-    return trimmed;
+    if (!trimmed) continue;
+
+    if (!INVALID_CHAT_MODEL_PATTERN.test(trimmed)) {
+      return trimmed;
+    }
+
+    const fallbackMatch = trimmed.match(
+      /^(.*?)(?:[-_](?:realtime|preview|transcribe|stt))+$/i
+    );
+    const fallback = fallbackMatch?.[1]?.trim();
+    if (fallback && !INVALID_CHAT_MODEL_PATTERN.test(fallback)) {
+      return fallback;
+    }
   }
 
   return "gpt-4o";
@@ -201,7 +214,7 @@ export default async function handler(req, res) {
       return { name, text };
     });
 
-    if (/realtime/i.test(CHAT_MODEL)) {
+    if (INVALID_CHAT_MODEL_PATTERN.test(CHAT_MODEL)) {
       res.status(400).json({
         error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Please configure a non-realtime chat model.`,
       });
@@ -254,12 +267,16 @@ export default async function handler(req, res) {
     const reply = completion.choices?.[0]?.message?.content ?? "";
     res.status(200).json({ reply });
   } catch (err) {
-    console.error("API /api/chat error", {
-      chatModel: CHAT_MODEL,
-      message: err?.message,
-      causeMessage: err?.cause?.message,
-      error: err,
-    });
+    try {
+      console.error("API /api/chat error", {
+        chatModel: CHAT_MODEL,
+        message: err?.message,
+        causeMessage: err?.cause?.message,
+        error: err,
+      });
+    } catch (loggingError) {
+      // Intentionally ignore logging failures in restricted runtimes.
+    }
     const message = err?.message || "Unknown error";
     const status = message.startsWith("Attachment") ? 400 : 500;
     res.status(status).json({ error: message });

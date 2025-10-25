@@ -45,6 +45,18 @@ const IconAlert = (props) => (
   </svg>
 );
 
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const base64 = result.split(",")[1] || result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("File reading failed"));
+    reader.readAsDataURL(file);
+  });
+
 // --- Seed messages ---
 const seedMessages = [
   { id: 1, role: "assistant", text: "Hi! Attach files or paste in scope details. I’ll draft a Project Charter and DDP and ask quick follow‑ups for anything missing." },
@@ -56,6 +68,10 @@ export default function ExactVirtualAssistantPM() {
   const [messages, setMessages] = useState(seedMessages);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [charterPreview, setCharterPreview] = useState(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState(null);
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
@@ -77,6 +93,12 @@ export default function ExactVirtualAssistantPM() {
       container.scrollTop = container.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (autoExtract && attachments.length) {
+      runAutoExtract(attachments);
+    }
+  }, [autoExtract]);
 
   const rtcStateToLabel = {
     idle: "Idle",
@@ -334,25 +356,117 @@ export default function ExactVirtualAssistantPM() {
     setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
   };
 
-  const addPickedFiles = (list) => {
+  const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
-    const newFiles = [];
-    Array.from(list).forEach((f, i) => {
-      newFiles.push({ id: `${Date.now()}-${i}`, name: f.name, size: prettyBytes(f.size), file: f });
-    });
-    setFiles((prev) => {
-      const merged = [...prev, ...newFiles];
-      if (autoExtract) setTimeout(() => runAutoExtract(newFiles), 0);
-      return merged;
-    });
+    const pickedFiles = Array.from(list);
+    const baseTimestamp = Date.now();
+    const newFiles = pickedFiles.map((f, index) => ({
+      id: `${baseTimestamp}-${index}`,
+      name: f.name,
+      size: prettyBytes(f.size),
+      file: f,
+    }));
+
+    setFiles((prev) => [...prev, ...newFiles]);
+
+    const processedAttachments = [];
+
+    for (const file of pickedFiles) {
+      try {
+        const base64 = await fileToBase64(file);
+        const response = await fetch("/api/files/text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: file.name,
+            mimeType: file.type,
+            base64,
+          }),
+        });
+
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (err) {
+          console.error("Failed to parse /api/files/text response", err);
+        }
+
+        if (!response.ok || payload?.ok === false) {
+          const message = payload?.error || `Unable to process ${file.name}`;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + Math.random(),
+              role: "assistant",
+              text: `Attachment error (${file.name}): ${message}`,
+            },
+          ]);
+          continue;
+        }
+
+        processedAttachments.push({
+          name: payload?.name || file.name,
+          mimeType: payload?.mimeType || file.type,
+          text: payload?.text || "",
+        });
+      } catch (error) {
+        const message = error?.message || "Unknown error";
+        console.error("addPickedFiles error", error);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            role: "assistant",
+            text: `Attachment error (${file.name}): ${message}`,
+          },
+        ]);
+      }
+    }
+
+    if (processedAttachments.length) {
+      let mergedAttachments = null;
+      setAttachments((prev) => {
+        const merged = [...prev, ...processedAttachments];
+        mergedAttachments = merged;
+        return merged;
+      });
+      if (autoExtract && mergedAttachments?.length) {
+        runAutoExtract(mergedAttachments);
+      }
+    }
   };
 
-  const handleFilePick = (e) => {
-    addPickedFiles(e.target.files);
-    if (e.target) e.target.value = '';
+  const handleFilePick = async (e) => {
+    const fileList = e.target?.files ? Array.from(e.target.files) : [];
+    if (fileList.length) {
+      await addPickedFiles(fileList);
+    }
+    if (e.target) e.target.value = "";
   };
 
-  const handleRemoveFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
+  const handleRemoveFile = (id) => {
+    const removedFile = files.find((f) => f.id === id);
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    if (!removedFile) return;
+
+    let nextAttachments = null;
+    setAttachments((prev) => {
+      const index = prev.findIndex((att) => att.name === removedFile.name);
+      if (index === -1) return prev;
+      const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
+      nextAttachments = updated;
+      return updated;
+    });
+
+    if (nextAttachments) {
+      if (!nextAttachments.length) {
+        setCharterPreview(null);
+        setExtractError(null);
+      } else if (autoExtract) {
+        runAutoExtract(nextAttachments);
+      }
+    }
+  };
 
   const prettyBytes = (num) => {
     const units = ["B", "KB", "MB", "GB"]; let i = 0; let n = num;
@@ -360,26 +474,55 @@ export default function ExactVirtualAssistantPM() {
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
-  // Auto-extract from picked files (mock/demo)
-  async function runAutoExtract(picked) {
-    const summary = await mockExtractFromFiles(picked);
-    if (!summary) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "assistant", text: "Auto-extracted from attachments:" + "\n" + summary }
-    ]);
-  }
+  async function runAutoExtract(sourceAttachments = attachments) {
+    if (!sourceAttachments || !sourceAttachments.length) return;
+    setIsExtracting(true);
+    setExtractError(null);
+    try {
+      const payload = {
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.text || "",
+          text: m.text || "",
+        })),
+        attachments: sourceAttachments,
+      };
 
-  async function mockExtractFromFiles(list) {
-    const lines = [];
-    list.forEach((fwrap) => {
-      const name = fwrap?.name || "";
-      if (/sponsor/i.test(name)) lines.push(`Sponsor: Joe Speidel (from ${name})`);
-      if (/charter|title/i.test(name)) lines.push(`Title: Draft Charter (from ${name})`);
-      if (/milestone|timeline/i.test(name)) lines.push(`Milestones: Draft milestones parsed (from ${name})`);
-      if (/risk|raid/i.test(name)) lines.push(`Risk: Placeholder supplier delay (from ${name})`);
-    });
-    return lines.length ? lines.join("\n") : null;
+      const response = await fetch("/api/charter/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (err) {
+        console.error("Failed to parse /api/charter/extract response", err);
+        throw new Error("Invalid response from charter extractor");
+      }
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to extract charter");
+      }
+
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Charter extractor returned unexpected data");
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      setCharterPreview(data);
+    } catch (error) {
+      const message = error?.message || "Failed to extract charter";
+      console.error("runAutoExtract error", error);
+      setExtractError(message);
+      setCharterPreview(null);
+    } finally {
+      setIsExtracting(false);
+    }
   }
 
   return (
@@ -418,7 +561,15 @@ export default function ExactVirtualAssistantPM() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                      onDrop={(e) => { e.preventDefault(); if (e.dataTransfer?.files?.length) { addPickedFiles(e.dataTransfer.files); } }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        const droppedFiles = e.dataTransfer?.files
+                          ? Array.from(e.dataTransfer.files)
+                          : [];
+                        if (droppedFiles.length) {
+                          await addPickedFiles(droppedFiles);
+                        }
+                      }}
                       onDragOver={(e) => e.preventDefault()}
                       className="min-h-[44px] max-h-40 flex-1 bg-transparent outline-none resize-none text-[15px] leading-6"
                     />
@@ -549,10 +700,18 @@ export default function ExactVirtualAssistantPM() {
               </div>
 
               <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4">
-                <CharterCard />
-                <DDPCard />
-                <RAIDCard />
+                <CharterCard data={charterPreview} isLoading={isExtracting} />
+                <DDPCard data={charterPreview} isLoading={isExtracting} />
+                <RAIDCard data={charterPreview} isLoading={isExtracting} />
+                {isExtracting && (
+                  <div className="text-xs text-slate-500">Extracting charter insights…</div>
+                )}
               </div>
+              {extractError && (
+                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {extractError}
+                </div>
+              )}
 
               <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4">
                 <div className="text-sm font-semibold mb-2">Required Fields</div>
@@ -599,59 +758,127 @@ function ChatBubble({ role, text }) {
   );
 }
 
-function CharterCard() {
+function CharterCard({ data, isLoading }) {
+  const timeline = [];
+  if (data?.start_date) timeline.push(`Start: ${data.start_date}`);
+  if (data?.end_date) timeline.push(`End: ${data.end_date}`);
+
   return (
     <div>
       <div className="text-sm font-semibold mb-2">Project Charter</div>
-      <Field label="Project Title" />
-      <Field label="Sponsor" />
-      <Field label="Approvals" />
-      <Field label="Problem Statement" lines={2} />
+      <Field label="Project Title" value={data?.project_name} isLoading={isLoading} />
+      <Field label="Sponsor" value={data?.sponsor} isLoading={isLoading} />
+      <Field label="Project Lead" value={data?.project_lead} isLoading={isLoading} />
+      <Field label="Problem Statement" value={data?.problem} lines={2} isLoading={isLoading} />
+      <Field label="Timeline" value={timeline.join(" • ")} isLoading={isLoading} />
     </div>
   );
 }
 
-function DDPCard() {
+function DDPCard({ data, isLoading }) {
+  const scopeItems = [];
+  if (Array.isArray(data?.scope_in) && data.scope_in.length) {
+    scopeItems.push(...data.scope_in.map((item) => `In Scope: ${item}`));
+  }
+  if (Array.isArray(data?.scope_out) && data.scope_out.length) {
+    scopeItems.push(...data.scope_out.map((item) => `Out of Scope: ${item}`));
+  }
+
+  const successMetrics = Array.isArray(data?.success_metrics)
+    ? data.success_metrics
+        .map((metric) => {
+          const parts = [metric?.benefit, metric?.metric, metric?.system_of_measurement]
+            .filter(Boolean)
+            .join(" • ");
+          return parts || null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const milestoneItems = Array.isArray(data?.milestones)
+    ? data.milestones
+        .map((item) => {
+          const parts = [item?.phase, item?.deliverable, item?.date].filter(Boolean).join(" • ");
+          return parts || null;
+        })
+        .filter(Boolean)
+    : [];
+
   return (
     <div>
       <div className="text-sm font-semibold mb-2">Design & Development Plan</div>
-      <Field label="Objectives" />
-      <Field label="Scope" lines={2} />
-      <Field label="Verification Strategy" />
-      <Field label="Milestones" />
+      <Field label="Objectives" value={data?.vision} lines={2} isLoading={isLoading} />
+      <Field label="Scope" value={scopeItems} lines={2} isLoading={isLoading} />
+      <Field label="Verification Strategy" value={successMetrics} lines={2} isLoading={isLoading} />
+      <Field label="Milestones" value={milestoneItems} lines={2} isLoading={isLoading} />
     </div>
   );
 }
 
-function RAIDCard() {
+function RAIDCard({ data, isLoading }) {
+  const riskItems = Array.isArray(data?.risks) ? data.risks.filter(Boolean) : [];
+  const assumptionItems = Array.isArray(data?.assumptions) ? data.assumptions.filter(Boolean) : [];
+  const coreTeamItems = Array.isArray(data?.core_team)
+    ? data.core_team
+        .map((member) => {
+          const parts = [member?.name, member?.role, member?.responsibilities]
+            .filter(Boolean)
+            .join(" • ");
+          return parts || null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const descriptionItems = data?.description ? [data.description] : [];
+
   return (
     <div>
       <div className="text-sm font-semibold mb-2">RAID Log Snapshot</div>
-      <MiniRow a="Risk: Supplier delay" b="Impact: Medium" c="Owner: Ops" />
-      <MiniRow a="Assumption: Legacy LIMS OK" b="Impact: TBD" c="Owner: QA" />
-      <MiniRow a="Issue: Scope creep" b="Impact: High" c="Owner: PM" />
-      <MiniRow a="Decision: Gate move 2 wks" b="Impact: Low" c="Owner: LT" />
+      <Field label="Risks" value={riskItems} lines={2} isLoading={isLoading} />
+      <Field label="Assumptions" value={assumptionItems} lines={2} isLoading={isLoading} />
+      <Field label="Core Team" value={coreTeamItems} lines={2} isLoading={isLoading} />
+      <Field label="Notes" value={descriptionItems} lines={2} isLoading={isLoading} />
     </div>
   );
 }
 
-function Field({ label, lines = 1 }) {
+function Field({ label, value, lines = 1, isLoading }) {
+  const isArray = Array.isArray(value);
+  const arrayItems = isArray ? value.filter((item) => typeof item === "string" && item.trim()) : [];
+  const stringValue = !isArray && typeof value === "string" ? value.trim() : "";
+  const hasContent = arrayItems.length > 0 || stringValue;
+  const heightClass = lines > 1 ? "min-h-[80px]" : "min-h-[36px]";
+
   return (
     <div className="mb-3">
       <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className={`rounded-xl bg-white/60 border border-white/60 ${lines>1? 'h-16':'h-9'} overflow-hidden`}>
-        <div className="h-full w-full animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100" />
-      </div>
-    </div>
-  );
-}
-
-function MiniRow({ a, b, c }) {
-  return (
-    <div className="mb-2 rounded-xl bg-white/60 border border-white/60 p-2 text-xs flex items-center justify-between gap-2">
-      <span className="truncate">{a}</span>
-      <span className="truncate">{b}</span>
-      <span className="truncate">{c}</span>
+      {hasContent ? (
+        <div className="rounded-xl border border-white/70 bg-white/90">
+          {arrayItems.length > 0 ? (
+            <ul className="list-disc space-y-1 px-4 py-3 text-sm text-slate-700">
+              {arrayItems.map((item, idx) => (
+                <li key={`${label}-${idx}`} className="whitespace-pre-wrap">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap">{stringValue}</div>
+          )}
+        </div>
+      ) : (
+        <div
+          className={`rounded-xl bg-white/60 border border-white/60 ${heightClass} overflow-hidden`}
+        >
+          <div
+            className={`h-full w-full ${
+              isLoading
+                ? "animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100"
+                : "bg-white/40"
+            }`}
+          />
+        </div>
+      )}
     </div>
   );
 }

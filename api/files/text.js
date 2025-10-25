@@ -18,10 +18,14 @@ const MIME_ALIASES = {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: process.env.FILE_TEXT_SIZE_LIMIT || "10mb",
+      sizeLimit: "10mb",
     },
   },
 };
+
+if (process?.env?.FILE_TEXT_SIZE_LIMIT) {
+  config.api.bodyParser.sizeLimit = process.env.FILE_TEXT_SIZE_LIMIT;
+}
 
 function normalizeMimeType(value) {
   if (typeof value !== "string") return "";

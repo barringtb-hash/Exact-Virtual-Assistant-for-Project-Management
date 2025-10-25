@@ -1,4 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import charterMapping from "../mappings/charter.json";
+import ddpMapping from "../mappings/ddp.json";
+import raidMapping from "../mappings/raid.json";
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -45,6 +48,24 @@ const IconAlert = (props) => (
   </svg>
 );
 
+const DOCUMENT_KEYS = ["charter", "ddp", "raid"];
+const DOCUMENT_CONFIGS = {
+  charter: { title: "Project Charter", mapping: charterMapping },
+  ddp: { title: "Design & Development Plan", mapping: ddpMapping },
+  raid: { title: "RAID Log Snapshot", mapping: raidMapping }
+};
+
+const createDocStateFromMapping = (mapping = []) => ({
+  fields: mapping.map(({ label, required }) => ({ label, required: Boolean(required), value: "", source: null })),
+  missingRequired: mapping.filter((field) => field.required).map((field) => field.label)
+});
+
+const createInitialDocState = () =>
+  DOCUMENT_KEYS.reduce((acc, key) => {
+    acc[key] = createDocStateFromMapping(DOCUMENT_CONFIGS[key]?.mapping);
+    return acc;
+  }, {});
+
 // --- Seed messages ---
 const seedMessages = [
   { id: 1, role: "assistant", text: "Hi! Attach files or paste in scope details. I’ll draft a Project Charter and DDP and ask quick follow‑ups for anything missing." },
@@ -61,7 +82,10 @@ export default function ExactVirtualAssistantPM() {
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
+  const [documentResults, setDocumentResults] = useState(() => createInitialDocState());
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef(null);
+  const lastAnalysisRef = useRef({ text: "", useLLM: true });
 
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
@@ -168,53 +192,197 @@ export default function ExactVirtualAssistantPM() {
     setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
   };
 
-  const addPickedFiles = (list) => {
-    if (!list || !list.length) return;
-    const newFiles = [];
-    Array.from(list).forEach((f, i) => {
-      newFiles.push({ id: `${Date.now()}-${i}`, name: f.name, size: prettyBytes(f.size), file: f });
-    });
-    setFiles((prev) => {
-      const merged = [...prev, ...newFiles];
-      if (autoExtract) setTimeout(() => runAutoExtract(newFiles), 0);
-      return merged;
-    });
-  };
-
-  const handleFilePick = (e) => {
-    addPickedFiles(e.target.files);
-    if (e.target) e.target.value = '';
-  };
-
-  const handleRemoveFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
-
   const prettyBytes = (num) => {
     const units = ["B", "KB", "MB", "GB"]; let i = 0; let n = num;
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
-  // Auto-extract from picked files (mock/demo)
-  async function runAutoExtract(picked) {
-    const summary = await mockExtractFromFiles(picked);
-    if (!summary) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "assistant", text: "Auto-extracted from attachments:" + "\n" + summary }
-    ]);
-  }
+  const uploadAndParseFile = useCallback(async (fileWrapper) => {
+    if (!fileWrapper?.file) return "";
 
-  async function mockExtractFromFiles(list) {
-    const lines = [];
-    list.forEach((fwrap) => {
-      const name = fwrap?.name || "";
-      if (/sponsor/i.test(name)) lines.push(`Sponsor: Joe Speidel (from ${name})`);
-      if (/charter|title/i.test(name)) lines.push(`Title: Draft Charter (from ${name})`);
-      if (/milestone|timeline/i.test(name)) lines.push(`Milestones: Draft milestones parsed (from ${name})`);
-      if (/risk|raid/i.test(name)) lines.push(`Risk: Placeholder supplier delay (from ${name})`);
+    const updateFile = (patch) => {
+      setFiles((prev) =>
+        prev.map((f) => (f.id === fileWrapper.id ? { ...f, ...patch } : f))
+      );
+    };
+
+    try {
+      updateFile({ status: "uploading", error: null });
+
+      const formData = new FormData();
+      formData.append("file", fileWrapper.file, fileWrapper.name);
+      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+      const uploadJson = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        throw new Error(uploadJson?.error || "Upload failed");
+      }
+
+      const { fileId, metadata } = uploadJson;
+      updateFile({ metadata: metadata || null, status: "parsing" });
+
+      const parseRes = await fetch("/api/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId })
+      });
+      const parseJson = await parseRes.json().catch(() => ({}));
+      if (!parseRes.ok) {
+        throw new Error(parseJson?.error || "Parsing failed");
+      }
+
+      const rawDocument = parseJson.rawDocument || { text: "" };
+      updateFile({
+        metadata: parseJson.metadata || metadata || null,
+        rawDocument,
+        rawText: rawDocument.text || "",
+        status: "parsed",
+        error: null
+      });
+      lastAnalysisRef.current.text = "";
+      return rawDocument.text || "";
+    } catch (error) {
+      console.error("Auto-extract failed", error);
+      updateFile({ status: "error", error: error?.message || "Extraction failed" });
+      return "";
+    }
+  }, [setFiles]);
+
+  const extractionInFlightRef = useRef(new Set());
+
+  const runAutoExtract = useCallback(
+    async (targets = []) => {
+      const queue = Array.isArray(targets) ? targets : [];
+      for (const wrapper of queue) {
+        if (!wrapper?.file) continue;
+        const id = wrapper.id;
+        if (!id) continue;
+        if (extractionInFlightRef.current.has(id)) continue;
+        if (wrapper.status === "uploading" || wrapper.status === "parsing") continue;
+        if (wrapper.status === "parsed" && wrapper.rawText) continue;
+
+        extractionInFlightRef.current.add(id);
+        try {
+          await uploadAndParseFile(wrapper);
+        } finally {
+          extractionInFlightRef.current.delete(id);
+        }
+      }
+    },
+    [uploadAndParseFile]
+  );
+
+  const addPickedFiles = (list) => {
+    if (!list || !list.length) return;
+    const stamp = Date.now();
+    const newFiles = Array.from(list).map((f, index) => ({
+      id: `${stamp}-${index}`,
+      name: f.name,
+      size: prettyBytes(f.size),
+      file: f,
+      status: "pending",
+      metadata: null,
+      rawDocument: null,
+      rawText: "",
+      error: null
+    }));
+    setFiles((prev) => [...prev, ...newFiles]);
+    lastAnalysisRef.current.text = "";
+    if (autoExtract) {
+      setTimeout(() => runAutoExtract(newFiles), 0);
+    }
+  };
+
+  const handleFilePick = (e) => {
+    addPickedFiles(e.target.files);
+    if (e.target) e.target.value = "";
+  };
+
+  const handleRemoveFile = (id) => {
+    setFiles((prev) => {
+      const next = prev.filter((f) => f.id !== id);
+      if (!next.some((file) => file.rawText)) {
+        setDocumentResults(createInitialDocState());
+        setIsAnalyzing(false);
+      }
+      lastAnalysisRef.current = { text: "", useLLM };
+      return next;
     });
-    return lines.length ? lines.join("\n") : null;
-  }
+  };
+
+  useEffect(() => {
+    if (!autoExtract) return;
+    const pending = files.filter(
+      (file) =>
+        file.file &&
+        !file.rawText &&
+        file.status !== "uploading" &&
+        file.status !== "parsing"
+    );
+    if (pending.length) {
+      runAutoExtract(pending);
+    }
+  }, [autoExtract, files, runAutoExtract]);
+
+  const analyzeCombinedText = useCallback(async (combinedText) => {
+    setIsAnalyzing(true);
+    try {
+      const nextState = {};
+      for (const key of DOCUMENT_KEYS) {
+        try {
+          const res = await fetch(`/api/analyze/${key}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rawDocument: { text: combinedText }, useLLM })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data?.error || `Failed to analyze ${key}`);
+          }
+          nextState[key] = {
+            fields: Array.isArray(data.fields) ? data.fields : createDocStateFromMapping(DOCUMENT_CONFIGS[key]?.mapping).fields,
+            missingRequired: Array.isArray(data.missingRequired) ? data.missingRequired : []
+          };
+        } catch (err) {
+          console.error(`/api/analyze/${key} error`, err);
+          nextState[key] = createDocStateFromMapping(DOCUMENT_CONFIGS[key]?.mapping);
+        }
+      }
+      setDocumentResults(nextState);
+      lastAnalysisRef.current = { text: combinedText, useLLM };
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [setDocumentResults, useLLM]);
+
+  useEffect(() => {
+    if (!autoExtract) return;
+    const hasActive = files.some((file) => file.status === "uploading" || file.status === "parsing");
+    if (hasActive) return;
+
+    const combined = files
+      .map((file) => (file.rawText || "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!combined) {
+      if (lastAnalysisRef.current.text) {
+        setDocumentResults(createInitialDocState());
+        setIsAnalyzing(false);
+        lastAnalysisRef.current = { text: "", useLLM };
+      }
+      return;
+    }
+
+    if (
+      combined === lastAnalysisRef.current.text &&
+      lastAnalysisRef.current.useLLM === useLLM
+    ) {
+      return;
+    }
+
+    analyzeCombinedText(combined);
+  }, [autoExtract, files, useLLM, analyzeCombinedText]);
 
   return (
     <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800">
@@ -280,13 +448,46 @@ export default function ExactVirtualAssistantPM() {
                   </div>
                   {files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {files.map((f) => (
-                        <span key={f.id} className="px-2 py-1 rounded-lg bg-white/80 border border-white/60 text-xs flex items-center gap-2">
-                          <IconPaperclip className="h-3 w-3" />
-                          <span className="truncate max-w-[160px]">{f.name}</span>
-                          <button onClick={() => handleRemoveFile(f.id)} className="ml-1 text-slate-500 hover:text-slate-700">×</button>
-                        </span>
-                      ))}
+                      {files.map((f) => {
+                        const statusLabelMap = {
+                          pending: "Pending",
+                          uploading: "Uploading…",
+                          parsing: "Parsing…",
+                          parsed: "Parsed",
+                          error: "Failed"
+                        };
+                        const statusLabel = statusLabelMap[f.status] || "Pending";
+                        const statusClass =
+                          f.status === "parsed"
+                            ? "text-emerald-600"
+                            : f.status === "error"
+                              ? "text-rose-500"
+                              : f.status === "pending"
+                                ? "text-slate-500"
+                                : "text-indigo-500";
+                        return (
+                          <div
+                            key={f.id}
+                            className={["px-2 py-1 rounded-lg bg-white/80 border border-white/60", "text-xs flex flex-col gap-0.5 min-w-[160px] max-w-[220px]"].join(" ")}
+                          >
+                            <div className="flex items-center gap-2">
+                              <IconPaperclip className="h-3 w-3" />
+                              <span className="truncate flex-1">{f.name}</span>
+                              <button
+                                onClick={() => handleRemoveFile(f.id)}
+                                className="ml-1 text-slate-500 hover:text-slate-700"
+                              >
+                                ×
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                              <span>{f.size}</span>
+                              <span className={`font-medium ${statusClass}`}>{statusLabel}</span>
+                            </div>
+                            {f.error && <div className="text-[10px] text-rose-500">{f.error}</div>}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {listening && (
@@ -311,6 +512,11 @@ export default function ExactVirtualAssistantPM() {
                   <input type="checkbox" checked={autoExtract} onChange={(e)=>setAutoExtract(e.target.checked)} />
                   <span>Auto‑extract (beta)</span>
                 </label>
+                {autoExtract && (
+                  <span className={`text-xs ${isAnalyzing ? 'text-indigo-600 animate-pulse' : 'text-slate-500'}`}>
+                    {isAnalyzing ? 'Analyzing…' : 'Auto-extract up to date'}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 {['Charter','DDP','RAID'].map((tab) => (
@@ -325,18 +531,14 @@ export default function ExactVirtualAssistantPM() {
               </div>
 
               <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4">
-                <CharterCard />
-                <DDPCard />
-                <RAIDCard />
+                {activePreview === 'Charter' && <CharterCard data={documentResults.charter} />}
+                {activePreview === 'DDP' && <DDPCard data={documentResults.ddp} />}
+                {activePreview === 'RAID' && <RAIDCard data={documentResults.raid} />}
               </div>
 
               <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4">
                 <div className="text-sm font-semibold mb-2">Required Fields</div>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-emerald-600"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-emerald-600"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-amber-600"><IconAlert className="h-4 w-4" /></span> Milestones</li>
-                </ul>
+                <RequiredFieldsSummary documents={documentResults} />
               </div>
             </Panel>
           </aside>
@@ -375,59 +577,112 @@ function ChatBubble({ role, text }) {
   );
 }
 
-function CharterCard() {
+function CharterCard({ data }) {
+  return <DocumentCard title={DOCUMENT_CONFIGS.charter.title} data={data} />;
+}
+
+function DDPCard({ data }) {
+  return <DocumentCard title={DOCUMENT_CONFIGS.ddp.title} data={data} />;
+}
+
+function RAIDCard({ data }) {
+  return <DocumentCard title={DOCUMENT_CONFIGS.raid.title} data={data} />;
+}
+
+function DocumentCard({ title, data }) {
+  const fields = Array.isArray(data?.fields) ? data.fields : [];
+  const missing = new Set(data?.missingRequired || []);
   return (
     <div>
-      <div className="text-sm font-semibold mb-2">Project Charter</div>
-      <Field label="Project Title" />
-      <Field label="Sponsor" />
-      <Field label="Approvals" />
-      <Field label="Problem Statement" lines={2} />
+      <div className="text-sm font-semibold mb-2 flex items-center justify-between">
+        <span>{title}</span>
+        {fields.length > 0 && (
+          missing.size > 0 ? (
+            <span className="text-[11px] text-amber-600">{missing.size} required missing</span>
+          ) : (
+            <span className="text-[11px] text-emerald-600 flex items-center gap-1">
+              <IconCheck className="h-3 w-3" />
+              <span>All required captured</span>
+            </span>
+          )
+        )}
+      </div>
+      {fields.length ? (
+        fields.map((field) => (
+          <Field
+            key={field.label}
+            label={field.label}
+            value={field.value}
+            required={field.required}
+            isMissing={missing.has(field.label)}
+          />
+        ))
+      ) : (
+        <div className="rounded-xl border border-dashed border-white/60 bg-white/40 px-3 py-4 text-xs text-slate-500">
+          Attach documents and enable Auto-extract to populate this template.
+        </div>
+      )}
     </div>
   );
 }
 
-function DDPCard() {
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2">Design & Development Plan</div>
-      <Field label="Objectives" />
-      <Field label="Scope" lines={2} />
-      <Field label="Verification Strategy" />
-      <Field label="Milestones" />
-    </div>
-  );
-}
-
-function RAIDCard() {
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2">RAID Log Snapshot</div>
-      <MiniRow a="Risk: Supplier delay" b="Impact: Medium" c="Owner: Ops" />
-      <MiniRow a="Assumption: Legacy LIMS OK" b="Impact: TBD" c="Owner: QA" />
-      <MiniRow a="Issue: Scope creep" b="Impact: High" c="Owner: PM" />
-      <MiniRow a="Decision: Gate move 2 wks" b="Impact: Low" c="Owner: LT" />
-    </div>
-  );
-}
-
-function Field({ label, lines = 1 }) {
+function Field({ label, value, required, isMissing }) {
+  const hasValue = Boolean(value && value.trim());
+  const displayValue = hasValue
+    ? value.trim()
+    : required
+      ? "Missing required information"
+      : "No data extracted yet";
+  const containerClasses = [
+    "rounded-xl border px-3 py-2 text-sm whitespace-pre-wrap min-h-[44px]",
+    hasValue
+      ? "bg-white text-slate-700 border-white/60"
+      : isMissing
+        ? "border-rose-300 bg-rose-50/80 text-rose-700"
+        : "bg-white/60 border-white/60 text-slate-400 italic"
+  ].join(" ");
   return (
     <div className="mb-3">
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className={`rounded-xl bg-white/60 border border-white/60 ${lines>1? 'h-16':'h-9'} overflow-hidden`}>
-        <div className="h-full w-full animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100" />
+      <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
+        <span>{label}</span>
+        {required && (
+          <span className={`uppercase tracking-wide text-[10px] ${isMissing ? 'text-rose-500' : 'text-emerald-500'}`}>
+            {isMissing ? "Required" : "Complete"}
+          </span>
+        )}
       </div>
+      <div className={containerClasses}>{displayValue}</div>
     </div>
   );
 }
 
-function MiniRow({ a, b, c }) {
+function RequiredFieldsSummary({ documents }) {
   return (
-    <div className="mb-2 rounded-xl bg-white/60 border border-white/60 p-2 text-xs flex items-center justify-between gap-2">
-      <span className="truncate">{a}</span>
-      <span className="truncate">{b}</span>
-      <span className="truncate">{c}</span>
+    <div className="space-y-3">
+      {DOCUMENT_KEYS.map((key) => {
+        const config = DOCUMENT_CONFIGS[key];
+        const doc = documents?.[key] || createDocStateFromMapping(config?.mapping);
+        const requiredFields = (doc.fields || []).filter((field) => field.required);
+        if (!requiredFields.length) return null;
+        return (
+          <div key={key}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{config.title}</div>
+            <ul className="space-y-1 text-sm">
+              {requiredFields.map((field) => {
+                const missing = doc.missingRequired?.includes(field.label);
+                return (
+                  <li key={field.label} className="flex items-center gap-2">
+                    <span className={missing ? "text-amber-600" : "text-emerald-600"}>
+                      {missing ? <IconAlert className="h-4 w-4" /> : <IconCheck className="h-4 w-4" />}
+                    </span>
+                    <span className={missing ? "text-slate-700" : "text-slate-600"}>{field.label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

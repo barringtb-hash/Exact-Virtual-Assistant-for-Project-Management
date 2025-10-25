@@ -57,10 +57,95 @@ export default function ExactVirtualAssistantPM() {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [listening, setListening] = useState(false);
+  const [rec, setRec] = useState(null);
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
   const fileInputRef = useRef(null);
+
+  const blobToBase64 = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (typeof result === "string") {
+          resolve(result.split(",")[1] || "");
+        } else {
+          reject(new Error("Unexpected FileReader result"));
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error("FileReader error"));
+      reader.readAsDataURL(blob);
+    });
+
+  const startRecording = async () => {
+    if (rec) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMime =
+        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
+          ? MediaRecorder.isTypeSupported("audio/webm")
+            ? "audio/webm"
+            : MediaRecorder.isTypeSupported("audio/mp4")
+              ? "audio/mp4"
+              : ""
+          : "";
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || preferredMime || "audio/webm" });
+          const audioBase64 = await blobToBase64(blob);
+          const res = await fetch("/api/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audioBase64, mimeType: blob.type }),
+          });
+          const data = await res.json().catch(() => ({}));
+          const transcript = data?.transcript || "";
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          }
+        } catch (error) {
+          console.error("Transcription failed", error);
+        } finally {
+          stream.getTracks().forEach((track) => track.stop());
+          setRec(null);
+          setListening(false);
+        }
+      };
+
+      recorder.start();
+      setRec(recorder);
+      setListening(true);
+    } catch (error) {
+      console.error("Microphone access denied", error);
+      setRec(null);
+      setListening(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (!rec) return;
+    try {
+      rec.stop();
+      rec.stream?.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      console.error("Error stopping recorder", error);
+    } finally {
+      setRec(null);
+      setListening(false);
+    }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -175,7 +260,7 @@ export default function ExactVirtualAssistantPM() {
                       <IconUpload className="h-5 w-5" />
                     </button>
                     <button
-                      onClick={() => setListening((v) => !v)}
+                      onClick={() => (listening ? stopRecording() : startRecording())}
                       className={`shrink-0 p-2 rounded-xl border ${listening ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white/80 border-white/60 text-slate-600'} transition`}
                       title="Voice input (mock)"
                     >

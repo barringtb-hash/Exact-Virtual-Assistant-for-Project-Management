@@ -13,9 +13,13 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   {
     "messages": [
       { "role": "user", "content": "..." }
+    ],
+    "attachments": [
+      { "name": "Vision Brief", "text": "Trimmed excerpt..." }
     ]
   }
   ```
+  `attachments` is optional and should contain the trimmed text for each supporting file you want the assistant to reference.
 - **Response**
   ```json
   {
@@ -24,6 +28,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   ```
 - **Notes**
   - Prepends a project-management system prompt and trims history to the most recent 18 messages.
+  - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before folding them into the system prompt as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
   - Uses `gpt-4o-mini` with `temperature: 0.3` for consistent tone.
 
 ## Speech-to-text – `POST /api/transcribe`

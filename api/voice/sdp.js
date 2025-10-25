@@ -5,13 +5,17 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
 
   try {
-    const { sdp } = req.body || {};
+    const { sdp, voice: requestedVoice } = req.body || {};
     if (typeof sdp !== "string" || !sdp.trim()) {
       return res.status(400).json({ error: "Missing SDP offer" });
     }
 
     const model = (process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime").trim();
-    const voice = (process.env.OPENAI_REALTIME_VOICE || "alloy").trim();
+    const defaultVoice = (process.env.OPENAI_REALTIME_VOICE || "alloy").trim();
+    const voice =
+      typeof requestedVoice === "string" && requestedVoice.trim()
+        ? requestedVoice.trim()
+        : defaultVoice;
 
     const betaHeader = /preview/i.test(model) ? { "OpenAI-Beta": "realtime=v1" } : {};
 

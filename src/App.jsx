@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -62,12 +62,25 @@ export default function ExactVirtualAssistantPM() {
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
+  const defaultRealtimeVoice = (import.meta.env.VITE_OPENAI_REALTIME_VOICE || "alloy").trim();
+  const [selectedVoice, setSelectedVoice] = useState(defaultRealtimeVoice);
   const fileInputRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const pcRef = useRef(null);
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+  const realtimeVoiceOptions = useMemo(() => {
+    const base = ["alloy", "verse", "aria", "sol", "lumen", "sage"];
+    return base.includes(defaultRealtimeVoice) ? base : [defaultRealtimeVoice, ...base];
+  }, [defaultRealtimeVoice]);
+
+  const rtcStateToLabel = {
+    idle: "Idle",
+    connecting: "Connecting",
+    live: "Live",
+    error: "Error",
+  };
 
   const cleanupRealtime = () => {
     if (dataRef.current) {
@@ -184,7 +197,7 @@ export default function ExactVirtualAssistantPM() {
       const response = await fetch("/api/voice/sdp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+        body: JSON.stringify({ sdp: offer.sdp, type: offer.type, voice: selectedVoice }),
       });
 
       if (!response.ok) {
@@ -415,33 +428,75 @@ export default function ExactVirtualAssistantPM() {
                     </button>
                     {realtimeEnabled ? (
                       <>
-                        <button
-                          onClick={() =>
-                            rtcState === "live" || rtcState === "connecting"
-                              ? stopRealtime()
-                              : startRealtime()
-                          }
-                          className={`shrink-0 p-2 rounded-xl border transition ${
-                            rtcState === "live"
-                              ? "bg-emerald-50 border-emerald-200 text-emerald-600"
-                              : rtcState === "connecting"
-                                ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse"
-                                : rtcState === "error"
-                                  ? "bg-red-50 border-red-200 text-red-600"
-                                  : "bg-white/80 border-white/60 text-slate-600"
-                          }`}
-                          title={
-                            rtcState === "live"
-                              ? "Stop realtime voice"
-                              : rtcState === "connecting"
-                                ? "Connecting realtime audio…"
-                                : rtcState === "error"
-                                  ? "Retry realtime voice"
-                                  : "Start realtime voice"
-                          }
-                        >
-                          <IconMic className="h-5 w-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() =>
+                              rtcState === "live" || rtcState === "connecting"
+                                ? stopRealtime()
+                                : startRealtime()
+                            }
+                            className={`shrink-0 p-2 rounded-xl border transition ${
+                              rtcState === "live"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                                : rtcState === "connecting"
+                                  ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse"
+                                  : rtcState === "error"
+                                    ? "bg-red-50 border-red-200 text-red-600"
+                                    : "bg-white/80 border-white/60 text-slate-600"
+                            }`}
+                            title={
+                              rtcState === "live"
+                                ? "Stop realtime voice"
+                                : rtcState === "connecting"
+                                  ? "Connecting realtime audio…"
+                                  : rtcState === "error"
+                                    ? "Retry realtime voice"
+                                    : "Start realtime voice"
+                            }
+                          >
+                            <IconMic className="h-5 w-5" />
+                          </button>
+                          <span
+                            className={`text-xs font-medium px-2 py-1 rounded-lg border ${
+                              rtcState === "live"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                                : rtcState === "connecting"
+                                  ? "bg-amber-50 border-amber-200 text-amber-600"
+                                  : rtcState === "error"
+                                    ? "bg-red-50 border-red-200 text-red-600"
+                                    : "bg-white/80 border-white/60 text-slate-600"
+                            }`}
+                          >
+                            {rtcStateToLabel[rtcState] || "Idle"}
+                          </span>
+                          {rtcState !== "idle" && (
+                            <button
+                              type="button"
+                              onClick={stopRealtime}
+                              className="text-xs px-2 py-1 rounded-lg border bg-white/80 border-white/60 text-slate-600 hover:bg-white"
+                              title="Reset realtime call"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-col text-xs text-slate-600">
+                          <label htmlFor="realtime-voice" className="text-[11px] font-medium text-slate-500">
+                            Voice
+                          </label>
+                          <select
+                            id="realtime-voice"
+                            value={selectedVoice}
+                            onChange={(event) => setSelectedVoice(event.target.value.trim())}
+                            className="mt-1 text-xs rounded-lg border border-white/60 bg-white/80 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          >
+                            {realtimeVoiceOptions.map((voice) => (
+                              <option key={voice} value={voice}>
+                                {voice.charAt(0).toUpperCase() + voice.slice(1)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
                       </>
                     ) : (

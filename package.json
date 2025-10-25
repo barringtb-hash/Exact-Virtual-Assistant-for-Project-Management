@@ -17,7 +17,8 @@
     "docxtemplater": "^3.32.0",
     "pizzip": "^3.1.7",
     "pdf-parse": "^1.1.1",
-    "mammoth": "^1.7.2"
+    "mammoth": "^1.7.2",
+    "@dqbd/tiktoken": "^1.0.7"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",

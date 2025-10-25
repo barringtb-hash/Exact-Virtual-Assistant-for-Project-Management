@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -58,10 +58,160 @@ export default function ExactVirtualAssistantPM() {
   const [files, setFiles] = useState([]);
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
+  const [rtcState, setRtcState] = useState("idle");
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
   const fileInputRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const pcRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const dataRef = useRef(null);
+  const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+
+  const cleanupRealtime = () => {
+    if (dataRef.current) {
+      try {
+        dataRef.current.close();
+      } catch (error) {
+        console.error("Error closing realtime data channel", error);
+      }
+      dataRef.current.onmessage = null;
+      dataRef.current.onclose = null;
+      dataRef.current = null;
+    }
+    if (pcRef.current) {
+      try {
+        pcRef.current.ontrack = null;
+        pcRef.current.onconnectionstatechange = null;
+        pcRef.current.close();
+      } catch (error) {
+        console.error("Error closing realtime peer connection", error);
+      }
+      pcRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (error) {
+          console.error("Error stopping realtime media track", error);
+        }
+      });
+      micStreamRef.current = null;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+  };
+
+  const stopRealtime = () => {
+    cleanupRealtime();
+    setRtcState("idle");
+  };
+
+  const startRealtime = async () => {
+    if (!realtimeEnabled) return;
+    if (rtcState === "connecting" || rtcState === "live") return;
+    setRtcState("connecting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        const [remoteStream] = event.streams;
+        if (remoteStream && remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === "failed" || state === "disconnected") {
+          console.error("Realtime connection ended", state);
+          cleanupRealtime();
+          setRtcState("error");
+        }
+      };
+
+      const dataChannel = pc.createDataChannel("oai-events");
+      dataRef.current = dataChannel;
+
+      dataChannel.onmessage = (event) => {
+        const payload = event?.data;
+        let transcript = "";
+        if (typeof payload === "string") {
+          try {
+            const parsed = JSON.parse(payload);
+            if (typeof parsed === "string") {
+              transcript = parsed;
+            } else if (parsed?.transcript) {
+              transcript = parsed.transcript;
+            } else if (parsed?.text) {
+              transcript = parsed.text;
+            } else if (Array.isArray(parsed?.alternatives) && parsed.alternatives[0]?.transcript) {
+              transcript = parsed.alternatives[0].transcript;
+            }
+          } catch (error) {
+            transcript = payload;
+          }
+        }
+        if (!transcript && payload?.text) {
+          transcript = payload.text;
+        }
+        if (transcript) {
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now() + Math.random(), role: "assistant", text: transcript },
+          ]);
+        }
+      };
+
+      dataChannel.onclose = () => {
+        dataRef.current = null;
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const response = await fetch("/api/voice/sdp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`SDP exchange failed with status ${response.status}`);
+      }
+
+      const answer = await response.json().catch(() => null);
+      if (!answer?.sdp) {
+        throw new Error("Invalid SDP answer payload");
+      }
+
+      await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+      setRtcState("live");
+    } catch (error) {
+      console.error("Realtime start failed", error);
+      cleanupRealtime();
+      setRtcState("error");
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pcRef.current || micStreamRef.current || dataRef.current) {
+        stopRealtime();
+      }
+    };
+  }, []);
 
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
@@ -263,13 +413,46 @@ export default function ExactVirtualAssistantPM() {
                     >
                       <IconUpload className="h-5 w-5" />
                     </button>
-                    <button
-                      onClick={() => (listening ? stopRecording() : startRecording())}
-                      className={`shrink-0 p-2 rounded-xl border ${listening ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white/80 border-white/60 text-slate-600'} transition`}
-                      title="Voice input (mock)"
-                    >
-                      <IconMic className="h-5 w-5" />
-                    </button>
+                    {realtimeEnabled ? (
+                      <>
+                        <button
+                          onClick={() =>
+                            rtcState === "live" || rtcState === "connecting"
+                              ? stopRealtime()
+                              : startRealtime()
+                          }
+                          className={`shrink-0 p-2 rounded-xl border transition ${
+                            rtcState === "live"
+                              ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                              : rtcState === "connecting"
+                                ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse"
+                                : rtcState === "error"
+                                  ? "bg-red-50 border-red-200 text-red-600"
+                                  : "bg-white/80 border-white/60 text-slate-600"
+                          }`}
+                          title={
+                            rtcState === "live"
+                              ? "Stop realtime voice"
+                              : rtcState === "connecting"
+                                ? "Connecting realtime audio…"
+                                : rtcState === "error"
+                                  ? "Retry realtime voice"
+                                  : "Start realtime voice"
+                          }
+                        >
+                          <IconMic className="h-5 w-5" />
+                        </button>
+                        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => (listening ? stopRecording() : startRecording())}
+                        className={`shrink-0 p-2 rounded-xl border ${listening ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white/80 border-white/60 text-slate-600'} transition`}
+                        title="Voice input (mock)"
+                      >
+                        <IconMic className="h-5 w-5" />
+                      </button>
+                    )}
                     <button
                       onClick={handleSend}
                       className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm"

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -62,18 +62,13 @@ export default function ExactVirtualAssistantPM() {
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
-  const defaultRealtimeVoice = (import.meta.env.VITE_OPENAI_REALTIME_VOICE || "alloy").trim();
-  const [selectedVoice, setSelectedVoice] = useState(defaultRealtimeVoice);
+  // voice picker removed; server uses env OPENAI_REALTIME_VOICE
   const fileInputRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const pcRef = useRef(null);
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
-  const realtimeVoiceOptions = useMemo(() => {
-    const base = ["alloy", "verse", "aria", "sol", "lumen", "sage"];
-    return base.includes(defaultRealtimeVoice) ? base : [defaultRealtimeVoice, ...base];
-  }, [defaultRealtimeVoice]);
 
   const rtcStateToLabel = {
     idle: "Idle",
@@ -197,7 +192,7 @@ export default function ExactVirtualAssistantPM() {
       const response = await fetch("/api/voice/sdp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: offer.sdp, type: offer.type, voice: selectedVoice }),
+        body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
       });
 
       if (!response.ok) {
@@ -479,23 +474,6 @@ export default function ExactVirtualAssistantPM() {
                               Reset
                             </button>
                           )}
-                        </div>
-                        <div className="flex flex-col text-xs text-slate-600">
-                          <label htmlFor="realtime-voice" className="text-[11px] font-medium text-slate-500">
-                            Voice
-                          </label>
-                          <select
-                            id="realtime-voice"
-                            value={selectedVoice}
-                            onChange={(event) => setSelectedVoice(event.target.value.trim())}
-                            className="mt-1 text-xs rounded-lg border border-white/60 bg-white/80 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                          >
-                            {realtimeVoiceOptions.map((voice) => (
-                              <option key={voice} value={voice}>
-                                {voice.charAt(0).toUpperCase() + voice.slice(1)}
-                              </option>
-                            ))}
-                          </select>
                         </div>
                         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
                       </>

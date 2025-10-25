@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
+const THEME_STORAGE_KEY = "eva-theme-mode";
+
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -78,6 +80,19 @@ export default function ExactVirtualAssistantPM() {
   const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
+  const [themeMode, setThemeMode] = useState(() => {
+    if (typeof window === "undefined") return "auto";
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return stored === "light" || stored === "dark" || stored === "auto" ? stored : "auto";
+  });
+  const [resolvedTheme, setResolvedTheme] = useState(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const mode = stored === "light" || stored === "dark" || stored === "auto" ? stored : "auto";
+    const prefersDark = typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const useDark = mode === "dark" || (mode === "auto" && prefersDark);
+    return useDark ? "dark" : "light";
+  });
   // voice picker removed; server uses env OPENAI_REALTIME_VOICE
   const fileInputRef = useRef(null);
   const remoteAudioRef = useRef(null);
@@ -99,6 +114,53 @@ export default function ExactVirtualAssistantPM() {
       runAutoExtract(attachments);
     }
   }, [autoExtract]);
+
+  const handleThemeModeChange = (value) => {
+    if (value === "light" || value === "dark" || value === "auto") {
+      setThemeMode(value);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return undefined;
+    const mediaQuery = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+    const applyTheme = (mode) => {
+      const useDark = mode === "dark" || (mode === "auto" && mediaQuery ? mediaQuery.matches : false);
+      document.documentElement.classList.toggle("dark", useDark);
+      document.documentElement.style.colorScheme = useDark ? "dark" : "light";
+      setResolvedTheme(useDark ? "dark" : "light");
+    };
+
+    applyTheme(themeMode);
+
+    const handleSchemeChange = () => {
+      if (themeMode === "auto") {
+        applyTheme("auto");
+      }
+    };
+
+    if (!mediaQuery) {
+      return undefined;
+    }
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleSchemeChange);
+      return () => mediaQuery.removeEventListener("change", handleSchemeChange);
+    }
+
+    if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(handleSchemeChange);
+      return () => mediaQuery.removeListener(handleSchemeChange);
+    }
+
+    return undefined;
+  }, [themeMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+  }, [themeMode]);
 
   const rtcStateToLabel = {
     idle: "Idle",
@@ -526,17 +588,18 @@ export default function ExactVirtualAssistantPM() {
   }
 
   return (
-    <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800">
+    <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
       {/* Top Bar */}
-      <header className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-white/50 bg-white/60 border-b border-white/40">
+      <header className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-white/50 bg-white/60 border-b border-white/40 dark:supports-[backdrop-filter]:bg-slate-900/60 dark:bg-slate-900/60 dark:border-slate-700/60">
         <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-indigo-600/90 text-white grid place-items-center font-bold shadow-sm">EX</div>
-            <div className="text-slate-700 font-semibold">Exact Sciences Virtual Assistant for Project Management</div>
+            <div className="text-slate-700 font-semibold dark:text-slate-200">Exact Sciences Virtual Assistant for Project Management</div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800">New Draft</button>
-            <div className="px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-sm shadow-sm">Guest</div>
+            <ThemeSelect mode={themeMode} resolvedMode={resolvedTheme} onChange={handleThemeModeChange} />
+            <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400">New Draft</button>
+            <div className="px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-sm shadow-sm dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100">Guest</div>
           </div>
         </div>
       </header>
@@ -546,16 +609,25 @@ export default function ExactVirtualAssistantPM() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
           <section className="lg:col-span-8">
-            <Panel title="Assistant Chat" right={<button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50"><IconPlus className="h-4 w-4" /></button>}>
-              <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden">
+            <Panel
+              title="Assistant Chat"
+              right={
+                <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                  <IconPlus className="h-4 w-4" />
+                </button>
+              }
+            >
+              <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.map((m) => (
                     <ChatBubble key={m.id} role={m.role} text={m.text} />
                   ))}
                 </div>
-                <div className="border-t border-white/50 p-3">
+                <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
-                  <div className={`flex items-end gap-2 rounded-2xl bg-white/70 border border-white/60 px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300`}>
+                  <div
+                    className={`flex items-end gap-2 rounded-2xl bg-white/70 border border-white/60 px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300 dark:bg-slate-900/50 dark:border-slate-700/60 dark:focus-within:ring-indigo-500`}
+                  >
                     <textarea
                       placeholder="Type here… (paste scope or attach files)"
                       value={input}
@@ -571,11 +643,11 @@ export default function ExactVirtualAssistantPM() {
                         }
                       }}
                       onDragOver={(e) => e.preventDefault()}
-                      className="min-h-[44px] max-h-40 flex-1 bg-transparent outline-none resize-none text-[15px] leading-6"
+                      className="min-h-[44px] max-h-40 flex-1 bg-transparent outline-none resize-none text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
                     />
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="shrink-0 p-2 rounded-xl border bg-white/80 border-white/60 text-slate-600"
+                      className="shrink-0 p-2 rounded-xl border bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
                       title="Attach files"
                     >
                       <IconUpload className="h-5 w-5" />
@@ -591,12 +663,12 @@ export default function ExactVirtualAssistantPM() {
                             }
                             className={`shrink-0 p-2 rounded-xl border transition ${
                               rtcState === "live"
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
                                 : rtcState === "connecting"
-                                  ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse"
+                                  ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse dark:bg-amber-900 dark:border-amber-700 dark:text-amber-200"
                                   : rtcState === "error"
-                                    ? "bg-red-50 border-red-200 text-red-600"
-                                    : "bg-white/80 border-white/60 text-slate-600"
+                                    ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200"
+                                    : "bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
                             }`}
                             title={
                               rtcState === "live"
@@ -613,12 +685,12 @@ export default function ExactVirtualAssistantPM() {
                           <span
                             className={`text-xs font-medium px-2 py-1 rounded-lg border ${
                               rtcState === "live"
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
                                 : rtcState === "connecting"
-                                  ? "bg-amber-50 border-amber-200 text-amber-600"
+                                  ? "bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-900 dark:border-amber-700 dark:text-amber-200"
                                   : rtcState === "error"
-                                    ? "bg-red-50 border-red-200 text-red-600"
-                                    : "bg-white/80 border-white/60 text-slate-600"
+                                    ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200"
+                                    : "bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200"
                             }`}
                           >
                             {rtcStateToLabel[rtcState] || "Idle"}
@@ -627,7 +699,7 @@ export default function ExactVirtualAssistantPM() {
                             <button
                               type="button"
                               onClick={stopRealtime}
-                              className="text-xs px-2 py-1 rounded-lg border bg-white/80 border-white/60 text-slate-600 hover:bg-white"
+                              className="text-xs px-2 py-1 rounded-lg border bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60"
                               title="Reset realtime call"
                             >
                               Reset
@@ -639,7 +711,11 @@ export default function ExactVirtualAssistantPM() {
                     ) : (
                       <button
                         onClick={() => (listening ? stopRecording() : startRecording())}
-                        className={`shrink-0 p-2 rounded-xl border ${listening ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white/80 border-white/60 text-slate-600'} transition`}
+                        className={`shrink-0 p-2 rounded-xl border ${
+                          listening
+                            ? 'bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200'
+                            : 'bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100'
+                        } transition`}
                         title="Voice input (mock)"
                       >
                         <IconMic className="h-5 w-5" />
@@ -647,7 +723,7 @@ export default function ExactVirtualAssistantPM() {
                     )}
                     <button
                       onClick={handleSend}
-                      className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                      className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-indigo-500 dark:hover:bg-indigo-400"
                       title="Send"
                     >
                       <IconSend className="h-5 w-5" />
@@ -656,10 +732,18 @@ export default function ExactVirtualAssistantPM() {
                   {files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {files.map((f) => (
-                        <span key={f.id} className="px-2 py-1 rounded-lg bg-white/80 border border-white/60 text-xs flex items-center gap-2">
+                        <span
+                          key={f.id}
+                          className="px-2 py-1 rounded-lg bg-white/80 border border-white/60 text-xs flex items-center gap-2 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
+                        >
                           <IconPaperclip className="h-3 w-3" />
                           <span className="truncate max-w-[160px]">{f.name}</span>
-                          <button onClick={() => handleRemoveFile(f.id)} className="ml-1 text-slate-500 hover:text-slate-700">×</button>
+                          <button
+                            onClick={() => handleRemoveFile(f.id)}
+                            className="ml-1 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                          >
+                            ×
+                          </button>
                         </span>
                       ))}
                     </div>
@@ -678,11 +762,11 @@ export default function ExactVirtualAssistantPM() {
           <aside className="lg:col-span-4">
             <Panel title="Preview">
               <div className="mb-3 flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1">
+                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
                   <input type="checkbox" checked={useLLM} onChange={(e)=>setUseLLM(e.target.checked)} />
                   <span>Use LLM (beta)</span>
                 </label>
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1">
+                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
                   <input type="checkbox" checked={autoExtract} onChange={(e)=>setAutoExtract(e.target.checked)} />
                   <span>Auto‑extract (beta)</span>
                 </label>
@@ -692,14 +776,18 @@ export default function ExactVirtualAssistantPM() {
                   <button
                     key={tab}
                     onClick={() => setActivePreview(tab)}
-                    className={`px-3 py-1.5 rounded-xl text-sm border ${activePreview===tab? 'bg-slate-900 text-white border-slate-900' : 'bg-white/70 border-white/60'}`}
+                    className={`px-3 py-1.5 rounded-xl text-sm border ${
+                      activePreview===tab
+                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
+                        : 'bg-white/70 border-white/60 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100'
+                    }`}
                   >
                     {tab}
                   </button>
                 ))}
               </div>
 
-              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4">
+              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4 dark:bg-slate-900/40 dark:border-slate-700/60">
                 <CharterCard data={charterPreview} isLoading={isExtracting} />
                 <DDPCard data={charterPreview} isLoading={isExtracting} />
                 <RAIDCard data={charterPreview} isLoading={isExtracting} />
@@ -708,17 +796,17 @@ export default function ExactVirtualAssistantPM() {
                 )}
               </div>
               {extractError && (
-                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
                   {extractError}
                 </div>
               )}
 
-              <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4">
-                <div className="text-sm font-semibold mb-2">Required Fields</div>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-emerald-600"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-emerald-600"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
-                  <li className="flex items-center gap-2 text-slate-700"><span className="text-amber-600"><IconAlert className="h-4 w-4" /></span> Milestones</li>
+              <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
+                <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Required Fields</div>
+                <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
+                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
+                  <li className="flex items-center gap-2"><span className="text-amber-600 dark:text-amber-300"><IconAlert className="h-4 w-4" /></span> Milestones</li>
                 </ul>
               </div>
             </Panel>
@@ -727,17 +815,37 @@ export default function ExactVirtualAssistantPM() {
       </main>
 
       {/* Footer */}
-      <footer className="py-6 text-center text-xs text-slate-500">Phase 1 • Minimal viable UI • No data is saved</footer>
+      <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
+    </div>
+  );
+}
+
+function ThemeSelect({ mode, resolvedMode, onChange }) {
+  const autoLabel = resolvedMode === "dark" ? "Auto (Dark)" : "Auto (Light)";
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-xs shadow-sm dark:bg-slate-800/70 dark:border-slate-600/60">
+      <span className="font-medium text-slate-600 dark:text-slate-200">Theme</span>
+      <select
+        value={mode}
+        onChange={(event) => onChange(event.target.value)}
+        className="bg-transparent text-sm text-slate-700 focus:outline-none dark:text-slate-100"
+        aria-label="Theme mode"
+      >
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="auto">{autoLabel}</option>
+      </select>
     </div>
   );
 }
 
 function Panel({ title, icon, right, children }) {
   return (
-    <div className="rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4">
+    <div className="rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-slate-700 font-semibold">
-          {icon && <span className="text-slate-500">{icon}</span>}
+        <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
+          {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
           <span>{title}</span>
         </div>
         {right}
@@ -751,7 +859,13 @@ function ChatBubble({ role, text }) {
   const isUser = role === "user";
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${isUser ? 'bg-slate-900 text-white border-slate-900' : 'bg-white/70 border-white/60'}`}>
+      <div
+        className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
+          isUser
+            ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
+            : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
+        }`}
+      >
         {text}
       </div>
     </div>
@@ -765,7 +879,7 @@ function CharterCard({ data, isLoading }) {
 
   return (
     <div>
-      <div className="text-sm font-semibold mb-2">Project Charter</div>
+      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Project Charter</div>
       <Field label="Project Title" value={data?.project_name} isLoading={isLoading} />
       <Field label="Sponsor" value={data?.sponsor} isLoading={isLoading} />
       <Field label="Project Lead" value={data?.project_lead} isLoading={isLoading} />
@@ -806,7 +920,7 @@ function DDPCard({ data, isLoading }) {
 
   return (
     <div>
-      <div className="text-sm font-semibold mb-2">Design & Development Plan</div>
+      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Design & Development Plan</div>
       <Field label="Objectives" value={data?.vision} lines={2} isLoading={isLoading} />
       <Field label="Scope" value={scopeItems} lines={2} isLoading={isLoading} />
       <Field label="Verification Strategy" value={successMetrics} lines={2} isLoading={isLoading} />
@@ -833,7 +947,7 @@ function RAIDCard({ data, isLoading }) {
 
   return (
     <div>
-      <div className="text-sm font-semibold mb-2">RAID Log Snapshot</div>
+      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">RAID Log Snapshot</div>
       <Field label="Risks" value={riskItems} lines={2} isLoading={isLoading} />
       <Field label="Assumptions" value={assumptionItems} lines={2} isLoading={isLoading} />
       <Field label="Core Team" value={coreTeamItems} lines={2} isLoading={isLoading} />
@@ -851,11 +965,11 @@ function Field({ label, value, lines = 1, isLoading }) {
 
   return (
     <div className="mb-3">
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className="text-xs text-slate-500 mb-1 dark:text-slate-400">{label}</div>
       {hasContent ? (
-        <div className="rounded-xl border border-white/70 bg-white/90">
+        <div className="rounded-xl border border-white/70 bg-white/90 dark:border-slate-600/60 dark:bg-slate-800/70">
           {arrayItems.length > 0 ? (
-            <ul className="list-disc space-y-1 px-4 py-3 text-sm text-slate-700">
+            <ul className="list-disc space-y-1 px-4 py-3 text-sm text-slate-700 dark:text-slate-100">
               {arrayItems.map((item, idx) => (
                 <li key={`${label}-${idx}`} className="whitespace-pre-wrap">
                   {item}
@@ -863,18 +977,18 @@ function Field({ label, value, lines = 1, isLoading }) {
               ))}
             </ul>
           ) : (
-            <div className="px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap">{stringValue}</div>
+            <div className="px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap dark:text-slate-100">{stringValue}</div>
           )}
         </div>
       ) : (
         <div
-          className={`rounded-xl bg-white/60 border border-white/60 ${heightClass} overflow-hidden`}
+          className={`rounded-xl bg-white/60 border border-white/60 ${heightClass} overflow-hidden dark:bg-slate-900/40 dark:border-slate-700/60`}
         >
           <div
             className={`h-full w-full ${
               isLoading
-                ? "animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100"
-                : "bg-white/40"
+                ? "animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-700 dark:to-slate-800"
+                : "bg-white/40 dark:bg-slate-800/60"
             }`}
           />
         </div>

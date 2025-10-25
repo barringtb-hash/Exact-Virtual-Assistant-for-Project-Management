@@ -248,15 +248,29 @@ export default function ExactVirtualAssistantPM() {
     }
   }, [setFiles]);
 
-  const runAutoExtract = useCallback(async (targets = []) => {
-    const queue = Array.isArray(targets) ? targets : [];
-    for (const wrapper of queue) {
-      if (!wrapper?.file) continue;
-      if (wrapper.status === "uploading" || wrapper.status === "parsing") continue;
-      if (wrapper.status === "parsed" && wrapper.rawText) continue;
-      await uploadAndParseFile(wrapper);
-    }
-  }, [uploadAndParseFile]);
+  const extractionInFlightRef = useRef(new Set());
+
+  const runAutoExtract = useCallback(
+    async (targets = []) => {
+      const queue = Array.isArray(targets) ? targets : [];
+      for (const wrapper of queue) {
+        if (!wrapper?.file) continue;
+        const id = wrapper.id;
+        if (!id) continue;
+        if (extractionInFlightRef.current.has(id)) continue;
+        if (wrapper.status === "uploading" || wrapper.status === "parsing") continue;
+        if (wrapper.status === "parsed" && wrapper.rawText) continue;
+
+        extractionInFlightRef.current.add(id);
+        try {
+          await uploadAndParseFile(wrapper);
+        } finally {
+          extractionInFlightRef.current.delete(id);
+        }
+      }
+    },
+    [uploadAndParseFile]
+  );
 
   const addPickedFiles = (list) => {
     if (!list || !list.length) return;

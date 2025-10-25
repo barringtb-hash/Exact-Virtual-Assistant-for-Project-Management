@@ -1,6 +1,6 @@
 // /api/chat.js - Vercel Serverless Function (Node runtime)
 import OpenAI from "openai";
-import { chunkByTokens } from "./_lib/chunk-by-tokens.js";
+import { chunkByTokens, countTokens } from "../lib/tokenize.js";
 
 export const config = {
   api: {
@@ -22,6 +22,10 @@ if (process?.env?.CHAT_MAX_DURATION) {
 }
 
 const CHAT_MODEL = process.env.CHAT_MODEL || "gpt-4o-mini";
+const CHAT_PROMPT_TOKEN_LIMIT = parsePositiveInt(
+  process.env.CHAT_PROMPT_TOKEN_LIMIT,
+  0
+);
 const ATTACHMENT_CHUNK_TOKENS = parsePositiveInt(process.env.ATTACHMENT_CHUNK_TOKENS, 700);
 const ATTACHMENT_SUMMARY_TOKENS = parsePositiveInt(process.env.ATTACHMENT_SUMMARY_TOKENS, 250);
 const ATTACHMENT_PARALLELISM = parsePositiveInt(process.env.ATTACHMENT_PARALLELISM, 3);
@@ -49,7 +53,9 @@ async function summarizeText(client, attachment) {
   const text = typeof attachment?.text === "string" ? attachment.text.trim() : "";
   if (!text) return "";
 
-  const chunks = chunkByTokens(text, ATTACHMENT_CHUNK_TOKENS);
+  const chunks = chunkByTokens(text, ATTACHMENT_CHUNK_TOKENS, {
+    model: CHAT_MODEL,
+  });
   const totalTokens = chunks.reduce((sum, chunk) => sum + (chunk.tokenCount || 0), 0);
 
   if (!chunks.length) {
@@ -184,6 +190,16 @@ export default async function handler(req, res) {
     const historyLimit = 17; // keep total messages (including system) at roughly 18
     const trimmedIncoming = incoming.slice(-historyLimit);
     const messages = [system, ...trimmedIncoming];
+
+    if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
+      const promptTokens = countTokens(messages, { model: CHAT_MODEL });
+      if (promptTokens > CHAT_PROMPT_TOKEN_LIMIT) {
+        res.status(400).json({
+          error: `Message payload exceeds ${CHAT_PROMPT_TOKEN_LIMIT} token limit (approx ${promptTokens}).`,
+        });
+        return;
+      }
+    }
 
     const completion = await client.chat.completions.create({
       model: CHAT_MODEL,

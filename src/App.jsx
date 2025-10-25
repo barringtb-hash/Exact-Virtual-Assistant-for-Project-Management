@@ -212,28 +212,18 @@ export default function ExactVirtualAssistantPM() {
 
       const formData = new FormData();
       formData.append("file", fileWrapper.file, fileWrapper.name);
-      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
-      const uploadJson = await uploadRes.json().catch(() => ({}));
-      if (!uploadRes.ok) {
-        throw new Error(uploadJson?.error || "Upload failed");
+      updateFile({ status: "parsing" });
+
+      const ingestRes = await fetch("/api/ingest", { method: "POST", body: formData });
+      const ingestJson = await ingestRes.json().catch(() => ({}));
+      if (!ingestRes.ok || ingestJson?.ok === false) {
+        throw new Error(ingestJson?.error || "Ingestion failed");
       }
 
-      const { fileId, metadata } = uploadJson;
-      updateFile({ metadata: metadata || null, status: "parsing" });
-
-      const parseRes = await fetch("/api/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId })
-      });
-      const parseJson = await parseRes.json().catch(() => ({}));
-      if (!parseRes.ok) {
-        throw new Error(parseJson?.error || "Parsing failed");
-      }
-
-      const rawDocument = parseJson.rawDocument || { text: "" };
+      const rawDocument = ingestJson.rawDocument || { text: "" };
+      const metadata = ingestJson.metadata || null;
       updateFile({
-        metadata: parseJson.metadata || metadata || null,
+        metadata,
         rawDocument,
         rawText: rawDocument.text || "",
         status: "parsed",

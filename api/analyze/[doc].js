@@ -1,11 +1,25 @@
-import charter from "../../mappings/charter.json" assert { type: "json" };
-import ddp from "../../mappings/ddp.json" assert { type: "json" };
-import raid from "../../mappings/raid.json" assert { type: "json" };
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function loadMapping(name) {
+  const filePath = path.join(__dirname, "..", "..", "mappings", `${name}.json`);
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`Failed to load mapping ${name} from ${filePath}`, err);
+    return [];
+  }
+}
 
 const MAPS = {
-  charter,
-  ddp,
-  raid
+  charter: loadMapping("charter"),
+  ddp: loadMapping("ddp"),
+  raid: loadMapping("raid")
 };
 
 function parseBody(req) {

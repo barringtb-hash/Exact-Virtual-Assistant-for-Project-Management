@@ -1,0 +1,37 @@
+[
+  {
+    "label": "Workstreams",
+    "required": true,
+    "hints": ["Work Streams", "Tracks", "Work Packages"]
+  },
+  {
+    "label": "Milestones",
+    "required": true,
+    "hints": ["Key Milestones", "Major Milestones", "Critical Dates"]
+  },
+  {
+    "label": "Deliverables",
+    "required": true,
+    "hints": ["Key Deliverables", "Outputs", "Artifacts"]
+  },
+  {
+    "label": "Dependencies",
+    "required": true,
+    "hints": ["External Dependencies", "Predecessors", "Blockers"]
+  },
+  {
+    "label": "Risks",
+    "required": false,
+    "hints": ["Top Risks", "Risk Register", "Threats"]
+  },
+  {
+    "label": "Assumptions",
+    "required": false,
+    "hints": ["Delivery Assumptions", "Key Assumptions", "Underlying Assumptions"]
+  },
+  {
+    "label": "Team",
+    "required": false,
+    "hints": ["Team Members", "Resource Plan", "Resourcing"]
+  }
+]

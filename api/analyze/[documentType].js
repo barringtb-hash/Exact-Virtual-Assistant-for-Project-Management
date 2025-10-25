@@ -101,12 +101,24 @@ export default async function handler(req, res) {
       return;
     }
 
+    if (typeof documentType !== "string" || !/^[\w-]+$/.test(documentType)) {
+      res.status(400).json({ error: "Invalid documentType" });
+      return;
+    }
+
     if (!text) {
       res.status(400).json({ error: "rawDocument.text is required" });
       return;
     }
 
-    const mappingPath = path.join(process.cwd(), "mappings", `${documentType}.json`);
+    const mappingsDir = path.join(process.cwd(), "mappings");
+    const mappingPath = path.join(mappingsDir, `${documentType}.json`);
+    const relativeToMappings = path.relative(mappingsDir, mappingPath);
+
+    if (relativeToMappings.startsWith("..") || path.isAbsolute(relativeToMappings)) {
+      res.status(400).json({ error: "Invalid documentType" });
+      return;
+    }
     const mappingRaw = await fs.readFile(mappingPath, "utf8");
     const fieldsConfig = JSON.parse(mappingRaw);
 

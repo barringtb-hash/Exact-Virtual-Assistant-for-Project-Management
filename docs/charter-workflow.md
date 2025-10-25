@@ -11,7 +11,7 @@ This guide explains how the charter extraction, validation, and rendering assets
 
 ## Recommended flow
 1. **Gather context** – Capture meeting notes and decisions in chat. Encourage users to annotate critical fields inline (sponsors, objectives, scope boundaries).
-2. **Auto-extract** – Trigger `/api/charter/extract` to transform the chat transcript into structured JSON. Review missing/empty fields flagged in the response.
+2. **Auto-extract** – Trigger `/api/charter/extract` to transform the chat transcript into structured JSON. The UI automatically re-runs this step whenever attachments change (including re-uploads) so previews stay in sync. Review missing/empty fields flagged in the response.
 3. **Manual edits** – Allow stakeholders to adjust the structured JSON directly in the UI or via a JSON editor to fill in gaps.
 4. **Validate** – Call `/api/charter/validate` (or run `node templates/charter-validate.mjs my-charter.json`) to confirm the payload matches the schema.
 5. **Render** – Post the validated JSON to `/api/charter/render` to merge values into the DOCX template.
@@ -24,6 +24,6 @@ This guide explains how the charter extraction, validation, and rendering assets
 - **Automate follow-up actions** – After rendering, extend the API to upload the DOCX to cloud storage or trigger workflow integrations (e.g., Slack/Teams notifications).
 
 ## Frontend integration notes
-- `src/App.jsx` keeps charter draft data in state and surfaces previews in the right-hand panel.
+- `src/App.jsx` keeps charter draft data in state and surfaces previews in the right-hand panel. Removing the final attachment now clears stale preview data to avoid presenting outdated insights.
 - Toggle-based extraction (`runAutoExtract`) can be replaced with explicit buttons or scheduled runs depending on UX needs.
 - Consider persisting the charter JSON to browser storage or a backend to support revisiting drafts.

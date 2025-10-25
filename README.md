@@ -1,9 +1,9 @@
 # Exact Virtual Assistant for Project Management (Phase 1)
 
-A minimal React + Tailwind prototype with a center chat window, file attach button, and a right-hand preview panel.
+A minimal React + Tailwind prototype with a center chat window, file attach button, and a right-hand preview panel. Recent UI polish includes a persistent dark mode toggle, smoother transcript autoscroll, and hardened attachment handling so re-uploading the same document works reliably.
 
 ## Architecture Overview
-- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, and feature toggles for LLM and auto-extraction. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies.
+- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, and feature toggles for LLM, auto-extraction, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. New chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input.
 - **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. Attachments are stored in memory and routed through a mocked `runAutoExtract` helper that can be replaced with real parsers.
 - **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors.
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
@@ -95,6 +95,8 @@ Open the printed localhost URL.
 - Tailwind is preconfigured (see `tailwind.config.js`, `postcss.config.js`, and `src/index.css`).
 - The “Auto-extract (beta)” toggle is wired to a mocked filename-based extractor. Swap in a real parser later.
 - This is a UI-only prototype; no data persistence yet.
+- Attachment picker resets after each upload so the same file can be reattached without refreshing. Removing the last attachment now clears stale charter previews to avoid confusion.
+- Dark mode preference is stored under `localStorage['eva-theme-mode']` and respects the OS scheme when set to **Auto**.
 
 ## OpenAI Endpoint
 

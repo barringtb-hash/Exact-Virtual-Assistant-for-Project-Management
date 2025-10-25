@@ -77,6 +77,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Text responses are trimmed to ~20k characters; `truncated: true` signals that callers should surface a warning or request a smaller file.
   - Errors follow `{ ok: false, error, ... }` with optional metadata such as `name`/`mimeType` describing the rejected file.
   - JSON uploads are parsed/pretty-printed. Invalid JSON returns a 400 with `error: "Invalid JSON payload"`.
+  - Returned `name` values are sanitized (defaults to `untitled`) so clients can safely echo them in the UI, and repeated uploads of the same document work because callers now send fresh file input events each time.
 
 ## Realtime voice exchange – `POST /api/voice/sdp`
 - **Body**

@@ -8,9 +8,9 @@
 
 ## Frontend (`src/`)
 - `src/App.jsx`
-  - Owns application state for messages, draft input, attachment metadata, feature toggles, and charter preview data.
-  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes.
-  - Renders chat composer, transcript, attachment chips, charter preview tabs, and realtime voice controls.
+  - Owns application state for messages, draft input, attachment metadata, feature toggles, theme preference, and charter preview data.
+  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes. A new `THEME_STORAGE_KEY` constant persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange.
+  - Renders chat composer, transcript, attachment chips, charter preview tabs, realtime voice controls, and the appearance selector in the footer.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
 - `src/index.css`

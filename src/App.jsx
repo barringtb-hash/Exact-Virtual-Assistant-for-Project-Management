@@ -68,7 +68,15 @@ export default function ExactVirtualAssistantPM() {
   const pcRef = useRef(null);
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages]);
 
   const rtcStateToLabel = {
     idle: "Idle",
@@ -397,7 +405,7 @@ export default function ExactVirtualAssistantPM() {
           <section className="lg:col-span-8">
             <Panel title="Assistant Chat" right={<button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50"><IconPlus className="h-4 w-4" /></button>}>
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.map((m) => (
                     <ChatBubble key={m.id} role={m.role} text={m.text} />
                   ))}

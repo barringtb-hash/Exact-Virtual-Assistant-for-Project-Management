@@ -13,6 +13,8 @@ export default async function handler(req, res) {
     const model = (process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime").trim();
     const voice = (process.env.OPENAI_REALTIME_VOICE || "alloy").trim();
 
+    const betaHeader = /preview/i.test(model) ? { "OpenAI-Beta": "realtime=v1" } : {};
+
     const resp = await fetch(
       `https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}&voice=${encodeURIComponent(voice)}`,
       {
@@ -20,6 +22,7 @@ export default async function handler(req, res) {
         headers: {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           "Content-Type": "application/sdp",
+          ...betaHeader,
         },
         body: sdp,
       }

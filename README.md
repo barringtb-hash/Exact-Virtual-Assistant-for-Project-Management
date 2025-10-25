@@ -15,6 +15,13 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | Variable | Used By | Purpose |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | All OpenAI-powered routes | Required secret for the OpenAI SDK and Realtime REST calls. |
+| `CHAT_MODEL` | `/api/chat` | Overrides the default chat/summarization model (`gpt-4o-mini`). |
+| `CHAT_MAX_BODY` | `/api/chat` | Custom request body size limit (defaults to `10mb`). |
+| `CHAT_MAX_DURATION` | `/api/chat` | Optional function timeout override in seconds. |
+| `ATTACHMENT_CHUNK_TOKENS` | `/api/chat` | Approximate token budget per attachment chunk before summarization (defaults to `700`). |
+| `ATTACHMENT_SUMMARY_TOKENS` | `/api/chat` | Token cap for each map/reduce summarization call (defaults to `250`). |
+| `ATTACHMENT_PARALLELISM` | `/api/chat` | Maximum concurrent attachment chunk summaries (defaults to `3`). |
+| `SMALL_ATTACHMENTS_TOKEN_BUDGET` | `/api/chat` | Inlines the full attachment text when total tokens stay under this value (defaults to `1200`). |
 | `VITE_OPENAI_REALTIME_MODEL` | Vite client | If set, enables realtime UI and controls which model the client requests. |
 | `OPENAI_REALTIME_MODEL` | `/api/voice/sdp` | Default realtime model when exchanging SDP with OpenAI (defaults to `gpt-realtime`). |
 | `OPENAI_REALTIME_VOICE` | `/api/voice/sdp` | Preferred OpenAI voice when realtime is active (defaults to `alloy`). |
@@ -23,7 +30,7 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 ### `POST /api/chat`
 - **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
 - **Response** – `{ reply: string }`. Errors return `{ error }` with appropriate HTTP status codes.
-- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone. When `attachments` is present, the server validates each entry (non-empty `text`, trimmed names) and enforces a 4,000-character limit before folding them into the leading system message as `### {name}` sections above the base prompt.
+- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone. Attachments are validated for non-empty text, summarized via a map/reduce pass (or inlined when under `SMALL_ATTACHMENTS_TOKEN_BUDGET` tokens), and the resulting bullet summary is prepended to the system prompt as `### {name}` sections.
 
 ### `POST /api/transcribe`
 - **Payload** – `{ audioBase64: string, mimeType: string }` where `audioBase64` is the base64-encoded audio blob captured in the browser.

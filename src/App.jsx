@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import formatAssistantFeedback from "./utils/formatAssistantFeedback";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 
@@ -904,6 +905,9 @@ function Panel({ title, icon, right, children }) {
 
 function ChatBubble({ role, text }) {
   const isUser = role === "user";
+  const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
+  const formatted = !isUser ? formatAssistantFeedback(safeText) : null;
+  const hasRichContent = Boolean(formatted?.html);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -913,7 +917,14 @@ function ChatBubble({ role, text }) {
             : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
         }`}
       >
-        {text}
+        {isUser || !hasRichContent ? (
+          <span className="whitespace-pre-wrap">{safeText}</span>
+        ) : (
+          <div
+            className="assistant-feedback space-y-3 text-[15px] leading-6"
+            dangerouslySetInnerHTML={{ __html: formatted.html }}
+          />
+        )}
       </div>
     </div>
   );

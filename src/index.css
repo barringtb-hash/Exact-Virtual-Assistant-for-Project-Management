@@ -3,3 +3,35 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+
+.assistant-feedback-section {
+  margin-bottom: 0.75rem;
+}
+
+.assistant-feedback-heading {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin-bottom: 0.25rem;
+}
+
+.assistant-feedback-list,
+.assistant-feedback-sublist {
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+
+.assistant-feedback-list {
+  list-style-type: disc;
+}
+
+ol.assistant-feedback-list {
+  list-style-type: decimal;
+}
+
+.assistant-feedback-sublist {
+  list-style-type: circle;
+}
+
+.assistant-feedback-paragraph {
+  margin: 0.25rem 0;
+}

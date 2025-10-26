@@ -77,6 +77,7 @@ export default function ExactVirtualAssistantPM() {
   const [extractError, setExtractError] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
@@ -347,6 +348,61 @@ export default function ExactVirtualAssistantPM() {
       }
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  const addExportLinksMessage = async (baseName = "Project_Charter") => {
+    if (!charterPreview || isGeneratingExportLinks) {
+      return;
+    }
+
+    setIsGeneratingExportLinks(true);
+    try {
+      await validateCharter();
+      const response = await fetch("/api/charter/make-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ charter: charterPreview, baseName }),
+      });
+
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        console.error("Failed to parse /api/charter/make-link response", parseError);
+        throw new Error("Unable to create export links right now.");
+      }
+
+      if (!response.ok) {
+        const message =
+          payload?.error?.message || payload?.message || "Unable to create export links right now.";
+        throw new Error(message);
+      }
+
+      const { docx, pdf } = payload || {};
+      if (!docx || !pdf) {
+        throw new Error("Export link response did not include download URLs.");
+      }
+
+      const safeBaseName = baseName || "Project_Charter";
+      const messageBody = `Here are your export links for ${safeBaseName}:\n- [Download DOCX](${docx})\n- [Download PDF](${pdf})`;
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + Math.random(), role: "assistant", text: messageBody },
+      ]);
+    } catch (error) {
+      console.error("addExportLinksMessage failed", error);
+      const errorMessage = error?.message || "Unable to create export links right now.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + Math.random(),
+          role: "assistant",
+          text: `Export link error: ${errorMessage}`,
+        },
+      ]);
+    } finally {
+      setIsGeneratingExportLinks(false);
     }
   };
 
@@ -1052,6 +1108,18 @@ export default function ExactVirtualAssistantPM() {
                   }`}
                 >
                   {isExportingDocx ? "Preparing DOCX…" : "Export DOCX"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addExportLinksMessage("Project_Charter_v1.0")}
+                  disabled={!charterPreview || isExtracting || isGeneratingExportLinks}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !charterPreview || isExtracting || isGeneratingExportLinks
+                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
+                      : "bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                  }`}
+                >
+                  {isGeneratingExportLinks ? "Creating Links…" : "Make Share Links"}
                 </button>
                 <button
                   type="button"

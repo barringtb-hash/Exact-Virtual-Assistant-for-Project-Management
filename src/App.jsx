@@ -175,30 +175,60 @@ export default function ExactVirtualAssistantPM() {
     error: "Error",
   };
 
-  const showPlanAlert = (message) => {
-    const fallbackMessage =
-      "Please review the Required Fields in the Design & Development Plan (focus on Milestones) before exporting.";
-    if (typeof window !== "undefined" && typeof window.alert === "function") {
-      window.alert(message || fallbackMessage);
-      return;
-    }
-    console.warn(message || fallbackMessage);
+  const appendAssistantMessage = (text) => {
+    const safeText = typeof text === "string" ? text.trim() : "";
+    if (!safeText) return;
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now() + Math.random(), role: "assistant", text: safeText },
+    ]);
   };
 
-  const createPlanError = (message, originalError) => {
-    const error = new Error(message);
-    error.__planAlertShown = true;
-    if (originalError && error.cause === undefined) {
-      error.cause = originalError;
+  const appendUserMessageToChat = (text) => {
+    const safeText = typeof text === "string" ? text.trim() : "";
+    if (!safeText) return null;
+    const entry = { id: Date.now() + Math.random(), role: "user", text: safeText };
+    setMessages((prev) => [...prev, entry]);
+    return entry;
+  };
+
+  const shareLinksNotConfiguredMessage =
+    "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
+
+  const formatValidationErrorsForChat = (errors = []) => {
+    if (!Array.isArray(errors) || errors.length === 0) {
+      return [
+        "I couldn’t validate the project charter. Please review the required fields in the Design & Development Plan.",
+      ];
     }
-    return error;
+
+    return errors
+      .map((error) => {
+        const rawPath = typeof error?.instancePath === "string" ? error.instancePath : error?.path;
+        const cleanedPath = rawPath ? rawPath.replace(/^\//, "").replace(/\//g, " › ") : "";
+        const message = error?.message || "needs attention.";
+        return cleanedPath ? `${cleanedPath} – ${message}` : message;
+      })
+      .filter(Boolean);
+  };
+
+  const postValidationErrorsToChat = (errors = []) => {
+    const bulletLines = formatValidationErrorsForChat(errors);
+    const message = [
+      "I couldn’t validate the project charter. Please review the following:",
+      ...bulletLines.map((line) => `- ${line}`),
+    ].join("\n");
+    appendAssistantMessage(message);
   };
 
   const validateCharter = async () => {
     if (!charterPreview) {
-      const noDataMessage = "No charter data available. Generate a draft before exporting.";
-      showPlanAlert(noDataMessage);
-      throw createPlanError(noDataMessage);
+      return {
+        ok: false,
+        errors: [
+          { message: "No charter data available. Generate a draft before exporting." },
+        ],
+      };
     }
 
     let response;
@@ -209,9 +239,14 @@ export default function ExactVirtualAssistantPM() {
         body: JSON.stringify(charterPreview),
       });
     } catch (error) {
-      const networkMessage = "Unable to validate the charter. Please try again.";
-      showPlanAlert(networkMessage);
-      throw createPlanError(networkMessage, error);
+      console.error("Unable to reach /api/charter/validate", error);
+      return {
+        ok: false,
+        errors: [
+          { message: "Unable to validate the charter. Please try again." },
+        ],
+        cause: error,
+      };
     }
 
     let payload = null;
@@ -222,185 +257,173 @@ export default function ExactVirtualAssistantPM() {
     }
 
     if (!response.ok || payload?.ok !== true) {
-      const validationErrors = Array.isArray(payload?.errors)
+      const structuredErrors = Array.isArray(payload?.errors)
         ? payload.errors
-            .map((item) => {
-              const path = item?.instancePath ? `${item.instancePath} ` : "";
-              return `${path}${item?.message || "is invalid"}`.trim();
-            })
-            .filter(Boolean)
+            .map((item) => ({
+              instancePath: item?.instancePath,
+              message: item?.message,
+            }))
+            .filter((item) => item.message)
         : [];
-      const message =
-        validationErrors.length > 0
-          ? `Charter validation failed. Please review the Required Fields in the Design & Development Plan:\n- ${validationErrors.join(
-              "\n- "
-            )}`
-          : payload?.error || "Charter validation failed. Please review the Required Fields in the Design & Development Plan.";
-      showPlanAlert(message);
-      throw createPlanError(message);
-    }
 
-    return true;
-  };
-
-  const downloadBlobFromResponse = async (response, fallbackFilename) => {
-    const disposition = response.headers?.get?.("Content-Disposition");
-    const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
-    const encodedFilename = filenameMatch?.[1];
-    if (typeof window === "undefined") {
-      console.warn("Download helpers require a browser environment.");
-      return;
-    }
-
-    let decodedFilename = null;
-    if (encodedFilename) {
-      try {
-        decodedFilename = decodeURIComponent(encodedFilename.replace(/"/g, ""));
-      } catch (error) {
-        console.error("Failed to decode filename from response", error);
+      if (structuredErrors.length === 0) {
+        structuredErrors.push({
+          message:
+            payload?.error ||
+            payload?.message ||
+            "Charter validation failed. Please review the Required Fields in the Design & Development Plan.",
+        });
       }
-    }
-    const filename = decodedFilename || fallbackFilename || "download";
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+      return { ok: false, errors: structuredErrors, payload };
+    }
+
+    return { ok: true, payload };
   };
 
-  const exportDocx = async () => {
-    if (!charterPreview || isExportingDocx) {
-      return;
+  const pingShareLinkHealth = async () => {
+    try {
+      const response = await fetch("/api/charter/health");
+      await response.json().catch(() => ({}));
+      return response.ok;
+    } catch (error) {
+      console.error("/api/charter/health request failed", error);
+      return false;
+    }
+  };
+
+  const makeShareLinksAndReply = async ({
+    baseName = "Project_Charter",
+    includeDocx = true,
+    includePdf = true,
+    introText,
+  } = {}) => {
+    const validation = await validateCharter();
+    if (!validation.ok) {
+      postValidationErrorsToChat(validation.errors);
+      return { ok: false, reason: "validation" };
+    }
+
+    let response;
+    try {
+      response = await fetch("/api/charter/make-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ charter: charterPreview, baseName }),
+      });
+    } catch (networkError) {
+      console.error("/api/charter/make-link network error", networkError);
+      appendAssistantMessage(
+        "Export link error: Unable to create export links right now. Please try again shortly."
+      );
+      return { ok: false, reason: "network", error: networkError };
+    }
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (parseError) {
+      console.error("Failed to parse /api/charter/make-link response", parseError);
+    }
+
+    if (!response.ok) {
+      const fallbackMessage =
+        payload?.error?.message ||
+        payload?.message ||
+        "Unable to create export links right now.";
+
+      if (response.status >= 500) {
+        await pingShareLinkHealth();
+        appendAssistantMessage(
+          `${fallbackMessage}\n\n${shareLinksNotConfiguredMessage}`
+        );
+      } else {
+        appendAssistantMessage(`Export link error: ${fallbackMessage}`);
+      }
+
+      return { ok: false, reason: "http", status: response.status, payload };
+    }
+
+    const docxLink = payload?.docx;
+    const pdfLink = payload?.pdf;
+
+    const lines = [];
+    if (includeDocx) {
+      if (!docxLink) {
+        appendAssistantMessage("Export link error: The DOCX link was missing from the response.");
+        return { ok: false, reason: "missing-docx" };
+      }
+      lines.push(`- [Download DOCX](${docxLink})`);
+    }
+    if (includePdf) {
+      if (!pdfLink) {
+        appendAssistantMessage("Export link error: The PDF link was missing from the response.");
+        return { ok: false, reason: "missing-pdf" };
+      }
+      lines.push(`- [Download PDF](${pdfLink})`);
+    }
+
+    if (lines.length === 0) {
+      appendAssistantMessage("Export link error: No formats were requested.");
+      return { ok: false, reason: "no-formats" };
+    }
+
+    const safeBaseName = baseName || "Project_Charter";
+    const heading = introText || `Here are your export links for ${safeBaseName}:`;
+    const message = `${heading}\n${lines.join("\n")}`;
+    appendAssistantMessage(message);
+
+    return { ok: true, links: { docx: docxLink, pdf: pdfLink } };
+  };
+
+  const exportDocxViaChat = async (baseName = "Project_Charter") => {
+    if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
+      return { ok: false, reason: "busy" };
     }
 
     setIsExportingDocx(true);
     try {
-      await validateCharter();
-      const response = await fetch("/api/charter/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(charterPreview),
+      return await makeShareLinksAndReply({
+        baseName,
+        includeDocx: true,
+        includePdf: false,
+        introText: `Here’s your DOCX download for ${baseName}:`,
       });
-
-      if (!response.ok) {
-        let payload = null;
-        try {
-          payload = await response.json();
-        } catch (parseError) {
-          console.error("Failed to parse /api/charter/render response", parseError);
-        }
-        const message =
-          payload?.error?.message ||
-          "Unable to export the Project Charter (DOCX). Please review the Required Fields in the Design & Development Plan.";
-        showPlanAlert(message);
-        return;
-      }
-
-      await downloadBlobFromResponse(response, "project_charter.docx");
-    } catch (error) {
-      console.error("exportDocx failed", error);
-      if (error?.message && !error?.__planAlertShown) {
-        showPlanAlert(error.message);
-      }
     } finally {
       setIsExportingDocx(false);
     }
   };
 
-  const exportPdf = async () => {
-    if (!charterPreview || isExportingPdf) {
-      return;
+  const exportPdfViaChat = async (baseName = "Project_Charter") => {
+    if (isExportingPdf || isGeneratingExportLinks || isExportingDocx) {
+      return { ok: false, reason: "busy" };
     }
 
     setIsExportingPdf(true);
     try {
-      await validateCharter();
-      const response = await fetch("/api/export/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(charterPreview),
+      return await makeShareLinksAndReply({
+        baseName,
+        includeDocx: false,
+        includePdf: true,
+        introText: `Here’s your PDF download for ${baseName}:`,
       });
-
-      if (!response.ok) {
-        let payload = null;
-        try {
-          payload = await response.json();
-        } catch (parseError) {
-          console.error("Failed to parse /api/export/pdf response", parseError);
-        }
-        const message =
-          payload?.error?.message ||
-          "Unable to export the Project Charter (PDF). Please review the Required Fields in the Design & Development Plan.";
-        showPlanAlert(message);
-        return;
-      }
-
-      await downloadBlobFromResponse(response, "project_charter.pdf");
-    } catch (error) {
-      console.error("exportPdf failed", error);
-      if (error?.message && !error?.__planAlertShown) {
-        showPlanAlert(error.message);
-      }
     } finally {
       setIsExportingPdf(false);
     }
   };
 
-  const addExportLinksMessage = async (baseName = "Project_Charter") => {
-    if (!charterPreview || isGeneratingExportLinks) {
-      return;
+  const shareLinksViaChat = async (baseName = "Project_Charter") => {
+    if (isGeneratingExportLinks || isExportingDocx || isExportingPdf) {
+      return { ok: false, reason: "busy" };
     }
 
     setIsGeneratingExportLinks(true);
     try {
-      await validateCharter();
-      const response = await fetch("/api/charter/make-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ charter: charterPreview, baseName }),
+      return await makeShareLinksAndReply({
+        baseName,
+        includeDocx: true,
+        includePdf: true,
       });
-
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (parseError) {
-        console.error("Failed to parse /api/charter/make-link response", parseError);
-        throw new Error("Unable to create export links right now.");
-      }
-
-      if (!response.ok) {
-        const message =
-          payload?.error?.message || payload?.message || "Unable to create export links right now.";
-        throw new Error(message);
-      }
-
-      const { docx, pdf } = payload || {};
-      if (!docx || !pdf) {
-        throw new Error("Export link response did not include download URLs.");
-      }
-
-      const safeBaseName = baseName || "Project_Charter";
-      const messageBody = `Here are your export links for ${safeBaseName}:\n- [Download DOCX](${docx})\n- [Download PDF](${pdf})`;
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + Math.random(), role: "assistant", text: messageBody },
-      ]);
-    } catch (error) {
-      console.error("addExportLinksMessage failed", error);
-      const errorMessage = error?.message || "Unable to create export links right now.";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + Math.random(),
-          role: "assistant",
-          text: `Export link error: ${errorMessage}`,
-        },
-      ]);
     } finally {
       setIsGeneratingExportLinks(false);
     }
@@ -481,7 +504,7 @@ export default function ExactVirtualAssistantPM() {
       const dataChannel = pc.createDataChannel("oai-events");
       dataRef.current = dataChannel;
 
-      dataChannel.onmessage = (event) => {
+      dataChannel.onmessage = async (event) => {
         const payload = event?.data;
         let transcript = "";
         if (typeof payload === "string") {
@@ -504,10 +527,12 @@ export default function ExactVirtualAssistantPM() {
           transcript = payload.text;
         }
         if (transcript) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now() + Math.random(), role: "assistant", text: transcript },
-          ]);
+          const trimmedTranscript = transcript.trim();
+          if (!trimmedTranscript) return;
+          const handled = await handleCommandFromText(trimmedTranscript);
+          if (!handled) {
+            appendUserMessageToChat(trimmedTranscript);
+          }
         }
       };
 
@@ -600,8 +625,12 @@ export default function ExactVirtualAssistantPM() {
           });
           const data = await res.json().catch(() => ({}));
           const transcript = data?.transcript ?? data?.text ?? "";
-          if (transcript) {
-            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          const trimmedTranscript = typeof transcript === "string" ? transcript.trim() : "";
+          if (trimmedTranscript) {
+            const handled = await handleCommandFromText(trimmedTranscript);
+            if (!handled) {
+              setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
+            }
           }
         } catch (error) {
           console.error("Transcription failed", error);
@@ -638,15 +667,89 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
+  const defaultShareBaseName = "Project_Charter_v1.0";
+
+  const handleCommandFromText = async (
+    rawText,
+    { userMessageAppended = false, baseName = defaultShareBaseName } = {}
+  ) => {
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    if (!trimmed) return false;
+
+    const normalized = trimmed.toLowerCase();
+    const mentionsDocx = normalized.includes("docx") || normalized.includes("word");
+    const mentionsPdf = normalized.includes("pdf");
+    const mentionsDownload =
+      normalized.includes("download") ||
+      normalized.includes("export") ||
+      normalized.includes("send") ||
+      normalized.includes("get");
+    const mentionsShare =
+      normalized.includes("share link") ||
+      normalized.includes("share the link") ||
+      normalized.includes("share links") ||
+      (normalized.includes("links") && (normalized.includes("share") || normalized.includes("send")));
+
+    const wantsBothFormats = mentionsDocx && mentionsPdf;
+    const wantsDocx = mentionsDocx && (mentionsDownload || normalized.includes("docx link"));
+    const wantsPdf = mentionsPdf && (mentionsDownload || normalized.includes("pdf link"));
+    const wantsShareLinks = mentionsShare || (mentionsDownload && normalized.includes("links"));
+
+    const ensureUserLogged = () => {
+      if (!userMessageAppended) {
+        appendUserMessageToChat(trimmed);
+      }
+    };
+
+    if (wantsBothFormats || wantsShareLinks) {
+      ensureUserLogged();
+      const result = await shareLinksViaChat(baseName);
+      if (result?.reason === "busy") {
+        appendAssistantMessage(
+          "I’m already preparing shareable links. I’ll post them here as soon as they’re ready."
+        );
+      }
+      return true;
+    }
+
+    if (wantsDocx) {
+      ensureUserLogged();
+      const result = await exportDocxViaChat(baseName);
+      if (result?.reason === "busy") {
+        appendAssistantMessage(
+          "I’m already working on DOCX links. I’ll share them here shortly."
+        );
+      }
+      return true;
+    }
+
+    if (wantsPdf) {
+      ensureUserLogged();
+      const result = await exportPdfViaChat(baseName);
+      if (result?.reason === "busy") {
+        appendAssistantMessage(
+          "I’m already working on PDF links. I’ll share them here shortly."
+        );
+      }
+      return true;
+    }
+
+    return false;
+  };
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
     if (isAssistantThinking) return;
     const isLLMEnabled = useLLM;
-    const userMsg = { id: Date.now(), role: "user", text };
+    const userMsg = { id: Date.now() + Math.random(), role: "user", text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     setInput("");
+    const handled = await handleCommandFromText(text, { userMessageAppended: true });
+    if (handled) {
+      return;
+    }
     let reply = "";
     if (isLLMEnabled) {
       setIsAssistantThinking(true);
@@ -660,7 +763,7 @@ export default function ExactVirtualAssistantPM() {
     } else {
       reply = mockAssistantReply(text);
     }
-    setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
+    appendAssistantMessage(reply || "");
   };
 
   const handleSummarizeAttachments = async () => {
@@ -1099,10 +1202,20 @@ export default function ExactVirtualAssistantPM() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={exportDocx}
-                  disabled={!charterPreview || isExtracting || isExportingDocx}
+                  onClick={() => exportDocxViaChat(defaultShareBaseName)}
+                  disabled={
+                    !charterPreview ||
+                    isExtracting ||
+                    isExportingDocx ||
+                    isGeneratingExportLinks ||
+                    isExportingPdf
+                  }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview || isExtracting || isExportingDocx
+                    !charterPreview ||
+                    isExtracting ||
+                    isExportingDocx ||
+                    isGeneratingExportLinks ||
+                    isExportingPdf
                       ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
                       : "bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                   }`}
@@ -1111,10 +1224,20 @@ export default function ExactVirtualAssistantPM() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => addExportLinksMessage("Project_Charter_v1.0")}
-                  disabled={!charterPreview || isExtracting || isGeneratingExportLinks}
+                  onClick={() => shareLinksViaChat(defaultShareBaseName)}
+                  disabled={
+                    !charterPreview ||
+                    isExtracting ||
+                    isGeneratingExportLinks ||
+                    isExportingDocx ||
+                    isExportingPdf
+                  }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview || isExtracting || isGeneratingExportLinks
+                    !charterPreview ||
+                    isExtracting ||
+                    isGeneratingExportLinks ||
+                    isExportingDocx ||
+                    isExportingPdf
                       ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
                       : "bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                   }`}
@@ -1123,10 +1246,20 @@ export default function ExactVirtualAssistantPM() {
                 </button>
                 <button
                   type="button"
-                  onClick={exportPdf}
-                  disabled={!charterPreview || isExtracting || isExportingPdf}
+                  onClick={() => exportPdfViaChat(defaultShareBaseName)}
+                  disabled={
+                    !charterPreview ||
+                    isExtracting ||
+                    isExportingPdf ||
+                    isGeneratingExportLinks ||
+                    isExportingDocx
+                  }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview || isExtracting || isExportingPdf
+                    !charterPreview ||
+                    isExtracting ||
+                    isExportingPdf ||
+                    isGeneratingExportLinks ||
+                    isExportingDocx
                       ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
                       : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600"
                   }`}

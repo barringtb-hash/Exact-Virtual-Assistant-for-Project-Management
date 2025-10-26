@@ -47,9 +47,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid download token" });
   }
 
-  const { charter, filenameBase } = payload || {};
+  const { charter, filenameBase, exp } = payload || {};
   if (!charter || typeof charter !== "object" || Array.isArray(charter)) {
     return res.status(400).json({ error: "Invalid charter payload" });
+  }
+
+  if (!isValidExpiry(exp)) {
+    return res.status(410).json({ error: "Download link expired" });
   }
 
   const safeBase = sanitizeFilename(
@@ -147,4 +151,13 @@ function decodeBase64UrlPayload(token) {
 
 function sanitizeFilename(value) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+function isValidExpiry(expiry) {
+  if (typeof expiry !== "number" || !Number.isFinite(expiry)) {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return expiry >= now;
 }

@@ -31,6 +31,13 @@ test("linkifyMarkdownLinks escapes non-link HTML", () => {
   const output = linkifyMarkdownLinks(input);
   assert.equal(
     output,
-    'Use &lt;b&gt;bold&lt;/b&gt; and <a href="javascript:alert(1)" class="assistant-feedback-link">safe</a>'
+    'Use &lt;b&gt;bold&lt;/b&gt; and [safe](javascript:alert(1))'
   );
+});
+
+
+test("linkifyMarkdownLinks leaves unsupported protocols as text", () => {
+  const input = "Contact [me](mailto:test@example.com)";
+  const output = linkifyMarkdownLinks(input);
+  assert.equal(output, 'Contact [me](mailto:test@example.com)');
 });

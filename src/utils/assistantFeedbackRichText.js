@@ -7,6 +7,30 @@ export function escapeHtml(input) {
     .replace(/'/g, "&#39;");
 }
 
+function isSafeHref(url) {
+  if (!url) {
+    return false;
+  }
+
+  if (/^https?:\/\//i.test(url)) {
+    return true;
+  }
+
+  if (url.startsWith('/')) {
+    return true;
+  }
+
+  if (url.startsWith('./') || url.startsWith('../')) {
+    return true;
+  }
+
+  if (url.startsWith('#') || url.startsWith('?')) {
+    return true;
+  }
+
+  return !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url);
+}
+
 export function linkifyMarkdownLinks(input) {
   if (!input) {
     return "";
@@ -63,7 +87,7 @@ export function linkifyMarkdownLinks(input) {
     const trimmedUrl = (urlRaw || "").trim();
     const trimmedLabel = (labelRaw || "").trim();
 
-    if (!trimmedUrl) {
+    if (!trimmedUrl || !isSafeHref(trimmedUrl)) {
       result += escapeHtml(input.slice(openBracket, cursor));
     } else {
       const escapedLabel = escapeHtml(trimmedLabel);

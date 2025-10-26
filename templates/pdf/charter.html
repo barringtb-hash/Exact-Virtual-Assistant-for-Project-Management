@@ -117,7 +117,7 @@
   <body>
     <header>
       <h1>Project Charter</h1>
-      <div class="meta">Generated on {{today}}</div>
+      <div class="meta">Generated on {{generatedOn}}</div>
     </header>
 
     <section>
@@ -125,7 +125,7 @@
       <div class="grid">
         <div class="card">
           <span class="label">Project Name</span>
-          <span class="value">{{project_name}}</span>
+          <span class="value">{{projectName}}</span>
         </div>
         <div class="card">
           <span class="label">Sponsor</span>
@@ -133,15 +133,15 @@
         </div>
         <div class="card">
           <span class="label">Project Lead</span>
-          <span class="value">{{project_lead}}</span>
+          <span class="value">{{projectLead}}</span>
         </div>
         <div class="card">
           <span class="label">Start Date</span>
-          <span class="value">{{start_date}}</span>
+          <span class="value">{{startDate}}</span>
         </div>
         <div class="card">
           <span class="label">Target Completion</span>
-          <span class="value">{{end_date}}</span>
+          <span class="value">{{endDate}}</span>
         </div>
       </div>
     </section>
@@ -173,23 +173,23 @@
         <div class="card">
           <span class="label">In Scope</span>
           <ul>
-            {{#scope_in}}
+            {{#scopeIn}}
             <li>{{.}}</li>
-            {{/scope_in}}
-            {{^scope_in}}
+            {{/scopeIn}}
+            {{^scopeIn}}
             <li class="muted">(none provided)</li>
-            {{/scope_in}}
+            {{/scopeIn}}
           </ul>
         </div>
         <div class="card">
           <span class="label">Out of Scope</span>
           <ul>
-            {{#scope_out}}
+            {{#scopeOut}}
             <li>{{.}}</li>
-            {{/scope_out}}
-            {{^scope_out}}
+            {{/scopeOut}}
+            {{^scopeOut}}
             <li class="muted">(none provided)</li>
-            {{/scope_out}}
+            {{/scopeOut}}
           </ul>
         </div>
       </div>
@@ -210,7 +210,7 @@
           <tr>
             <td>{{phase}}</td>
             <td>{{deliverable}}</td>
-            <td>{{date}}</td>
+            <td>{{dateDisplay}}</td>
           </tr>
           {{/milestones}}
           {{^milestones}}
@@ -233,18 +233,18 @@
           </tr>
         </thead>
         <tbody>
-          {{#success_metrics}}
+          {{#successMetrics}}
           <tr>
             <td>{{benefit}}</td>
             <td>{{metric}}</td>
             <td>{{system_of_measurement}}</td>
           </tr>
-          {{/success_metrics}}
-          {{^success_metrics}}
+          {{/successMetrics}}
+          {{^successMetrics}}
           <tr>
             <td class="muted" colspan="3">(none provided)</td>
           </tr>
-          {{/success_metrics}}
+          {{/successMetrics}}
         </tbody>
       </table>
     </section>
@@ -260,7 +260,7 @@
           </tr>
         </thead>
         <tbody>
-          {{#core_team}}
+          {{#coreTeam}}
           <tr>
             <td>{{name}}</td>
             <td>{{role}}</td>
@@ -273,12 +273,12 @@
               {{/responsibilities}}
             </td>
           </tr>
-          {{/core_team}}
-          {{^core_team}}
+          {{/coreTeam}}
+          {{^coreTeam}}
           <tr>
             <td class="muted" colspan="3">(none provided)</td>
           </tr>
-          {{/core_team}}
+          {{/coreTeam}}
         </tbody>
       </table>
     </section>

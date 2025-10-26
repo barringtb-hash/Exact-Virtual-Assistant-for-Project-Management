@@ -420,14 +420,13 @@ export default function ExactVirtualAssistantPM() {
         reply = await callLLM(text, nextHistory, attachments);
       } catch (e) {
         reply = "LLM error (demo): " + (e?.message || "unknown");
+      } finally {
+        setIsAssistantThinking(false);
       }
     } else {
       reply = mockAssistantReply(text);
     }
     setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
-    if (isLLMEnabled) {
-      setIsAssistantThinking(false);
-    }
   };
 
   const handleSummarizeAttachments = async () => {

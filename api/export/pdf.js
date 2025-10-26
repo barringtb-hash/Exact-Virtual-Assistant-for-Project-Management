@@ -9,26 +9,20 @@ export const config = {
   memory: 1024,
 };
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Method Not Allowed" });
-    return;
-  }
+export async function renderPdfBuffer(charter) {
+  const templatePath = path.join(
+    process.cwd(),
+    "templates",
+    "charter-export.html.mustache"
+  );
+  const template = await fs.readFile(templatePath, "utf8");
+  const templateData = buildTemplateData(charter);
+  const html = Mustache.render(template, templateData);
 
   let browser;
   let page;
 
   try {
-    const charter = parseCharterBody(req);
-    const templatePath = path.join(
-      process.cwd(),
-      "templates",
-      "charter-export.html.mustache"
-    );
-    const template = await fs.readFile(templatePath, "utf8");
-    const templateData = buildTemplateData(charter);
-    const html = Mustache.render(template, templateData);
-
     browser = await launchBrowser();
     page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
@@ -44,27 +38,7 @@ export default async function handler(req, res) {
       },
     });
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      "attachment; filename=project_charter.pdf"
-    );
-    res.status(200).send(Buffer.from(pdfBuffer));
-  } catch (error) {
-    if (
-      error?.name === "InvalidCharterPayloadError" &&
-      error?.statusCode === 400
-    ) {
-      console.error("invalid charter payload for pdf", error);
-      res.status(400).json({
-        error: error.message,
-        details: error.details || undefined,
-      });
-      return;
-    }
-
-    console.error("failed to export charter pdf", error);
-    res.status(500).json({ error: "Failed to generate charter PDF" });
+    return Buffer.from(pdfBuffer);
   } finally {
     try {
       if (page) {
@@ -81,6 +55,40 @@ export default async function handler(req, res) {
     } catch (browserCloseError) {
       console.error("failed to close browser", browserCloseError);
     }
+  }
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method Not Allowed" });
+    return;
+  }
+
+  try {
+    const charter = parseCharterBody(req);
+    const pdfBuffer = await renderPdfBuffer(charter);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=project_charter.pdf"
+    );
+    res.status(200).send(pdfBuffer);
+  } catch (error) {
+    if (
+      error?.name === "InvalidCharterPayloadError" &&
+      error?.statusCode === 400
+    ) {
+      console.error("invalid charter payload for pdf", error);
+      res.status(400).json({
+        error: error.message,
+        details: error.details || undefined,
+      });
+      return;
+    }
+
+    console.error("failed to export charter pdf", error);
+    res.status(500).json({ error: "Failed to generate charter PDF" });
   }
 }
 

@@ -130,6 +130,10 @@ export function formatDocRenderError(error) {
   };
 }
 
+export function isDocRenderValidationError(error) {
+  return Array.isArray(error?.properties?.errors);
+}
+
 function createInvalidCharterError(message, originalError) {
   const details = originalError?.message;
   const error = new Error(message);

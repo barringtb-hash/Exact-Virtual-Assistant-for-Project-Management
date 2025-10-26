@@ -1,5 +1,9 @@
 import crypto from "crypto";
-import { renderDocxBuffer, formatDocRenderError } from "./render.js";
+import {
+  renderDocxBuffer,
+  formatDocRenderError,
+  isDocRenderValidationError,
+} from "./render.js";
 import { renderPdfBuffer } from "../export/pdf.js";
 
 export const config = {
@@ -61,9 +65,16 @@ export default async function handler(req, res) {
       try {
         buffer = await renderDocxBuffer(charter);
       } catch (renderError) {
-        const payload = formatDocRenderError(renderError);
-        console.error("charter download docx render validation failed", renderError);
-        return res.status(400).json(payload);
+        if (isDocRenderValidationError(renderError)) {
+          const payload = formatDocRenderError(renderError);
+          console.error(
+            "charter download docx render validation failed",
+            renderError
+          );
+          return res.status(400).json(payload);
+        }
+
+        throw renderError;
       }
       contentType =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document";

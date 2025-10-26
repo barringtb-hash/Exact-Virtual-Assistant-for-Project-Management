@@ -784,8 +784,13 @@ export default function ExactVirtualAssistantPM() {
                       </button>
                       <button
                         onClick={handleSend}
-                        className="shrink-0 p-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                        title="Send"
+                        disabled={isAssistantThinking}
+                        className={`shrink-0 p-2 rounded-xl shadow-sm transition ${
+                          isAssistantThinking
+                            ? "bg-slate-500/70 text-white/80 cursor-not-allowed opacity-60 dark:bg-indigo-300/60 dark:text-slate-200"
+                            : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                        }`}
+                        title={isAssistantThinking ? "Assistant is responding…" : "Send"}
                       >
                         <IconSend className="h-5 w-5" />
                       </button>

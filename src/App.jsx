@@ -75,6 +75,8 @@ export default function ExactVirtualAssistantPM() {
   const [charterPreview, setCharterPreview] = useState(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState(null);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
@@ -170,6 +172,182 @@ export default function ExactVirtualAssistantPM() {
     connecting: "Connecting",
     live: "Live",
     error: "Error",
+  };
+
+  const showPlanAlert = (message) => {
+    const fallbackMessage =
+      "Please review the Required Fields in the Design & Development Plan (focus on Milestones) before exporting.";
+    if (typeof window !== "undefined" && typeof window.alert === "function") {
+      window.alert(message || fallbackMessage);
+      return;
+    }
+    console.warn(message || fallbackMessage);
+  };
+
+  const createPlanError = (message, originalError) => {
+    const error = new Error(message);
+    error.__planAlertShown = true;
+    if (originalError && error.cause === undefined) {
+      error.cause = originalError;
+    }
+    return error;
+  };
+
+  const validateCharter = async () => {
+    if (!charterPreview) {
+      const noDataMessage = "No charter data available. Generate a draft before exporting.";
+      showPlanAlert(noDataMessage);
+      throw createPlanError(noDataMessage);
+    }
+
+    let response;
+    try {
+      response = await fetch("/api/charter/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(charterPreview),
+      });
+    } catch (error) {
+      const networkMessage = "Unable to validate the charter. Please try again.";
+      showPlanAlert(networkMessage);
+      throw createPlanError(networkMessage, error);
+    }
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (parseError) {
+      console.error("Failed to parse /api/charter/validate response", parseError);
+    }
+
+    if (!response.ok || payload?.ok !== true) {
+      const validationErrors = Array.isArray(payload?.errors)
+        ? payload.errors
+            .map((item) => {
+              const path = item?.instancePath ? `${item.instancePath} ` : "";
+              return `${path}${item?.message || "is invalid"}`.trim();
+            })
+            .filter(Boolean)
+        : [];
+      const message =
+        validationErrors.length > 0
+          ? `Charter validation failed. Please review the Required Fields in the Design & Development Plan:\n- ${validationErrors.join(
+              "\n- "
+            )}`
+          : payload?.error || "Charter validation failed. Please review the Required Fields in the Design & Development Plan.";
+      showPlanAlert(message);
+      throw createPlanError(message);
+    }
+
+    return true;
+  };
+
+  const downloadBlobFromResponse = async (response, fallbackFilename) => {
+    const disposition = response.headers?.get?.("Content-Disposition");
+    const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+    const encodedFilename = filenameMatch?.[1];
+    if (typeof window === "undefined") {
+      console.warn("Download helpers require a browser environment.");
+      return;
+    }
+
+    let decodedFilename = null;
+    if (encodedFilename) {
+      try {
+        decodedFilename = decodeURIComponent(encodedFilename.replace(/"/g, ""));
+      } catch (error) {
+        console.error("Failed to decode filename from response", error);
+      }
+    }
+    const filename = decodedFilename || fallbackFilename || "download";
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportDocx = async () => {
+    if (!charterPreview || isExportingDocx) {
+      return;
+    }
+
+    setIsExportingDocx(true);
+    try {
+      await validateCharter();
+      const response = await fetch("/api/charter/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(charterPreview),
+      });
+
+      if (!response.ok) {
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          console.error("Failed to parse /api/charter/render response", parseError);
+        }
+        const message =
+          payload?.error?.message ||
+          "Unable to export the Project Charter (DOCX). Please review the Required Fields in the Design & Development Plan.";
+        showPlanAlert(message);
+        return;
+      }
+
+      await downloadBlobFromResponse(response, "project_charter.docx");
+    } catch (error) {
+      console.error("exportDocx failed", error);
+      if (error?.message && !error?.__planAlertShown) {
+        showPlanAlert(error.message);
+      }
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!charterPreview || isExportingPdf) {
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      await validateCharter();
+      const response = await fetch("/api/export/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(charterPreview),
+      });
+
+      if (!response.ok) {
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          console.error("Failed to parse /api/export/pdf response", parseError);
+        }
+        const message =
+          payload?.error?.message ||
+          "Unable to export the Project Charter (PDF). Please review the Required Fields in the Design & Development Plan.";
+        showPlanAlert(message);
+        return;
+      }
+
+      await downloadBlobFromResponse(response, "project_charter.pdf");
+    } catch (error) {
+      console.error("exportPdf failed", error);
+      if (error?.message && !error?.__planAlertShown) {
+        showPlanAlert(error.message);
+      }
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   const cleanupRealtime = () => {
@@ -861,6 +1039,32 @@ export default function ExactVirtualAssistantPM() {
                 {isExtracting && (
                   <div className="text-xs text-slate-500">Extracting charter insights…</div>
                 )}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportDocx}
+                  disabled={!charterPreview || isExtracting || isExportingDocx}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !charterPreview || isExtracting || isExportingDocx
+                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
+                      : "bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                  }`}
+                >
+                  {isExportingDocx ? "Preparing DOCX…" : "Export DOCX"}
+                </button>
+                <button
+                  type="button"
+                  onClick={exportPdf}
+                  disabled={!charterPreview || isExtracting || isExportingPdf}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !charterPreview || isExtracting || isExportingPdf
+                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
+                      : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600"
+                  }`}
+                >
+                  {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
+                </button>
               </div>
               {extractError && (
                 <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">

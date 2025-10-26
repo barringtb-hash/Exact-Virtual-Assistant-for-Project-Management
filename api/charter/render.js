@@ -13,28 +13,39 @@ export const config = {
   memory: 1024,
 };
 
+export async function renderDocxBuffer(charter) {
+  const templatePath = path.join(
+    process.cwd(),
+    "templates",
+    "project_charter_tokens.docx"
+  );
+  const content = await fs.readFile(templatePath);
+  const zip = new PizZip(content);
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+  });
+
+  doc.setData(charter);
+  doc.render();
+
+  return doc.getZip().generate({ type: "nodebuffer" });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
   try {
     const charter = parseCharterBody(req);
-    const templatePath = path.join(process.cwd(), "templates", "project_charter_tokens.docx");
-    const content = await fs.readFile(templatePath);
-    const zip = new PizZip(content);
-    const doc = new Docxtemplater(zip, {
-      paragraphLoop: true,
-      linebreaks: true,
-    });
+    let buf;
     try {
-      doc.setData(charter);
-      doc.render();
+      buf = await renderDocxBuffer(charter);
     } catch (renderError) {
       const payload = formatDocRenderError(renderError);
       console.error("charter render validation failed", renderError);
       return res.status(400).json(payload);
     }
-    const buf = doc.getZip().generate({ type: "nodebuffer" });
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -94,7 +105,7 @@ function parseCharterBody(req) {
   throw createInvalidCharterError("Request body must be a JSON object.");
 }
 
-function formatDocRenderError(error) {
+export function formatDocRenderError(error) {
   const details = [];
   const explanations = error?.properties?.errors;
   if (Array.isArray(explanations)) {
@@ -117,6 +128,10 @@ function formatDocRenderError(error) {
       details: details.length > 1 ? details : details[0],
     },
   };
+}
+
+export function isDocRenderValidationError(error) {
+  return Array.isArray(error?.properties?.errors);
 }
 
 function createInvalidCharterError(message, originalError) {

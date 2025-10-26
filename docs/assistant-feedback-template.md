@@ -21,3 +21,7 @@ import AssistantFeedbackTemplate from "../components/AssistantFeedbackTemplate";
 ```
 
 This component is now used by the chat bubble for assistant responses, guaranteeing that all assistant feedback leverages the formatter and consistent styling before reaching the UI.
+
+## Markdown link rendering
+
+Chat-first export flows add Markdown-formatted anchors (for example, `[Download DOCX](https://example.com/...)`) directly into assistant replies. The template now pipes responses through a lightweight Markdown-to-HTML helper that only converts link syntax, sanitizes the result with DOMPurify, and renders the safe HTML via `dangerouslySetInnerHTML`. This keeps new charter download links clickable in the transcript while guarding against untrusted markup.

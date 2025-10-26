@@ -9,7 +9,7 @@
 ## Frontend (`src/`)
 - `src/App.jsx`
   - Owns application state for messages, draft input, attachment metadata, feature toggles, theme preference, and charter preview data.
-  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes. A new `THEME_STORAGE_KEY` constant persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange.
+  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes. A new `THEME_STORAGE_KEY` constant persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The latest patch also adds a chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, and `shareLinksViaChat`) so textual or spoken requests for exports immediately validate the charter and post signed download links back into the conversation.
   - Renders chat composer, transcript, attachment chips, charter preview tabs, realtime voice controls, and the appearance selector in the footer.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
@@ -29,6 +29,12 @@
   - Reads `templates/project_charter_tokens.docx`, merges provided charter data with Docxtemplater, and streams the generated DOCX file.
 - `api/charter/validate.js`
   - Uses Ajv + `templates/charter.schema.json` to validate charter payloads, returning `{ ok: true }` or detailed validation errors.
+- `api/charter/make-link.js`
+  - Generates short-lived, fully-qualified DOCX/PDF download URLs by signing payloads with `FILES_LINK_SECRET` and encoding an expiry timestamp alongside the charter metadata.
+- `api/charter/download.js`
+  - Verifies the signed token, enforces the expiry window, and streams the requested document; expired tokens return HTTP 403 with a helpful error.
+- `api/charter/health.js`
+  - Lightweight probe that reports whether `FILES_LINK_SECRET` is present so the UI can surface actionable chat guidance when export links are unavailable.
 
 ## Templates (`templates/`)
 - `extract_prompt.txt` – System prompt directing the model on how to populate charter fields.

@@ -1,12 +1,7 @@
-let createDOMPurify;
-try {
-  const mod = await import("dompurify");
-  createDOMPurify = mod?.default ?? mod;
-} catch (error) {
-  createDOMPurify = null;
-}
-
+let createDOMPurify = null;
 let domPurifyInstance = null;
+let importAttempted = false;
+
 const defaultSanitize = (html) =>
   String(html ?? "")
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
@@ -14,14 +9,9 @@ const defaultSanitize = (html) =>
     .replace(/javascript:/gi, "");
 
 let sanitizeImpl = defaultSanitize;
-let initialized = false;
 
-function ensureInitialized() {
-  if (initialized) {
-    return;
-  }
-  initialized = true;
-  if (!createDOMPurify) {
+function tryInitializeDOMPurify() {
+  if (domPurifyInstance || !createDOMPurify) {
     return;
   }
 
@@ -39,17 +29,40 @@ function ensureInitialized() {
   }
 }
 
+function ensureDOMPurifyImported() {
+  if (importAttempted || typeof window === "undefined") {
+    return;
+  }
+
+  importAttempted = true;
+
+  import("dompurify")
+    .then((mod) => {
+      createDOMPurify = mod?.default ?? mod;
+      tryInitializeDOMPurify();
+    })
+    .catch(() => {
+      createDOMPurify = null;
+    });
+}
+
+function ensureSanitizerReady() {
+  ensureDOMPurifyImported();
+  tryInitializeDOMPurify();
+}
+
 export function sanitizeHtml(html) {
-  ensureInitialized();
+  ensureSanitizerReady();
   return sanitizeImpl(html);
 }
 
 export function setSanitizeImplementation(fn) {
   sanitizeImpl = typeof fn === "function" ? fn : defaultSanitize;
-  initialized = true;
+  domPurifyInstance = null;
 }
 
 export function resetSanitizeImplementation() {
   sanitizeImpl = defaultSanitize;
-  initialized = false;
+  domPurifyInstance = null;
+  ensureSanitizerReady();
 }

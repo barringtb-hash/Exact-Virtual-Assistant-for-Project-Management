@@ -666,8 +666,12 @@ export default function ExactVirtualAssistantPM() {
                   {messages.map((m) => (
                     <ChatBubble key={m.id} role={m.role} text={m.text} />
                   ))}
-                  {isAssistantThinking && <AssistantThinkingIndicator />}
                 </div>
+                {isAssistantThinking && (
+                  <div className="px-4 pb-2">
+                    <AssistantThinkingIndicator />
+                  </div>
+                )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
                   <div

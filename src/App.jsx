@@ -1619,7 +1619,7 @@ async function callLLM(text, history = [], contextAttachments = []) {
     const systemMessage = {
       role: "system",
       content:
-        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff."
+        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites."
     };
     const payload = {
       messages: [systemMessage, ...normalizedHistory.slice(-19)],

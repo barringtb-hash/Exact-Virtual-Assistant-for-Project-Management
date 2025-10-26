@@ -74,7 +74,7 @@ const SMALL_ATTACHMENTS_TOKEN_BUDGET = parsePositiveInt(
 );
 
 const BASE_SYSTEM_PROMPT =
-  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff.";
+  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.";
 
 const MAP_SYSTEM_PROMPT =
   "You summarize project attachments. Capture key decisions, owners, deadlines, blockers, and metrics in crisp language. Use bullets only when multiple points exist.";

@@ -47,3 +47,15 @@ ol.assistant-feedback-list {
 .assistant-feedback-paragraph + .assistant-feedback-paragraph {
   margin-top: 0.75rem;
 }
+
+.assistant-feedback-link {
+  color: #1d4ed8;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.assistant-feedback-link:focus,
+.assistant-feedback-link:hover {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

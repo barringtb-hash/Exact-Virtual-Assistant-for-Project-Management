@@ -99,6 +99,8 @@ export default function ExactVirtualAssistantPM() {
     const useDark = mode === "dark" || (mode === "auto" && prefersDark);
     return useDark ? "dark" : "light";
   });
+  const shareLinksHealthRef = useRef({ status: "unknown" });
+  const shareLinksWarningPostedRef = useRef(false);
   // voice picker removed; server uses env OPENAI_REALTIME_VOICE
   const fileInputRef = useRef(null);
   const remoteAudioRef = useRef(null);
@@ -281,15 +283,47 @@ export default function ExactVirtualAssistantPM() {
     return { ok: true, payload };
   };
 
-  const pingShareLinkHealth = async () => {
+  const getShareLinksHealth = async () => {
+    const cachedStatus = shareLinksHealthRef.current?.status;
+    if (cachedStatus === "missing") {
+      return { ok: true, hasSecret: false, cached: true };
+    }
+    if (cachedStatus === "available") {
+      return { ok: true, hasSecret: true, cached: true };
+    }
+
     try {
-      const response = await fetch("/api/charter/health");
-      await response.json().catch(() => ({}));
-      return response.ok;
+      const response = await fetch("/api/charter/health", { method: "GET" });
+      let payload = {};
+      try {
+        payload = (await response.json()) ?? {};
+      } catch (parseError) {
+        console.error("Failed to parse /api/charter/health response", parseError);
+      }
+
+      if (!response.ok) {
+        return { ok: false, status: response.status, payload };
+      }
+
+      const hasSecret = Boolean(payload?.hasSecret);
+      shareLinksHealthRef.current = {
+        status: hasSecret ? "available" : "missing",
+      };
+
+      return { ok: true, hasSecret };
     } catch (error) {
       console.error("/api/charter/health request failed", error);
-      return false;
+      return { ok: false, error };
     }
+  };
+
+  const checkShareLinksConfigured = async () => {
+    const result = await getShareLinksHealth();
+    if (result?.ok && result.hasSecret === false && !shareLinksWarningPostedRef.current) {
+      appendAssistantMessage(shareLinksNotConfiguredMessage);
+      shareLinksWarningPostedRef.current = true;
+    }
+    return result;
   };
 
   const makeShareLinksAndReply = async ({
@@ -316,6 +350,7 @@ export default function ExactVirtualAssistantPM() {
       appendAssistantMessage(
         "Export link error: Unable to create export links right now. Please try again shortly."
       );
+      await checkShareLinksConfigured();
       return { ok: false, reason: "network", error: networkError };
     }
 
@@ -332,14 +367,8 @@ export default function ExactVirtualAssistantPM() {
         payload?.message ||
         "Unable to create export links right now.";
 
-      if (response.status >= 500) {
-        await pingShareLinkHealth();
-        appendAssistantMessage(
-          `${fallbackMessage}\n\n${shareLinksNotConfiguredMessage}`
-        );
-      } else {
-        appendAssistantMessage(`Export link error: ${fallbackMessage}`);
-      }
+      appendAssistantMessage(`Export link error: ${fallbackMessage}`);
+      await checkShareLinksConfigured();
 
       return { ok: false, reason: "http", status: response.status, payload };
     }

@@ -1,5 +1,22 @@
 import React, { useMemo } from "react";
 import formatAssistantFeedback from "../utils/formatAssistantFeedback";
+import {
+  escapeHtml as escapeHtmlBase,
+  linkifyMarkdownLinks as linkifyMarkdownLinksBase,
+  renderRichText as renderRichTextBase,
+} from "../utils/assistantFeedbackRichText";
+
+export function escapeHtml(input) {
+  return escapeHtmlBase(input);
+}
+
+export function linkifyMarkdownLinks(input) {
+  return linkifyMarkdownLinksBase(input);
+}
+
+function renderRichText(content) {
+  return renderRichTextBase(content ?? "");
+}
 
 const DEFAULT_SECTIONS = [
   {
@@ -45,11 +62,19 @@ function renderListItems(items, listType) {
     <ListTag className="assistant-feedback-list">
       {items.map((item, index) => (
         <li key={index}>
-          {item.text}
+          <span
+            className="assistant-feedback-list-item-text"
+            dangerouslySetInnerHTML={{ __html: renderRichText(item.text) }}
+          />
           {item.subpoints && item.subpoints.length > 0 ? (
             <ul className="assistant-feedback-sublist">
               {item.subpoints.map((subpoint, subIndex) => (
-                <li key={subIndex}>{subpoint.text}</li>
+                <li key={subIndex}>
+                  <span
+                    className="assistant-feedback-list-item-text"
+                    dangerouslySetInnerHTML={{ __html: renderRichText(subpoint.text) }}
+                  />
+                </li>
               ))}
             </ul>
           ) : null}
@@ -62,9 +87,11 @@ function renderListItems(items, listType) {
 function renderParagraphs(paragraphs) {
   if (!paragraphs.length) return null;
   return paragraphs.map((paragraph, index) => (
-    <p key={index} className="assistant-feedback-paragraph">
-      {paragraph}
-    </p>
+    <p
+      key={index}
+      className="assistant-feedback-paragraph"
+      dangerouslySetInnerHTML={{ __html: renderRichText(paragraph) }}
+    />
   ));
 }
 

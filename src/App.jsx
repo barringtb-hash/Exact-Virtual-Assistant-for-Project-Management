@@ -82,6 +82,7 @@ export default function ExactVirtualAssistantPM() {
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -109,7 +110,7 @@ export default function ExactVirtualAssistantPM() {
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isAssistantThinking]);
 
   useEffect(() => {
     if (autoExtract && attachments.length) {
@@ -406,18 +407,27 @@ export default function ExactVirtualAssistantPM() {
   const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
+    if (isAssistantThinking) return;
+    const isLLMEnabled = useLLM;
     const userMsg = { id: Date.now(), role: "user", text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     setInput("");
     let reply = "";
-    if (useLLM) {
-      try { reply = await callLLM(text, nextHistory, attachments); }
-      catch (e) { reply = "LLM error (demo): " + (e?.message || "unknown"); }
+    if (isLLMEnabled) {
+      setIsAssistantThinking(true);
+      try {
+        reply = await callLLM(text, nextHistory, attachments);
+      } catch (e) {
+        reply = "LLM error (demo): " + (e?.message || "unknown");
+      }
     } else {
       reply = mockAssistantReply(text);
     }
     setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply }]);
+    if (isLLMEnabled) {
+      setIsAssistantThinking(false);
+    }
   };
 
   const handleSummarizeAttachments = async () => {
@@ -657,6 +667,7 @@ export default function ExactVirtualAssistantPM() {
                   {messages.map((m) => (
                     <ChatBubble key={m.id} role={m.role} text={m.text} />
                   ))}
+                  {isAssistantThinking && <AssistantThinkingIndicator />}
                 </div>
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
@@ -899,6 +910,20 @@ function Panel({ title, icon, right, children }) {
         {right}
       </div>
       {children}
+    </div>
+  );
+}
+
+function AssistantThinkingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-2 rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/70 dark:text-slate-200">
+        <span className="relative inline-flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400/80 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+        </span>
+        <span className="font-medium">Assistant is thinking…</span>
+      </div>
     </div>
   );
 }

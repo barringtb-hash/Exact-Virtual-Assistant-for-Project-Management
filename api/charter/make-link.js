@@ -110,5 +110,5 @@ function encodeBase64Url(value) {
 }
 
 function createSignature(format, token, secret) {
-  return crypto.createHmac("sha256", secret).update(`${format}.${token}`).digest("base64url");
+  return crypto.createHmac("sha256", secret).update(`${format}.${token}`).digest("hex");
 }

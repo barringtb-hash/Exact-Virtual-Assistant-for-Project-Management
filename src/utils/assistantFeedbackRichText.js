@@ -1,3 +1,4 @@
+import { sanitizeHtml } from "./sanitizeHtml.js";
 export function escapeHtml(input) {
   return String(input ?? "")
     .replace(/&/g, "&amp;")
@@ -109,5 +110,8 @@ export function linkifyMarkdownLinks(input) {
 }
 
 export function renderRichText(content) {
-  return linkifyMarkdownLinks(content ?? "");
+  return sanitizeHtml(linkifyMarkdownLinks(content ?? ""));
 }
+
+
+export { setSanitizeImplementation as setRichTextSanitizer, resetSanitizeImplementation as resetRichTextSanitizer } from "./sanitizeHtml.js";

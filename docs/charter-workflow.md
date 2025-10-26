@@ -15,7 +15,7 @@ This guide explains how the charter extraction, validation, and rendering assets
 3. **Manual edits** – Allow stakeholders to adjust the structured JSON directly in the UI or via a JSON editor to fill in gaps.
 4. **Validate** – Call `/api/charter/validate` (or run `node templates/charter-validate.mjs my-charter.json`) to confirm the payload matches the schema.
 5. **Render** – Post the validated JSON to `/api/charter/render` to merge values into the DOCX template.
-6. **Distribute** – Offer the generated DOCX for download or push to document repositories for approvals.
+6. **Distribute** – Offer the generated DOCX for download or push to document repositories for approvals. The latest chat upgrades surface signed DOCX/PDF links directly in the conversation (no side panel needed), making it easy to copy or forward the exports after a successful validation pass.
 
 ## Customization tips
 - **Add new fields** – Update `charter.schema.json`, tweak `field_rules.json`, extend `extract_prompt.txt` instructions, and insert new tokens in `project_charter_tokens.docx`.

@@ -4,8 +4,8 @@ A minimal React + Tailwind prototype with a center chat window, file attach butt
 
 ## Architecture Overview
 - **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, and feature toggles for LLM, auto-extraction, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. New chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input.
-- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. Attachments are stored in memory and routed through a mocked `runAutoExtract` helper that can be replaced with real parsers.
-- **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors.
+- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer now includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation within the chat transcript. Attachments are stored in memory and routed through a mocked `runAutoExtract` helper that can be replaced with real parsers.
+- **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors. Voice transcripts also run through the same command router, so spoken export requests yield shareable links without touching the sidebar.
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
 
@@ -26,7 +26,7 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `OPENAI_REALTIME_MODEL` | `/api/voice/sdp` | Default realtime model when exchanging SDP with OpenAI (defaults to `gpt-realtime`). |
 | `OPENAI_REALTIME_VOICE` | `/api/voice/sdp` | Preferred OpenAI voice when realtime is active (defaults to `alloy`). |
 | `OPENAI_STT_MODEL` | `/api/transcribe` | Primary speech-to-text model (defaults to `gpt-4o-mini-transcribe`). |
-| `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download` | Required secret used to sign and verify temporary charter download links. |
+| `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download`, `/api/charter/health` | Required secret used to sign and verify temporary charter download links (and detected by the health probe). |
 
 ### `POST /api/chat`
 - **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
@@ -60,6 +60,20 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 - **Payload** – Structured charter JSON object to validate.
 - **Response** – `{ ok: true }` when the payload conforms to [`templates/charter.schema.json`](templates/charter.schema.json); otherwise `{ errors: AjvError[] }` with HTTP 400.
 - **Behavior** – Compiles the schema once, augments Ajv with `ajv-formats`, and returns detailed validation errors to help highlight missing or malformed fields.
+
+#### `POST /api/charter/make-link`
+- **Payload** – `{ charter, baseName, only }` where `only` can be `"docx"`, `"pdf"`, or omitted to request both links.
+- **Response** – `{ docx, pdf, exp }` with fully-qualified, signed download URLs. The `exp` field is expressed in epoch seconds (15-minute TTL by default).
+- **Behavior** – Uses `FILES_LINK_SECRET` to sign tokens, constructs absolute URLs from `x-forwarded-proto` plus the request host, and returns only the formats requested. Callers should fall back to the health endpoint below when the secret is missing.
+
+#### `GET /api/charter/download`
+- **Query** – `token` parameter returned from `/api/charter/make-link`.
+- **Response** – Streams the requested DOCX or PDF; expired or invalid tokens return HTTP 403 with `{ error: "Link expired" }`.
+- **Behavior** – Verifies the HMAC signature and ensures the embedded `exp` timestamp is still in the future before streaming the file contents.
+
+#### `GET /api/charter/health`
+- **Response** – `{ ok: true, hasSecret: boolean }` so the UI can surface configuration issues in-chat when `FILES_LINK_SECRET` is unset.
+- **Behavior** – Supports GET requests only and reads the secret directly from `process.env` without triggering link generation.
 
 ## Charter automation workflow
 1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter.schema.json`](templates/charter.schema.json). Customize these files to change tone, required sections, or value formats.

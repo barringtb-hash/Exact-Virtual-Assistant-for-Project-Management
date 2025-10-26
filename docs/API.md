@@ -140,6 +140,45 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Large payloads up to 10 MB are supported via the endpoint's body parser limit.
   - The caller is responsible for prompting downloads (`URL.createObjectURL` on the frontend) or forwarding to storage.
 
+## Charter share links – `POST /api/charter/make-link`
+- **Body**
+  ```json
+  {
+    "charter": { "title": "Project Charter", "sponsor": "..." },
+    "baseName": "Project_Charter_v1.0",
+    "only": "docx" | "pdf" | null
+  }
+  ```
+- **Response**
+  ```json
+  {
+    "docx": "https://example.com/api/charter/download?token=...",
+    "pdf": "https://example.com/api/charter/download?token=...",
+    "exp": 1712085234
+  }
+  ```
+- **Notes**
+  - Builds fully-qualified URLs using `x-forwarded-proto` and `req.headers.host`, so links pasted into chat work outside the hosting shell.
+  - Signs the download payload with `FILES_LINK_SECRET` and includes an `exp` timestamp (epoch seconds) that expires 15 minutes after issuance.
+  - Returns whichever formats were requested. When `only` is provided, the unused key is omitted.
+  - Callers should surface a friendly message when the route fails because `FILES_LINK_SECRET` is missing; see the health endpoint below.
+
+## Charter download – `GET /api/charter/download`
+- **Query** – `token=<signed payload>` returned by `/api/charter/make-link`.
+- **Response** – Streams either DOCX or PDF content, depending on what the token encodes.
+- **Notes**
+  - Rejects requests when the signature fails or when the embedded `exp` is earlier than the current epoch second (returns 403 with `{ error: "Link expired" }`).
+  - Exposes consistent filenames that mirror the `baseName` supplied during link creation.
+
+## Charter link health – `GET /api/charter/health`
+- **Response**
+  ```json
+  { "ok": true, "hasSecret": false }
+  ```
+- **Notes**
+  - Allows the frontend to detect misconfiguration (missing `FILES_LINK_SECRET`) and show actionable guidance inside the chat instead of surfacing opaque errors.
+  - Non-GET methods receive `405 Method Not Allowed`.
+
 ## Upload & extraction guidance
 - **Size guardrails** – File uploads larger than 10 MB are rejected; after parsing, text is trimmed to roughly 20k characters. Downstream charter extraction expects callers to honor those limits (surface truncation warnings to users if `truncated: true`).
 - **Suggested client flow**

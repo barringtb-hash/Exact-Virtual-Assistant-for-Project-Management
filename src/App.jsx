@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
+import getBlankCharter from "./utils/getBlankCharter";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 
@@ -405,6 +406,69 @@ export default function ExactVirtualAssistantPM() {
     return { ok: true, links: { docx: docxLink, pdf: pdfLink } };
   };
 
+  const generateBlankCharter = async ({ baseName = defaultShareBaseName } = {}) => {
+    if (isGeneratingExportLinks || isExportingDocx || isExportingPdf) {
+      return { ok: false, reason: "busy" };
+    }
+
+    setIsGeneratingExportLinks(true);
+    try {
+      let response;
+      try {
+        response = await fetch("/api/charter/make-link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ charter: getBlankCharter(), baseName }),
+        });
+      } catch (networkError) {
+        console.error("/api/charter/make-link network error (blank charter)", networkError);
+        appendAssistantMessage(
+          "Blank charter error: Unable to create download links right now. Please try again shortly."
+        );
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "network", error: networkError };
+      }
+
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        console.error("Failed to parse /api/charter/make-link response (blank charter)", parseError);
+      }
+
+      if (!response.ok) {
+        const fallbackMessage =
+          payload?.error?.message || payload?.message || "Unable to create download links right now.";
+        appendAssistantMessage(`Blank charter error: ${fallbackMessage}`);
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "http", status: response.status, payload };
+      }
+
+      const docxLink = payload?.docx;
+      const pdfLink = payload?.pdf;
+
+      if (!docxLink) {
+        appendAssistantMessage("Blank charter error: The DOCX link was missing from the response.");
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "missing-docx" };
+      }
+      if (!pdfLink) {
+        appendAssistantMessage("Blank charter error: The PDF link was missing from the response.");
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "missing-pdf" };
+      }
+
+      const safeBaseName = baseName || "Project_Charter";
+      const lines = [`- [Download DOCX](${docxLink})`, `- [Download PDF](${pdfLink})`];
+      const message = `Here’s a blank charter for ${safeBaseName}:\n${lines.join("\n")}`;
+      appendAssistantMessage(message);
+
+      return { ok: true, links: { docx: docxLink, pdf: pdfLink } };
+    } finally {
+      setIsGeneratingExportLinks(false);
+    }
+  };
+
   const exportDocxViaChat = async (baseName = "Project_Charter") => {
     if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
       return { ok: false, reason: "busy" };
@@ -708,6 +772,10 @@ export default function ExactVirtualAssistantPM() {
     const normalized = trimmed.toLowerCase();
     const mentionsDocx = normalized.includes("docx") || normalized.includes("word");
     const mentionsPdf = normalized.includes("pdf");
+    const mentionsBlankCharter =
+      normalized.includes("blank project charter") ||
+      (normalized.includes("blank") && normalized.includes("charter")) ||
+      normalized.includes("blank charter");
     const mentionsDownload =
       normalized.includes("download") ||
       normalized.includes("export") ||
@@ -733,6 +801,17 @@ export default function ExactVirtualAssistantPM() {
     if (wantsBothFormats || wantsShareLinks) {
       ensureUserLogged();
       const result = await shareLinksViaChat(baseName);
+      if (result?.reason === "busy") {
+        appendAssistantMessage(
+          "I’m already preparing shareable links. I’ll post them here as soon as they’re ready."
+        );
+      }
+      return true;
+    }
+
+    if (mentionsBlankCharter) {
+      ensureUserLogged();
+      const result = await generateBlankCharter({ baseName });
       if (result?.reason === "busy") {
         appendAssistantMessage(
           "I’m already preparing shareable links. I’ll post them here as soon as they’re ready."

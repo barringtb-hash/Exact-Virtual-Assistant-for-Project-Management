@@ -26,6 +26,7 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `OPENAI_REALTIME_MODEL` | `/api/voice/sdp` | Default realtime model when exchanging SDP with OpenAI (defaults to `gpt-realtime`). |
 | `OPENAI_REALTIME_VOICE` | `/api/voice/sdp` | Preferred OpenAI voice when realtime is active (defaults to `alloy`). |
 | `OPENAI_STT_MODEL` | `/api/transcribe` | Primary speech-to-text model (defaults to `gpt-4o-mini-transcribe`). |
+| `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download` | Required secret used to sign and verify temporary charter download links. |
 
 ### `POST /api/chat`
 - **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
@@ -71,7 +72,7 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into [`project_charter_tokens.docx`](templates/project_charter_tokens.docx). The output is a ready-to-share DOCX.
 
 ## Local development (Vite)
-Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice.
+Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.
 
 ```bash
 npm install
@@ -81,7 +82,7 @@ npm run dev
 Open the printed localhost URL.
 
 ## Deploying to Vercel or other hosts
-1. Provision secrets – configure `OPENAI_API_KEY`, `OPENAI_STT_MODEL` (optional override), `OPENAI_REALTIME_MODEL`, and `OPENAI_REALTIME_VOICE` in your deployment environment. In Vercel, add them under **Project Settings → Environment Variables**; for other hosts, export them in the serverless runtime.
+1. Provision secrets – configure `OPENAI_API_KEY`, `OPENAI_STT_MODEL` (optional override), `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, and `FILES_LINK_SECRET` in your deployment environment. In Vercel, add them under **Project Settings → Environment Variables**; for other hosts, export them in the serverless runtime. Generate `FILES_LINK_SECRET` as a long, random string so signed charter links cannot be forged.
 2. Ensure the platform supports Node 18+ and either native Vercel serverless runtime or an equivalent serverless adapter for `api/` routes (e.g., Netlify Functions, AWS Lambda). If you deploy outside Vercel, map the functions to their platform-specific entrypoints while preserving the route names above.
 3. Build & serve – run `npm run build` locally or rely on the platform’s build step (Vercel auto-detects Vite). Serve the `dist/` output alongside the serverless handlers.
 4. Optional realtime voice – verify the host allows outbound HTTPS requests to `https://api.openai.com/v1/realtime` and supports WebRTC if you proxy SDP. Without realtime env variables, the UI gracefully falls back to transcription-only voice capture.

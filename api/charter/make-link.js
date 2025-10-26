@@ -32,10 +32,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid charter payload" });
   }
 
+  const host = req.headers?.host;
+  if (!host) {
+    console.error("request host header missing");
+    return res.status(500).json({ error: "Link configuration unavailable" });
+  }
+
+  const baseUrl = buildBaseUrl(req, host);
+  const { expiresAt, expiresInSeconds } = calculateExpiry();
+
   const filenameBase = buildFilenameBase(baseName);
   const tokenPayload = {
     charter,
     filenameBase,
+    exp: expiresAt,
   };
 
   const token = encodeBase64Url(JSON.stringify(tokenPayload));
@@ -43,9 +53,32 @@ export default async function handler(req, res) {
   const pdfSig = createSignature("pdf", token, secret);
 
   return res.status(200).json({
-    docx: `/api/charter/download?format=docx&token=${token}&sig=${docxSig}`,
-    pdf: `/api/charter/download?format=pdf&token=${token}&sig=${pdfSig}`,
+    docx: `${baseUrl}/api/charter/download?format=docx&token=${token}&sig=${docxSig}`,
+    pdf: `${baseUrl}/api/charter/download?format=pdf&token=${token}&sig=${pdfSig}`,
+    expiresAt,
+    expiresInSeconds,
   });
+}
+
+function buildBaseUrl(req, host) {
+  const forwardedProto = req.headers?.["x-forwarded-proto"];
+  const protocol =
+    typeof forwardedProto === "string" && forwardedProto.trim()
+      ? forwardedProto.split(",")[0].trim()
+      : "https";
+
+  return `${protocol}://${host}`;
+}
+
+function calculateExpiry() {
+  const FIFTEEN_MINUTES = 15 * 60;
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + FIFTEEN_MINUTES;
+
+  return {
+    expiresAt,
+    expiresInSeconds: FIFTEEN_MINUTES,
+  };
 }
 
 function normalizeRequestBody(body) {

@@ -35,9 +35,9 @@ async function loadTemplateBuffer() {
 }
 
 export async function renderDocxBuffer(charter) {
-  const { isValid, errors } = await validateCharterPayload(charter);
+  const { isValid, errors, normalized } = await validateCharterPayload(charter);
   if (!isValid) {
-    throw createCharterValidationError(errors);
+    throw createCharterValidationError(errors, normalized);
   }
 
   const content = await loadTemplateBuffer();
@@ -47,7 +47,7 @@ export async function renderDocxBuffer(charter) {
     linebreaks: true,
   });
 
-  doc.setData(charter);
+  doc.setData(normalized);
   doc.render();
 
   return doc.getZip().generate({ type: "nodebuffer" });

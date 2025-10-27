@@ -34,9 +34,11 @@ export default async function handler(req, res) {
 
   const { charter, baseName, formats } = body;
 
-  const { isValid, errors } = await validateCharterPayload(charter);
+  const { isValid, errors, normalized } = await validateCharterPayload(charter);
   if (!isValid) {
-    const payload = formatDocRenderError(createCharterValidationError(errors));
+    const payload = formatDocRenderError(
+      createCharterValidationError(errors, normalized)
+    );
     return res.status(400).json(payload);
   }
 
@@ -51,7 +53,7 @@ export default async function handler(req, res) {
 
   const filenameBase = buildFilenameBase(baseName);
   const tokenPayload = {
-    charter,
+    charter: normalized,
     filenameBase,
     exp: expiresAt,
   };

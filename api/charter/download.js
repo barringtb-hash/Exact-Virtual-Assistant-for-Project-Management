@@ -83,7 +83,20 @@ export default async function handler(req, res) {
       contentType =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else if (format === "pdf") {
-      buffer = await renderPdfBuffer(charter);
+      try {
+        buffer = await renderPdfBuffer(charter);
+      } catch (renderError) {
+        if (renderError?.name === "CharterValidationError") {
+          const payload = formatDocRenderError(renderError);
+          console.error(
+            "charter download pdf render validation failed",
+            renderError
+          );
+          return res.status(400).json(payload);
+        }
+
+        throw renderError;
+      }
       contentType = "application/pdf";
     } else {
       return res.status(400).json({ error: "Unsupported format" });

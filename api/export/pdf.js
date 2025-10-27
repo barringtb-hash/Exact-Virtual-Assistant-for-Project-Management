@@ -3,6 +3,11 @@ import path from "path";
 import Mustache from "mustache";
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
+import {
+  createCharterValidationError,
+  validateCharterPayload,
+} from "../charter/validate.js";
+import { formatDocRenderError } from "../charter/render.js";
 
 export const config = {
   maxDuration: 60,
@@ -10,6 +15,11 @@ export const config = {
 };
 
 export async function renderPdfBuffer(charter) {
+  const { isValid, errors } = await validateCharterPayload(charter);
+  if (!isValid) {
+    throw createCharterValidationError(errors);
+  }
+
   const templatePath = path.join(
     process.cwd(),
     "templates",
@@ -75,6 +85,12 @@ export default async function handler(req, res) {
     );
     res.status(200).send(pdfBuffer);
   } catch (error) {
+    if (error?.name === "CharterValidationError" && error?.statusCode === 400) {
+      console.error("invalid charter payload for pdf", error);
+      res.status(400).json(formatDocRenderError(error));
+      return;
+    }
+
     if (
       error?.name === "InvalidCharterPayloadError" &&
       error?.statusCode === 400

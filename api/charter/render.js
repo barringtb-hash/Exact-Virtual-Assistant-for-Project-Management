@@ -2,6 +2,10 @@ import fs from "fs/promises";
 import path from "path";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
+import {
+  createCharterValidationError,
+  validateCharterPayload,
+} from "./validate.js";
 
 export const config = {
   api: {
@@ -31,6 +35,11 @@ async function loadTemplateBuffer() {
 }
 
 export async function renderDocxBuffer(charter) {
+  const { isValid, errors } = await validateCharterPayload(charter);
+  if (!isValid) {
+    throw createCharterValidationError(errors);
+  }
+
   const content = await loadTemplateBuffer();
   const zip = new PizZip(content);
   const doc = new Docxtemplater(zip, {
@@ -119,30 +128,80 @@ function parseCharterBody(req) {
 
 export function formatDocRenderError(error) {
   const details = [];
+  const structuredErrors = [];
   const explanations = error?.properties?.errors;
   if (Array.isArray(explanations)) {
     for (const item of explanations) {
       const explanation = item?.properties?.explanation;
       if (typeof explanation === "string" && explanation.trim().length > 0) {
-        details.push(explanation.trim());
+        const message = explanation.trim();
+        details.push(message);
+        structuredErrors.push({ message });
       }
     }
+  }
+
+  const validationErrors = Array.isArray(error?.validationErrors)
+    ? error.validationErrors
+    : [];
+
+  for (const validationError of validationErrors) {
+    if (!validationError || typeof validationError !== "object") {
+      continue;
+    }
+
+    const instancePath =
+      typeof validationError.instancePath === "string"
+        ? validationError.instancePath
+        : "";
+    const message =
+      typeof validationError.message === "string"
+        ? validationError.message
+        : "is invalid";
+
+    structuredErrors.push({ ...validationError, instancePath, message });
+
+    const displayPath = instancePath.replace(/^\//, "").replace(/\//g, " › ");
+    const formatted = displayPath ? `${displayPath} – ${message}` : message;
+    details.push(formatted);
   }
 
   if (details.length === 0 && typeof error?.message === "string") {
     details.push(error.message);
   }
 
+  const normalizedErrors = structuredErrors.map((item) => ({
+    instancePath:
+      typeof item.instancePath === "string" ? item.instancePath : undefined,
+    message: typeof item.message === "string" ? item.message : "is invalid",
+    keyword: typeof item.keyword === "string" ? item.keyword : undefined,
+    params:
+      item.params && typeof item.params === "object"
+        ? { ...item.params }
+        : undefined,
+    schemaPath:
+      typeof item.schemaPath === "string" ? item.schemaPath : undefined,
+  }));
+
   return {
     error: {
       code: "invalid_charter_payload",
-      message: "Charter payload is invalid for the DOCX template.",
+      message: "Charter payload is invalid for the export template.",
       details: details.length > 1 ? details : details[0],
     },
+    errors: normalizedErrors.length > 0 ? normalizedErrors : undefined,
   };
 }
 
 export function isDocRenderValidationError(error) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  if (error.name === "CharterValidationError") {
+    return true;
+  }
+
   return Array.isArray(error?.properties?.errors);
 }
 

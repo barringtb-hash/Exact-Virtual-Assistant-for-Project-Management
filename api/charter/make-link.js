@@ -1,4 +1,9 @@
 import crypto from "crypto";
+import { formatDocRenderError } from "./render.js";
+import {
+  createCharterValidationError,
+  validateCharterPayload,
+} from "./validate.js";
 
 export const config = {
   api: {
@@ -28,8 +33,10 @@ export default async function handler(req, res) {
 
   const { charter, baseName } = body;
 
-  if (!isValidCharter(charter)) {
-    return res.status(400).json({ error: "Invalid charter payload" });
+  const { isValid, errors } = await validateCharterPayload(charter);
+  if (!isValid) {
+    const payload = formatDocRenderError(createCharterValidationError(errors));
+    return res.status(400).json(payload);
   }
 
   const host = req.headers?.host;
@@ -109,10 +116,6 @@ function normalizeRequestBody(body) {
   }
 
   return null;
-}
-
-function isValidCharter(charter) {
-  return charter && typeof charter === "object" && !Array.isArray(charter);
 }
 
 function buildFilenameBase(baseName) {

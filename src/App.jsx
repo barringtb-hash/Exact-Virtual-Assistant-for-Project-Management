@@ -215,12 +215,69 @@ export default function ExactVirtualAssistantPM() {
       .filter(Boolean);
   };
 
-  const postValidationErrorsToChat = (errors = []) => {
+  const extractValidationErrorsFromPayload = (payload) => {
+    if (!payload || typeof payload !== "object") {
+      return [];
+    }
+
+    const { errors } = payload;
+    if (Array.isArray(errors) && errors.length > 0) {
+      return errors
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+
+          const message =
+            typeof item.message === "string"
+              ? item.message
+              : typeof item.detail === "string"
+              ? item.detail
+              : undefined;
+
+          if (!message) {
+            return null;
+          }
+
+          const instancePath =
+            typeof item.instancePath === "string"
+              ? item.instancePath
+              : typeof item.path === "string"
+              ? item.path
+              : "";
+
+          return { instancePath, message };
+        })
+        .filter(Boolean);
+    }
+
+    const detailMessages = payload?.error?.details;
+    if (Array.isArray(detailMessages)) {
+      return detailMessages
+        .map((message) =>
+          typeof message === "string" && message.trim()
+            ? { message: message.trim() }
+            : null
+        )
+        .filter(Boolean);
+    }
+
+    if (typeof detailMessages === "string" && detailMessages.trim()) {
+      return [{ message: detailMessages.trim() }];
+    }
+
+    return [];
+  };
+
+  const postValidationErrorsToChat = (
+    errors = [],
+    { heading } = {}
+  ) => {
     const bulletLines = formatValidationErrorsForChat(errors);
-    const message = [
-      "I couldn’t validate the project charter. Please review the following:",
-      ...bulletLines.map((line) => `- ${line}`),
-    ].join("\n");
+    const intro =
+      heading ||
+      "I couldn’t validate the project charter. Please review the following:";
+    const message = [intro, ...bulletLines.map((line) => `- ${line}`)].join("\n");
     appendAssistantMessage(message);
   };
 
@@ -260,14 +317,7 @@ export default function ExactVirtualAssistantPM() {
     }
 
     if (!response.ok || payload?.ok !== true) {
-      const structuredErrors = Array.isArray(payload?.errors)
-        ? payload.errors
-            .map((item) => ({
-              instancePath: item?.instancePath,
-              message: item?.message,
-            }))
-            .filter((item) => item.message)
-        : [];
+      const structuredErrors = extractValidationErrorsFromPayload(payload);
 
       if (structuredErrors.length === 0) {
         structuredErrors.push({
@@ -363,6 +413,23 @@ export default function ExactVirtualAssistantPM() {
     }
 
     if (!response.ok) {
+      const validationErrors = extractValidationErrorsFromPayload(payload);
+      if (validationErrors.length > 0) {
+        postValidationErrorsToChat(validationErrors, {
+          heading:
+            "Export link error: I couldn’t validate the project charter. Please review the following:",
+        });
+        await checkShareLinksConfigured();
+
+        return {
+          ok: false,
+          reason: "validation",
+          status: response.status,
+          payload,
+          errors: validationErrors,
+        };
+      }
+
       const fallbackMessage =
         payload?.error?.message ||
         payload?.message ||
@@ -437,6 +504,22 @@ export default function ExactVirtualAssistantPM() {
       }
 
       if (!response.ok) {
+        const validationErrors = extractValidationErrorsFromPayload(payload);
+        if (validationErrors.length > 0) {
+          postValidationErrorsToChat(validationErrors, {
+            heading:
+              "Blank charter error: I couldn’t validate the project charter. Please review the following:",
+          });
+          await checkShareLinksConfigured();
+          return {
+            ok: false,
+            reason: "validation",
+            status: response.status,
+            payload,
+            errors: validationErrors,
+          };
+        }
+
         const fallbackMessage =
           payload?.error?.message || payload?.message || "Unable to create download links right now.";
         appendAssistantMessage(`Blank charter error: ${fallbackMessage}`);

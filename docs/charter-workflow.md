@@ -1,29 +1,54 @@
-# Charter automation workflow
+# Project Charter Template Workflow
 
-This guide explains how the charter extraction, validation, and rendering assets inside `templates/` work together and how to customize them.
+This guide documents how to maintain the charter template (`project_charter_tokens.docx`) that powers charter exports. The repository stores the template as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors.
 
-## Key assets
-- `templates/extract_prompt.txt` – System prompt fed into OpenAI for `/api/charter/extract`. Adjust tone, required sections, or formatting guidance here.
-- `templates/field_rules.json` – Human-readable constraints (e.g., word limits, allowed enumerations). Surface these rules inside the UI or docs to guide contributors.
-- `templates/charter.schema.json` – Source of truth for the charter JSON structure consumed by Ajv and downstream integrations.
-- `templates/project_charter_tokens.docx` – Docxtemplater template file with placeholders such as `{{title}}`, `{{sponsor}}`, etc.
-- `templates/charter-validate.mjs` – CLI helper that validates any JSON file against the shared schema without hitting OpenAI.
+## Rebuilding the Template
 
-## Recommended flow
-1. **Gather context** – Capture meeting notes and decisions in chat. Encourage users to annotate critical fields inline (sponsors, objectives, scope boundaries).
-2. **Auto-extract** – Trigger `/api/charter/extract` to transform the chat transcript into structured JSON. The UI automatically re-runs this step whenever attachments change (including re-uploads) so previews stay in sync. Review missing/empty fields flagged in the response.
-3. **Manual edits** – Allow stakeholders to adjust the structured JSON directly in the UI or via a JSON editor to fill in gaps.
-4. **Validate** – Call `/api/charter/validate` (or run `node templates/charter-validate.mjs my-charter.json`) to confirm the payload matches the schema.
-5. **Render** – Post the validated JSON to `/api/charter/render` to merge values into the DOCX template.
-6. **Distribute** – Offer the generated DOCX for download or push to document repositories for approvals. The latest chat upgrades surface signed DOCX/PDF links directly in the conversation (no side panel needed), making it easy to copy or forward the exports after a successful validation pass.
+1. Decode the committed base64 file to a DOCX you can edit:
 
-## Customization tips
-- **Add new fields** – Update `charter.schema.json`, tweak `field_rules.json`, extend `extract_prompt.txt` instructions, and insert new tokens in `project_charter_tokens.docx`.
-- **Change tone or language** – Modify `extract_prompt.txt` to reflect the organization’s voice. Consider localizing the DOCX template placeholders as well.
-- **Tighten validation** – Enable additional Ajv keywords or formats in `api/charter/validate.js`, and encode stricter regex patterns within the schema.
-- **Automate follow-up actions** – After rendering, extend the API to upload the DOCX to cloud storage or trigger workflow integrations (e.g., Slack/Teams notifications).
+   ```sh
+   node templates/sync-charter-template.mjs decode
+   ```
 
-## Frontend integration notes
-- `src/App.jsx` keeps charter draft data in state and surfaces previews in the right-hand panel. Removing the final attachment now clears stale preview data to avoid presenting outdated insights.
-- Toggle-based extraction (`runAutoExtract`) can be replaced with explicit buttons or scheduled runs depending on UX needs.
-- Consider persisting the charter JSON to browser storage or a backend to support revisiting drafts.
+   The default output path is `templates/project_charter_tokens.docx`. You can pass a custom path as a second argument.
+2. Start from the decoded, clean Word document (or a fresh document if you are rebuilding from scratch). Avoid copying or editing older binary files directly to prevent hidden XML fragments from persisting.
+3. Add the charter sections in this order:
+   - Project Charter title
+   - Overview details (Project Name, Sponsor, Project Lead, Start Date, Target Completion)
+   - Vision, Problem Statement, and Description paragraphs
+   - Scope In, Scope Out, Risks, Assumptions, Milestones, Success Metrics, Core Team, Generated On
+4. Insert the docxtemplater tokens exactly as defined below. Use camelCase names for single values and wrap repeating sections in loops:
+   - Single values: `{{projectName}}`, `{{sponsor}}`, `{{projectLead}}`, `{{startDate}}`, `{{endDate}}`, `{{vision}}`, `{{problem}}`, `{{description}}`, `{{generatedOn}}`
+   - Array loops:
+     - `{{#scopeIn}}…{{/scopeIn}}`
+     - `{{#scopeOut}}…{{/scopeOut}}`
+     - `{{#risks}}…{{/risks}}`
+     - `{{#assumptions}}…{{/assumptions}}`
+     - `{{#milestones}}…{{/milestones}}` with fields `{{phase}}`, `{{deliverable}}`, `{{date}}`
+     - `{{#successMetrics}}…{{/successMetrics}}` with fields `{{benefit}}`, `{{metric}}`, `{{systemOfMeasurement}}`
+     - `{{#coreTeam}}…{{/coreTeam}}` with fields `{{name}}`, `{{role}}`, and optional `{{responsibilities}}`
+5. For lists, place the loop and token on the same line (for example, `{{#scopeIn}}• {{.}}{{/scopeIn}}`) so each item expands into its own bullet.
+6. Save the document as `project_charter_tokens.docx` in `templates/` (or the path you chose in step 1).
+7. Re-encode the DOCX back into the repository’s base64 file so that Git tracks a text diff:
+
+   ```sh
+   node templates/sync-charter-template.mjs encode
+   ```
+
+   If you saved the DOCX to a different path, pass that path as the second argument.
+
+## Validation
+
+Run the template validation script before committing. The validator reads from the base64 store and checks for malformed or duplicated tokens:
+
+```sh
+npm run validate:charter-docx
+```
+
+The script loads the template with representative data and fails if docxtemplater reports malformed, duplicated, or unresolvable tags. CI should also execute this command.
+
+## Version Control Notes
+
+- Only the base64 file `project_charter_tokens.docx.b64` is committed. This keeps pull requests text-only and avoids binary diff limitations in the review tooling.
+- Use `templates/sync-charter-template.mjs decode` when you need the DOCX locally, and `encode` after you save changes so the base64 file stays in sync.
+- Document any structural changes or new tokens in this file to keep the workflow transparent.

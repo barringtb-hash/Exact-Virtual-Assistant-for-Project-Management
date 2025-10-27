@@ -134,7 +134,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Suitable for both frontend validation and offline CLI workflows.
 
 ## Charter rendering – `POST /api/charter/render`
-- **Body** – Validated charter JSON with fields matching tokens in `templates/project_charter_tokens.docx`.
+- **Body** – Validated charter JSON with fields matching tokens in `templates/project_charter_tokens.docx.b64` (the base64-encoded charter template).
 - **Response** – Binary DOCX buffer streamed with `Content-Disposition: attachment; filename=project_charter.docx`.
 - **Notes**
   - Large payloads up to 10 MB are supported via the endpoint's body parser limit.

@@ -13,13 +13,25 @@ export const config = {
   memory: 1024,
 };
 
+let cachedTemplatePromise;
+
+async function loadTemplateBuffer() {
+  if (!cachedTemplatePromise) {
+    cachedTemplatePromise = (async () => {
+      const templatePath = path.join(
+        process.cwd(),
+        "templates",
+        "project_charter_tokens.docx.b64"
+      );
+      const base64 = await fs.readFile(templatePath, "utf8");
+      return Buffer.from(base64.trim(), "base64");
+    })();
+  }
+  return cachedTemplatePromise;
+}
+
 export async function renderDocxBuffer(charter) {
-  const templatePath = path.join(
-    process.cwd(),
-    "templates",
-    "project_charter_tokens.docx"
-  );
-  const content = await fs.readFile(templatePath);
+  const content = await loadTemplateBuffer();
   const zip = new PizZip(content);
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,

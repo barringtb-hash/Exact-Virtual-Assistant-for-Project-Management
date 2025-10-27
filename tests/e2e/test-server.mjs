@@ -4,6 +4,7 @@ import { once } from "node:events";
 
 import makeLinkHandler from "../../api/charter/make-link.js";
 import downloadHandler from "../../api/charter/download.js";
+import healthHandler from "../../api/charter/health.js";
 
 const port = Number(process.env.PORT || process.env.PLAYWRIGHT_TEST_PORT || 4010);
 if (!process.env.FILES_LINK_SECRET) {
@@ -25,6 +26,21 @@ const server = http.createServer(async (req, res) => {
       } else {
         query[key] = value;
       }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/charter/health") {
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: req.headers.host || `127.0.0.1:${port}`,
+          "x-forwarded-proto": "http",
+        },
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await healthHandler(nextReq, nextRes);
+      return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/charter/make-link") {

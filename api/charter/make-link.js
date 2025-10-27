@@ -4,6 +4,7 @@ import {
   createCharterValidationError,
   validateCharterPayload,
 } from "./validate.js";
+import { supportedFormats } from "./download.js";
 
 export const config = {
   api: {
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Request body must be a JSON object" });
   }
 
-  const { charter, baseName } = body;
+  const { charter, baseName, formats } = body;
 
   const { isValid, errors } = await validateCharterPayload(charter);
   if (!isValid) {
@@ -56,15 +57,29 @@ export default async function handler(req, res) {
   };
 
   const token = encodeBase64Url(JSON.stringify(tokenPayload));
-  const docxSig = createSignature("docx", token, secret);
-  const pdfSig = createSignature("pdf", token, secret);
+  const requestedFormats = normalizeFormats(formats);
+  const linkMap = {};
 
-  return res.status(200).json({
-    docx: `${baseUrl}/api/charter/download?format=docx&token=${token}&sig=${docxSig}`,
-    pdf: `${baseUrl}/api/charter/download?format=pdf&token=${token}&sig=${pdfSig}`,
+  for (const format of requestedFormats) {
+    const signature = createSignature(format, token, secret);
+    linkMap[format] = `${baseUrl}/api/charter/download?format=${format}&token=${token}&sig=${signature}`;
+  }
+
+  const payload = {
+    links: linkMap,
     expiresAt,
     expiresInSeconds,
-  });
+  };
+
+  if (linkMap.docx) {
+    payload.docx = linkMap.docx;
+  }
+
+  if (linkMap.pdf) {
+    payload.pdf = linkMap.pdf;
+  }
+
+  return res.status(200).json(payload);
 }
 
 function buildBaseUrl(req, host) {
@@ -148,3 +163,28 @@ function encodeBase64Url(value) {
 function createSignature(format, token, secret) {
   return crypto.createHmac("sha256", secret).update(`${format}.${token}`).digest("hex");
 }
+
+function normalizeFormats(formats) {
+  if (!Array.isArray(formats)) {
+    return DEFAULT_FORMATS;
+  }
+
+  const requested = [];
+  for (const value of formats) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || requested.includes(normalized)) {
+      continue;
+    }
+    if (!supportedFormats.includes(normalized)) {
+      continue;
+    }
+    requested.push(normalized);
+  }
+
+  return requested.length > 0 ? requested : DEFAULT_FORMATS;
+}
+
+const DEFAULT_FORMATS = ["docx", "pdf"];

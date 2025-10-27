@@ -1,0 +1,89 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import normalizeCharterServer from "../api/charter/normalize.js";
+import { normalizeAjvErrors } from "../api/charter/validate.js";
+
+test("normalizeCharterServer trims fields and normalizes collections", () => {
+  const normalized = normalizeCharterServer({
+    project_name: "  Launch Initiative  ",
+    sponsor: "  Alice Example  ",
+    project_lead: "  Bob Example  ",
+    start_date: new Date("2024-01-05T12:00:00Z"),
+    scope_in: ["  Discovery  ", "Discovery", "Execution"],
+    scope_out: "  Rollout  ",
+    assumptions: "Funding secured\nTeams assigned\n\nTeams assigned",
+    milestones: [
+      { phase: "  Phase 1  ", deliverable: "  Kickoff Deck  ", date: "2024-02-01" },
+      { phase: "   ", deliverable: "   ", date: "   " },
+      "Executive sign-off",
+      null,
+      42,
+    ],
+    success_metrics: [
+      {
+        benefit: "  Adoption  ",
+        metric: "  Team usage  ",
+        system_of_measurement: "  percent  ",
+      },
+      { benefit: "  ", metric: null, system_of_measurement: "" },
+    ],
+    core_team: [
+      { name: "  Alex  ", role: "  PM  ", responsibilities: "  Lead rollout  " },
+      { name: " ", role: " ", responsibilities: " " },
+      "Taylor",
+    ],
+  });
+
+  assert.strictEqual(normalized.project_name, "Launch Initiative");
+  assert.strictEqual(normalized.sponsor, "Alice Example");
+  assert.strictEqual(normalized.project_lead, "Bob Example");
+  assert.strictEqual(normalized.start_date, "2024-01-05");
+  assert.deepStrictEqual(normalized.scope_in, ["Discovery", "Execution"]);
+  assert.deepStrictEqual(normalized.scope_out, ["Rollout"]);
+  assert.deepStrictEqual(normalized.assumptions, ["Funding secured", "Teams assigned"]);
+  assert.deepStrictEqual(normalized.milestones, [
+    { phase: "Phase 1", deliverable: "Kickoff Deck", date: "2024-02-01" },
+    { deliverable: "Executive sign-off" },
+  ]);
+  assert.deepStrictEqual(normalized.success_metrics, [
+    { benefit: "Adoption", metric: "Team usage", system_of_measurement: "percent" },
+  ]);
+  assert.deepStrictEqual(normalized.core_team, [
+    { name: "Alex", role: "PM", responsibilities: "Lead rollout" },
+    { name: "Taylor" },
+  ]);
+});
+
+test("normalizeAjvErrors trims messages and removes duplicates", () => {
+  const errors = [
+    { instancePath: "/scope_in/0", message: " must be string ", keyword: "type" },
+    { dataPath: "/scope_in/0", message: " must be string ", keyword: "type" },
+    {
+      instancePath: "/project_name",
+      message: " ",
+      keyword: "minLength",
+      params: { limit: 3 },
+      schemaPath: "#/properties/project_name/minLength",
+    },
+  ];
+
+  const normalized = normalizeAjvErrors(errors);
+
+  assert.deepStrictEqual(normalized, [
+    {
+      instancePath: "/scope_in/0",
+      message: "must be string",
+      keyword: "type",
+      params: undefined,
+      schemaPath: undefined,
+    },
+    {
+      instancePath: "/project_name",
+      message: "is invalid",
+      keyword: "minLength",
+      params: { limit: 3 },
+      schemaPath: "#/properties/project_name/minLength",
+    },
+  ]);
+});

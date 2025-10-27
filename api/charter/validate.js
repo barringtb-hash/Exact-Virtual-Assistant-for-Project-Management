@@ -29,32 +29,56 @@ export function normalizeAjvErrors(errors) {
     return [];
   }
 
-  return errors
-    .map((error) => {
-      if (!error || typeof error !== "object") {
-        return null;
-      }
+  const normalized = [];
+  const seen = new Set();
 
-      const instancePath =
-        typeof error.instancePath === "string"
-          ? error.instancePath
-          : typeof error.dataPath === "string"
-          ? error.dataPath
-          : "";
+  for (const error of errors) {
+    if (!error || typeof error !== "object") {
+      continue;
+    }
 
-      return {
-        instancePath,
-        message: typeof error.message === "string" ? error.message : "is invalid",
-        keyword: typeof error.keyword === "string" ? error.keyword : undefined,
-        params:
-          error.params && typeof error.params === "object"
-            ? { ...error.params }
-            : undefined,
-        schemaPath:
-          typeof error.schemaPath === "string" ? error.schemaPath : undefined,
-      };
-    })
-    .filter(Boolean);
+    const instancePath =
+      typeof error.instancePath === "string"
+        ? error.instancePath
+        : typeof error.dataPath === "string"
+        ? error.dataPath
+        : "";
+
+    const message =
+      typeof error.message === "string" && error.message.trim()
+        ? error.message.trim()
+        : "is invalid";
+
+    const params =
+      error.params && typeof error.params === "object"
+        ? { ...error.params }
+        : undefined;
+
+    const normalizedError = {
+      instancePath,
+      message,
+      keyword: typeof error.keyword === "string" ? error.keyword : undefined,
+      params,
+      schemaPath: typeof error.schemaPath === "string" ? error.schemaPath : undefined,
+    };
+
+    const dedupeKey = JSON.stringify([
+      normalizedError.instancePath || "",
+      normalizedError.message,
+      normalizedError.keyword || "",
+      normalizedError.schemaPath || "",
+      params ? JSON.stringify(params) : "",
+    ]);
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    normalized.push(normalizedError);
+  }
+
+  return normalized;
 }
 
 export async function validateCharterPayload(data) {

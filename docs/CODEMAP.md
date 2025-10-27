@@ -26,7 +26,7 @@
 - `api/charter/extract.js`
   - Loads `templates/extract_prompt.txt`, builds an OpenAI chat completion request with the conversation transcript, and returns structured charter JSON.
 - `api/charter/render.js`
-  - Reads `templates/project_charter_tokens.docx`, merges provided charter data with Docxtemplater, and streams the generated DOCX file.
+  - Reads `templates/project_charter_tokens.docx.b64`, decodes it to DOCX, merges provided charter data with Docxtemplater, and streams the generated DOCX file.
 - `api/charter/validate.js`
   - Uses Ajv + `templates/charter.schema.json` to validate charter payloads, returning `{ ok: true }` or detailed validation errors.
 - `api/charter/make-link.js`
@@ -40,7 +40,7 @@
 - `extract_prompt.txt` – System prompt directing the model on how to populate charter fields.
 - `field_rules.json` – Field-by-field constraints that guide downstream validation/UX messaging.
 - `charter.schema.json` – JSON schema consumed by Ajv in validation.
-- `project_charter_tokens.docx` – Docxtemplater template whose tokens match charter field keys.
+- `project_charter_tokens.docx.b64` – Base64-encoded Docxtemplater template whose tokens match charter field keys.
 - `charter-validate.mjs` – CLI helper to validate charter JSON offline against the shared schema.
 
 ## Public assets (`public/`)

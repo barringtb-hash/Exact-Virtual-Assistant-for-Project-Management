@@ -52,7 +52,7 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 - **Behavior** – loads [`templates/extract_prompt.txt`](templates/extract_prompt.txt) and prepends it as the system prompt before asking the model for structured charter data.
 
 #### `POST /api/charter/render`
-- **Payload** – Structured charter object (e.g. `{ title, sponsor, risks, milestones, ... }`) whose keys correspond to the placeholders in [`templates/project_charter_tokens.docx`](templates/project_charter_tokens.docx).
+- **Payload** – Structured charter object (e.g. `{ title, sponsor, risks, milestones, ... }`) whose keys correspond to the placeholders in the charter template stored at [`templates/project_charter_tokens.docx.b64`](templates/project_charter_tokens.docx.b64).
 - **Response** – Streams a rendered `application/vnd.openxmlformats-officedocument.wordprocessingml.document` buffer with the filename `project_charter.docx`.
 - **Behavior** – Uses Docxtemplater to inject data into the DOCX template, with paragraph and linebreak support enabled.
 
@@ -83,7 +83,7 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
    node templates/charter-validate.mjs ./path/to/charter.json
    ```
    The script prints success/failure along with human-readable Ajv errors. Because it loads the schema locally, no API access is required.
-4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into [`project_charter_tokens.docx`](templates/project_charter_tokens.docx). The output is a ready-to-share DOCX.
+4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX.
 
 ## Local development (Vite)
 Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.

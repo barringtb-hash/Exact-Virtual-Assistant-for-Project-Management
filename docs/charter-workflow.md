@@ -47,6 +47,8 @@ npm run validate:charter-docx
 
 The script loads the template with representative data and fails if docxtemplater reports malformed, duplicated, or unresolvable tags. CI should also execute this command.
 
+In addition to the template validator, the automated test suite exercises the charter link and download endpoints end-to-end. Run `npm test` for the unit coverage (HMAC signing, expiry handling, and template validation responses) and `npm run test:e2e` to confirm the Playwright flow can request signed downloads with the latest template changes.
+
 ## Version Control Notes
 
 - Only the base64 file `project_charter_tokens.docx.b64` is committed. This keeps pull requests text-only and avoids binary diff limitations in the review tooling.

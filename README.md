@@ -26,7 +26,7 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `OPENAI_REALTIME_MODEL` | `/api/voice/sdp` | Default realtime model when exchanging SDP with OpenAI (defaults to `gpt-realtime`). |
 | `OPENAI_REALTIME_VOICE` | `/api/voice/sdp` | Preferred OpenAI voice when realtime is active (defaults to `alloy`). |
 | `OPENAI_STT_MODEL` | `/api/transcribe` | Primary speech-to-text model (defaults to `gpt-4o-mini-transcribe`). |
-| `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download`, `/api/charter/health` | Required secret used to sign and verify temporary charter download links (and detected by the health probe). |
+| `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download`, `/api/charter/health` | Required secret used to sign and verify temporary charter download links (and detected by the health probe). Generate a 64-character hex string with `openssl rand -hex 32` or an equivalent secrets manager. |
 
 ### `POST /api/chat`
 - **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
@@ -62,14 +62,14 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 - **Behavior** – Compiles the schema once, augments Ajv with `ajv-formats`, and returns detailed validation errors to help highlight missing or malformed fields.
 
 #### `POST /api/charter/make-link`
-- **Payload** – `{ charter, baseName, only }` where `only` can be `"docx"`, `"pdf"`, or omitted to request both links.
-- **Response** – `{ docx, pdf, exp }` with fully-qualified, signed download URLs. The `exp` field is expressed in epoch seconds (15-minute TTL by default).
-- **Behavior** – Uses `FILES_LINK_SECRET` to sign tokens, constructs absolute URLs from `x-forwarded-proto` plus the request host, and returns only the formats requested. Callers should fall back to the health endpoint below when the secret is missing.
+- **Payload** – `{ charter, baseName, formats? }` where `formats` is an optional array drawn from the supported exports (`docx`, `pdf`, `json`, `xlsx`, …). When omitted the handler falls back to `docx` and `pdf`.
+- **Response** – `{ links, docx?, pdf?, expiresAt, expiresInSeconds }` with fully-qualified, signed download URLs. The legacy `docx`/`pdf` keys remain for backwards compatibility but the `links` map should be preferred so future formats flow through automatically.
+- **Behavior** – Uses `FILES_LINK_SECRET` to sign tokens, constructs absolute URLs from `x-forwarded-proto` plus the request host, and ignores unsupported formats. Callers should fall back to the health endpoint below when the secret is missing.
 
 #### `GET /api/charter/download`
-- **Query** – `token` parameter returned from `/api/charter/make-link`.
-- **Response** – Streams the requested DOCX or PDF; expired or invalid tokens return HTTP 403 with `{ error: "Link expired" }`.
-- **Behavior** – Verifies the HMAC signature and ensures the embedded `exp` timestamp is still in the future before streaming the file contents.
+- **Query** – `format`, `token`, and `sig` parameters returned from `/api/charter/make-link`.
+- **Response** – Streams the requested export; expired tokens return HTTP 410 (`{ error: "Download link expired" }`) and bad signatures return HTTP 403 (`{ error: "Invalid signature" }`).
+- **Behavior** – Verifies the HMAC signature, ensures the embedded `exp` timestamp is still in the future, and surfaces template validation issues (status 400) with structured error metadata.
 
 #### `GET /api/charter/health`
 - **Response** – `{ ok: true, hasSecret: boolean }` so the UI can surface configuration issues in-chat when `FILES_LINK_SECRET` is unset.
@@ -89,11 +89,31 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.
 
 ```bash
+export FILES_LINK_SECRET="$(openssl rand -hex 32)"
+```
+
+```bash
 npm install
 npm run dev
 ```
 
 Open the printed localhost URL.
+
+### Testing
+
+- Run unit tests (Node's test runner):
+
+  ```bash
+  npm test
+  ```
+
+- Run the Playwright integration suite (spins up the minimal charter API test server):
+
+  ```bash
+  npm run test:e2e
+  ```
+
+  The first run requires installing Playwright's dependencies: `npx playwright install --with-deps`.
 
 ## Deploying to Vercel or other hosts
 1. Provision secrets – configure `OPENAI_API_KEY`, `OPENAI_STT_MODEL` (optional override), `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, and `FILES_LINK_SECRET` in your deployment environment. In Vercel, add them under **Project Settings → Environment Variables**; for other hosts, export them in the serverless runtime. Generate `FILES_LINK_SECRET` as a long, random string so signed charter links cannot be forged.

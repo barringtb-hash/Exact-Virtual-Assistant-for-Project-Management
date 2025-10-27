@@ -146,29 +146,36 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   {
     "charter": { "title": "Project Charter", "sponsor": "..." },
     "baseName": "Project_Charter_v1.0",
-    "only": "docx" | "pdf" | null
+    "formats": ["docx", "pdf", "json"]
   }
   ```
 - **Response**
   ```json
   {
-    "docx": "https://example.com/api/charter/download?token=...",
-    "pdf": "https://example.com/api/charter/download?token=...",
-    "exp": 1712085234
+    "links": {
+      "docx": "https://example.com/api/charter/download?format=docx&token=...",
+      "pdf": "https://example.com/api/charter/download?format=pdf&token=..."
+    },
+    "docx": "https://example.com/api/charter/download?format=docx&token=...",
+    "pdf": "https://example.com/api/charter/download?format=pdf&token=...",
+    "expiresAt": 1712085234,
+    "expiresInSeconds": 900
   }
   ```
 - **Notes**
   - Builds fully-qualified URLs using `x-forwarded-proto` and `req.headers.host`, so links pasted into chat work outside the hosting shell.
   - Signs the download payload with `FILES_LINK_SECRET` and includes an `exp` timestamp (epoch seconds) that expires 15 minutes after issuance.
-  - Returns whichever formats were requested. When `only` is provided, the unused key is omitted.
+  - The `formats` array is optional; when omitted the handler falls back to `docx` + `pdf`. Unsupported values are ignored.
+  - The flattened `docx`/`pdf` keys remain for backward compatibility, but callers should prefer the `links` map so new formats (such as `json` or `xlsx`) flow through automatically.
   - Callers should surface a friendly message when the route fails because `FILES_LINK_SECRET` is missing; see the health endpoint below.
 
 ## Charter download – `GET /api/charter/download`
-- **Query** – `token=<signed payload>` returned by `/api/charter/make-link`.
-- **Response** – Streams either DOCX or PDF content, depending on what the token encodes.
+- **Query** – `format=<docx|pdf|json|...>&token=<signed payload>&sig=<hmac>` returned by `/api/charter/make-link`.
+- **Response** – Streams the requested export format (`Content-Type`/`Content-Disposition` are derived from the format handler).
 - **Notes**
-  - Rejects requests when the signature fails or when the embedded `exp` is earlier than the current epoch second (returns 403 with `{ error: "Link expired" }`).
-  - Exposes consistent filenames that mirror the `baseName` supplied during link creation.
+  - Rejects requests when the signature fails (`403`) or when the embedded `exp` is earlier than the current epoch second (`410` with `{ error: "Download link expired" }`).
+  - Returns `400` for unsupported formats and surfaces template validation errors with structured details so the UI can highlight the field failures.
+  - Exposes consistent filenames that mirror the sanitized `baseName` supplied during link creation.
 
 ## Charter link health – `GET /api/charter/health`
 - **Response**

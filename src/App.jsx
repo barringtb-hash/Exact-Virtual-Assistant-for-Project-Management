@@ -389,12 +389,25 @@ export default function ExactVirtualAssistantPM() {
       return { ok: false, reason: "validation" };
     }
 
+    const requestedFormats = [];
+    if (includeDocx) {
+      requestedFormats.push("docx");
+    }
+    if (includePdf) {
+      requestedFormats.push("pdf");
+    }
+
     let response;
     try {
+      const requestBody = { charter: charterPreview, baseName };
+      if (requestedFormats.length > 0) {
+        requestBody.formats = requestedFormats;
+      }
+
       response = await fetch("/api/charter/make-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ charter: charterPreview, baseName }),
+        body: JSON.stringify(requestBody),
       });
     } catch (networkError) {
       console.error("/api/charter/make-link network error", networkError);
@@ -441,23 +454,34 @@ export default function ExactVirtualAssistantPM() {
       return { ok: false, reason: "http", status: response.status, payload };
     }
 
-    const docxLink = payload?.docx;
-    const pdfLink = payload?.pdf;
+    const responseLinks =
+      payload && typeof payload === "object" && payload.links &&
+      typeof payload.links === "object" && !Array.isArray(payload.links)
+        ? payload.links
+        : {};
 
     const lines = [];
-    if (includeDocx) {
-      if (!docxLink) {
-        appendAssistantMessage("Export link error: The DOCX link was missing from the response.");
-        return { ok: false, reason: "missing-docx" };
+    const resolvedLinks = {};
+
+    for (const format of requestedFormats) {
+      const link =
+        responseLinks[format] ??
+        (format === "docx"
+          ? payload?.docx
+          : format === "pdf"
+          ? payload?.pdf
+          : undefined);
+
+      if (!link) {
+        const label = format.toUpperCase();
+        appendAssistantMessage(
+          `Export link error: The ${label} link was missing from the response.`
+        );
+        return { ok: false, reason: `missing-${format}` };
       }
-      lines.push(`- [Download DOCX](${docxLink})`);
-    }
-    if (includePdf) {
-      if (!pdfLink) {
-        appendAssistantMessage("Export link error: The PDF link was missing from the response.");
-        return { ok: false, reason: "missing-pdf" };
-      }
-      lines.push(`- [Download PDF](${pdfLink})`);
+
+      lines.push(`- [Download ${format.toUpperCase()}](${link})`);
+      resolvedLinks[format] = link;
     }
 
     if (lines.length === 0) {
@@ -470,7 +494,7 @@ export default function ExactVirtualAssistantPM() {
     const message = `${heading}\n${lines.join("\n")}`;
     appendAssistantMessage(message);
 
-    return { ok: true, links: { docx: docxLink, pdf: pdfLink } };
+    return { ok: true, links: resolvedLinks };
   };
 
   const generateBlankCharter = async ({ baseName = defaultShareBaseName } = {}) => {
@@ -485,7 +509,11 @@ export default function ExactVirtualAssistantPM() {
         response = await fetch("/api/charter/make-link", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ charter: getBlankCharter(), baseName }),
+          body: JSON.stringify({
+            charter: getBlankCharter(),
+            baseName,
+            formats: ["docx", "pdf"],
+          }),
         });
       } catch (networkError) {
         console.error("/api/charter/make-link network error (blank charter)", networkError);
@@ -527,26 +555,43 @@ export default function ExactVirtualAssistantPM() {
         return { ok: false, reason: "http", status: response.status, payload };
       }
 
-      const docxLink = payload?.docx;
-      const pdfLink = payload?.pdf;
+      const responseLinks =
+        payload && typeof payload === "object" && payload.links &&
+        typeof payload.links === "object" && !Array.isArray(payload.links)
+          ? payload.links
+          : {};
 
-      if (!docxLink) {
-        appendAssistantMessage("Blank charter error: The DOCX link was missing from the response.");
-        await checkShareLinksConfigured();
-        return { ok: false, reason: "missing-docx" };
-      }
-      if (!pdfLink) {
-        appendAssistantMessage("Blank charter error: The PDF link was missing from the response.");
-        await checkShareLinksConfigured();
-        return { ok: false, reason: "missing-pdf" };
+      const requiredFormats = ["docx", "pdf"];
+      const lines = [];
+      const resolvedLinks = {};
+
+      for (const format of requiredFormats) {
+        const link =
+          responseLinks[format] ??
+          (format === "docx"
+            ? payload?.docx
+            : format === "pdf"
+            ? payload?.pdf
+            : undefined);
+
+        if (!link) {
+          const label = format.toUpperCase();
+          appendAssistantMessage(
+            `Blank charter error: The ${label} link was missing from the response.`
+          );
+          await checkShareLinksConfigured();
+          return { ok: false, reason: `missing-${format}` };
+        }
+
+        lines.push(`- [Download ${format.toUpperCase()}](${link})`);
+        resolvedLinks[format] = link;
       }
 
       const safeBaseName = baseName || "Project_Charter";
-      const lines = [`- [Download DOCX](${docxLink})`, `- [Download PDF](${pdfLink})`];
       const message = `Here’s a blank charter for ${safeBaseName}:\n${lines.join("\n")}`;
       appendAssistantMessage(message);
 
-      return { ok: true, links: { docx: docxLink, pdf: pdfLink } };
+      return { ok: true, links: resolvedLinks };
     } finally {
       setIsGeneratingExportLinks(false);
     }

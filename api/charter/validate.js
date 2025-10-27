@@ -2,6 +2,7 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import fs from "fs/promises";
 import path from "path";
+import { normalizeCharterServer } from "./normalize.js";
 
 // Load the schema once at startup
 const schemaPromise = fs
@@ -58,18 +59,22 @@ export function normalizeAjvErrors(errors) {
 
 export async function validateCharterPayload(data) {
   const validator = await loadCharterValidator();
-  const isValid = validator(data);
+  const normalized = normalizeCharterServer(data);
+  const isValid = validator(normalized);
   const errors = isValid ? [] : normalizeAjvErrors(validator.errors);
 
-  return { isValid, errors };
+  return { isValid, errors, normalized };
 }
 
-export function createCharterValidationError(errors) {
+export function createCharterValidationError(errors, normalized) {
   const normalizedErrors = normalizeAjvErrors(errors);
   const error = new Error("Charter payload failed validation.");
   error.name = "CharterValidationError";
   error.statusCode = 400;
   error.validationErrors = normalizedErrors;
+  if (normalized && typeof normalized === "object") {
+    error.normalizedPayload = normalizeCharterServer(normalized);
+  }
   return error;
 }
 
@@ -79,11 +84,11 @@ export default async function handler(req, res) {
   }
 
   const data = req.body;
-  const { isValid, errors } = await validateCharterPayload(data);
+  const { isValid, errors, normalized } = await validateCharterPayload(data);
 
   if (!isValid) {
-    return res.status(400).json({ errors });
+    return res.status(400).json({ errors, normalized });
   }
 
-  return res.status(200).json({ ok: true });
+  return res.status(200).json({ ok: true, normalized });
 }

@@ -15,9 +15,9 @@ export const config = {
 };
 
 export async function renderPdfBuffer(charter) {
-  const { isValid, errors } = await validateCharterPayload(charter);
+  const { isValid, errors, normalized } = await validateCharterPayload(charter);
   if (!isValid) {
-    throw createCharterValidationError(errors);
+    throw createCharterValidationError(errors, normalized);
   }
 
   const templatePath = path.join(
@@ -26,7 +26,7 @@ export async function renderPdfBuffer(charter) {
     "charter-export.html.mustache"
   );
   const template = await fs.readFile(templatePath, "utf8");
-  const templateData = buildTemplateData(charter);
+  const templateData = buildTemplateData(normalized);
   const html = Mustache.render(template, templateData);
 
   let browser;

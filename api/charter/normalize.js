@@ -29,7 +29,7 @@ const toTrimmedString = (value) => {
 
 const normalizeStringList = (value) => {
   if (!Array.isArray(value)) {
-    return [];
+    return value === undefined ? [] : value;
   }
 
   const seen = new Set();
@@ -47,9 +47,13 @@ const normalizeStringList = (value) => {
   return items;
 };
 
-const normalizeObjectEntries = (value, fields, { extraStringFields = [] } = {}) => {
+const normalizeObjectEntries = (
+  value,
+  fields,
+  { extraStringFields = [] } = {}
+) => {
   if (!Array.isArray(value)) {
-    return [];
+    return value === undefined ? [] : value;
   }
 
   const items = [];

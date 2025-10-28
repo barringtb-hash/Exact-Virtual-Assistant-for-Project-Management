@@ -1,6 +1,7 @@
 // /api/chat.js - Vercel Serverless Function (Node runtime)
 import OpenAI from "openai";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
+import { ACTIONS } from "./_actions/registry.js";
 
 export const config = {
   api: {
@@ -81,6 +82,75 @@ const MAP_SYSTEM_PROMPT =
 
 const REDUCE_SYSTEM_PROMPT =
   "Combine multiple attachment summaries into one concise project-management briefing. Remove redundancy and highlight outcomes, owners, blockers, and next steps.";
+
+const CONTRACT_LINE =
+  "Contract: propose_actions -> ACTIONS registry (charter.extract, charter.validate, charter.render).";
+
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "propose_actions",
+      description:
+        "Suggest follow-up project charter actions that can optionally run immediately when execution is enabled.",
+      parameters: {
+        type: "object",
+        properties: {
+          operationId: {
+            type: "string",
+            description:
+              "Correlates proposed actions with their originating reasoning for downstream tracking.",
+          },
+          actions: {
+            type: "array",
+            description: "Ordered list of registry actions to consider running.",
+            items: {
+              type: "object",
+              properties: {
+                action: {
+                  type: "string",
+                  description: "Registry action key, such as charter.extract or charter.render.",
+                },
+                label: {
+                  type: "string",
+                  description:
+                    "Optional human-readable label describing the action for UI surfaces.",
+                },
+                payload: {
+                  type: "object",
+                  description:
+                    "JSON payload forwarded to the registry action when executed.",
+                  additionalProperties: true,
+                },
+                executeNow: {
+                  type: "boolean",
+                  description:
+                    "Marks whether the action should execute immediately when execution is enabled.",
+                },
+              },
+              required: ["action"],
+              additionalProperties: true,
+            },
+            default: [],
+          },
+        },
+        required: ["actions"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+function safeParse(json, fallback = null) {
+  if (typeof json !== "string" || !json.trim()) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    return fallback;
+  }
+}
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -270,8 +340,8 @@ export default async function handler(req, res) {
       .join("\n\n");
 
     const systemContent = attachmentsBlock
-      ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
-      : BASE_SYSTEM_PROMPT;
+      ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}\n\n${CONTRACT_LINE}`
+      : `${BASE_SYSTEM_PROMPT}\n\n${CONTRACT_LINE}`;
 
     const system = {
       role: "system",
@@ -293,11 +363,16 @@ export default async function handler(req, res) {
     }
 
     let reply = "";
+    let actions = [];
+    let operationId = null;
     try {
-      reply = await requestChatText(client, {
+      const result = await requestChatCompletionWithActions(client, {
         messages,
         temperature: 0.3,
       });
+      reply = typeof result.reply === "string" ? result.reply : "";
+      actions = Array.isArray(result.actions) ? result.actions : [];
+      operationId = result.operationId;
     } catch (apiErr) {
       const status = apiErr?.status || apiErr?.response?.status;
       const message =
@@ -332,7 +407,97 @@ export default async function handler(req, res) {
       reply = "I couldn’t produce a reply for this prompt.";
     }
 
-    res.status(200).json({ reply });
+    const shouldExecuteFlag = isTruthy(body?.execute) || isTruthy(req?.query?.execute);
+    const executed = [];
+    const normalizedActions = Array.isArray(actions) ? actions : [];
+
+    let lastCharterPayload;
+    const filteredActions = [];
+    for (const action of normalizedActions) {
+      const name = typeof action?.action === "string" ? action.action.trim() : "";
+      if (!name) {
+        continue;
+      }
+
+      const label =
+        typeof action?.label === "string" && action.label.trim()
+          ? action.label.trim()
+          : undefined;
+      const requestedExecute = action?.executeNow === true;
+      let payload = action?.payload;
+      if (payload === null || payload === undefined) {
+        payload = undefined;
+      }
+
+      if (
+        (payload === undefined || payload === null) &&
+        lastCharterPayload &&
+        /^charter\./.test(name)
+      ) {
+        payload = { charter: lastCharterPayload };
+      }
+
+      if (
+        payload &&
+        typeof payload === "object" &&
+        payload.charter &&
+        typeof payload.charter === "object"
+      ) {
+        lastCharterPayload = payload.charter;
+      }
+
+      const willExecute = requestedExecute && shouldExecuteFlag;
+      const normalized = {
+        action: name,
+        executeNow: willExecute,
+      };
+      if (label) {
+        normalized.label = label;
+      }
+      if (payload !== undefined) {
+        normalized.payload = payload;
+      }
+
+      if (willExecute) {
+        const executor = ACTIONS.get(name);
+        if (!executor) {
+          executed.push({
+            action: name,
+            ok: false,
+            error: `No executor registered for action "${name}"`,
+          });
+        } else {
+          const execArgs = buildExecutorArgs(req, payload);
+          try {
+            const outcome = await executor(execArgs);
+            if (
+              outcome &&
+              typeof outcome === "object" &&
+              outcome.charter &&
+              typeof outcome.charter === "object"
+            ) {
+              lastCharterPayload = outcome.charter;
+            }
+            executed.push({ action: name, ok: true });
+          } catch (error) {
+            executed.push({
+              action: name,
+              ok: false,
+              error: error?.message || "Action execution failed",
+            });
+          }
+        }
+      }
+
+      filteredActions.push(normalized);
+    }
+
+    res.status(200).json({
+      reply,
+      actions: filteredActions,
+      executed,
+      operationId: operationId ?? null,
+    });
   } catch (err) {
     try {
       console.error("API /api/chat error", {
@@ -354,4 +519,123 @@ export default async function handler(req, res) {
       : 500;
     res.status(status).json({ error: message });
   }
+}
+
+function isTruthy(value) {
+  if (value === true) return true;
+  if (value === 1) return true;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true";
+  }
+  return false;
+}
+
+function buildExecutorArgs(req, payload) {
+  const args = { req };
+  if (payload === undefined) {
+    return args;
+  }
+
+  if (payload && typeof payload === "object") {
+    if ("body" in payload) {
+      args.body = payload.body;
+    }
+    if ("payload" in payload) {
+      args.payload = payload.payload;
+    }
+    if ("charter" in payload) {
+      args.charter = payload.charter;
+    }
+    if (!("body" in payload) && !("payload" in payload) && !("charter" in payload)) {
+      args.payload = payload;
+    }
+  } else {
+    args.payload = payload;
+  }
+
+  return args;
+}
+
+async function requestChatCompletionWithActions(client, { messages, temperature }) {
+  const completion = await client.chat.completions.create({
+    model: CHAT_MODEL,
+    temperature,
+    messages,
+    tools,
+  });
+
+  const choice = completion?.choices?.[0]?.message || {};
+  const reply = extractMessageText(choice.content);
+  const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+
+  let operationId = null;
+  const actions = [];
+
+  for (const call of toolCalls) {
+    if (!call || call.type !== "function") continue;
+    if (call.function?.name !== "propose_actions") continue;
+
+    const parsed = safeParse(call.function?.arguments, null);
+    if (parsed && typeof parsed === "object") {
+      if (typeof parsed.operationId === "string" && parsed.operationId.trim()) {
+        operationId = parsed.operationId.trim();
+      }
+
+      if (Array.isArray(parsed.actions)) {
+        for (const entry of parsed.actions) {
+          const name = typeof entry?.action === "string" ? entry.action.trim() : "";
+          if (!name) continue;
+
+          const normalized = {
+            action: name,
+          };
+
+          if (entry?.executeNow === true) {
+            normalized.executeNow = true;
+          } else {
+            normalized.executeNow = false;
+          }
+
+          if (typeof entry?.label === "string" && entry.label.trim()) {
+            normalized.label = entry.label.trim();
+          }
+
+          if (entry?.payload !== undefined) {
+            normalized.payload = entry.payload;
+          }
+
+          actions.push(normalized);
+        }
+      }
+    }
+  }
+
+  if (operationId == null && typeof completion?.id === "string") {
+    operationId = completion.id;
+  }
+
+  return {
+    reply,
+    actions,
+    operationId,
+  };
+}
+
+function extractMessageText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part?.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .join("");
 }

@@ -1,4 +1,5 @@
 // /api/chat.js - Vercel Serverless Function (Node runtime)
+import { Buffer } from "node:buffer";
 import OpenAI from "openai";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
 import { ACTIONS } from "./_actions/registry.js";
@@ -463,6 +464,7 @@ export default async function handler(req, res) {
         if (!executor) {
           executed.push({
             action: name,
+            status: "error",
             ok: false,
             error: `No executor registered for action "${name}"`,
           });
@@ -478,10 +480,16 @@ export default async function handler(req, res) {
             ) {
               lastCharterPayload = outcome.charter;
             }
-            executed.push({ action: name, ok: true });
+            const result = summarizeExecutionOutcome(outcome);
+            executed.push(
+              result === undefined
+                ? { action: name, status: "ok", ok: true }
+                : { action: name, status: "ok", ok: true, result }
+            );
           } catch (error) {
             executed.push({
               action: name,
+              status: "error",
               ok: false,
               error: error?.message || "Action execution failed",
             });
@@ -555,6 +563,29 @@ function buildExecutorArgs(req, payload) {
   }
 
   return args;
+}
+
+function summarizeExecutionOutcome(outcome) {
+  if (!outcome || typeof outcome !== "object") {
+    return undefined;
+  }
+
+  if (Buffer.isBuffer(outcome)) {
+    return { byteLength: outcome.byteLength };
+  }
+
+  const summary = Array.isArray(outcome) ? [] : {};
+
+  for (const [key, value] of Object.entries(outcome)) {
+    if (Buffer.isBuffer(value)) {
+      summary[key] = { byteLength: value.byteLength };
+      continue;
+    }
+
+    summary[key] = value;
+  }
+
+  return summary;
 }
 
 function normalizeMessageForResponses(message) {

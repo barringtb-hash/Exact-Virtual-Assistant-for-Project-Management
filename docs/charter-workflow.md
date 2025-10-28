@@ -50,6 +50,18 @@ npm run validate:charter-docx
 
 The linter ensures every `{{token}}` in the DOCX maps to a schema field (including loop placeholders), and the validator renders the template with representative data to catch structural issues. CI should also execute both commands.
 
+## Post-Edit Checklist
+
+After saving template edits, run the encoding, lint, and smoke rendering scripts to verify everything is synchronized:
+
+```sh
+npm run docx:encode
+npm run docx:lint
+npm run docx:smoke
+```
+
+`docx:smoke` renders the sample payload at `samples/charter.smoke.json` and writes the DOCX to `samples/charter.smoke.docx` by default. Pass alternative payload and output paths as arguments to exercise other scenarios.
+
 If `templates/project_charter_tokens.docx` is missing, decode it from the base64 store first:
 
 ```sh

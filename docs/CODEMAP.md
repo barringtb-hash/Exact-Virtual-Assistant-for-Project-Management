@@ -9,9 +9,9 @@
 
 ## Frontend (`src/`)
 - `src/App.jsx`
-  - Owns application state for messages, draft input, attachment metadata, feature toggles, theme preference, realtime voice, and charter preview data.
-  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes. `THEME_STORAGE_KEY` persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, `shareLinksViaChat`, and `generateBlankCharter`) validates charters and posts signed download links without hitting the LLM when possible.
-  - Renders chat composer, transcript, attachment chips, charter preview tabs, realtime voice controls, and the appearance selector in the footer. Assistant replies flow through `AssistantFeedbackTemplate` to normalize headings and Markdown links.
+  - Owns application state for messages, draft input, attachment metadata, feature toggles, theme preference, realtime voice, synchronous auto-execution, and charter preview data. Auto downloads live in `autoDownloads` and share an object-URL cleanup registry (`downloadLinksRef`).
+  - Provides helpers `callLLM`, `runAutoExtract`, `runAutoExecuteChat`, `handleExecutedActions`, and voice/transcription orchestration that call the API routes. `THEME_STORAGE_KEY` persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, `shareLinksViaChat`, and `generateBlankCharter`) validates charters and posts signed download links without hitting the LLM when possible; when a spoken command falls through, the assistant auto-sends it with `autoExecute` enabled.
+  - Renders chat composer, transcript, attachment chips, charter preview tabs, realtime voice controls, and the appearance selector in the footer. Assistant replies flow through `AssistantFeedbackTemplate` to normalize headings and Markdown links, and when `/api/chat` returns rendered charter metadata, `handleExecutedActions` prepares download chips (if base64 data is present) and updates the preview status badge.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
 - `src/index.css`
@@ -23,7 +23,9 @@
 
 ## Serverless API (`api/`)
 - `api/chat.js`
-  - Validates POST requests, enforces optional token limits, summarizes attachments with map/reduce helpers (`lib/tokenize.js`), and calls the OpenAI Responses or Chat Completions API depending on the configured model.
+  - Validates POST requests, enforces optional token limits, summarizes attachments with map/reduce helpers (`lib/tokenize.js`), and calls the OpenAI Responses or Chat Completions API depending on the configured model. The handler appends the contract line for the `propose_actions` tool, parses returned actions, and optionally executes them synchronously via the shared registry before replying with `{ reply, actions, executed }`.
+- `api/_actions/registry.js`
+  - Shared charter action map. Reconstructs the deployment base URL from forwarded headers, posts JSON bodies to `/api/charter/extract`, `/api/charter/validate`, and `/api/charter/render`, and normalizes responses into JSON data or `{ buffer, filename, mime }` tuples.
 - `api/transcribe.js`
   - Accepts base64 audio, enforces MIME whitelist, converts to a `File`, transcribes with `OPENAI_STT_MODEL` or falls back to Whisper, and returns `{ text, transcript }`.
 - `api/files/text.js`
@@ -62,14 +64,14 @@
 ## Data flow
 ### Text chat loop
 1. User enters text in the composer (`src/App.jsx` state `draftInput`).
-2. `sendMessage` pushes the user message into `messages` state and posts `{ messages }` to `POST /api/chat` when live mode is enabled.
-3. `api/chat.js` calls OpenAI and responds with `{ reply }`, which the frontend appends to the transcript.
+2. `sendMessage` pushes the user message into `messages` state and posts `{ messages, execute }` to `POST /api/chat`, opting into synchronous execution when `autoExecute` is true.
+3. `api/chat.js` calls OpenAI, captures any `propose_actions` tool calls, optionally executes them via the registry, and responds with `{ reply, actions, executed, operationId }`. The frontend appends the assistant message and routes rendered charter summaries to `handleExecutedActions`, which updates the preview and surfaces download chips when binary payloads are provided.
 
 ### Voice capture + transcription
 1. Microphone button starts a `MediaRecorder`; audio chunks buffer in `src/App.jsx`.
 2. Recording stops → audio is converted to base64 and POSTed to `POST /api/transcribe`.
 3. `api/transcribe.js` validates, transcodes, and requests transcription from OpenAI, returning `{ text, transcript }`.
-4. Frontend inserts the transcript into chat state (either as the draft input for review or auto-sent based on toggle), then continues with the regular chat loop above.
+4. Frontend routes the transcript through the command router; if no shortcut matches, `runAutoExecuteChat` auto-sends the transcript with synchronous execution enabled so promised charters render immediately.
 
 ### Realtime voice session
 1. When realtime mode is toggled, the browser creates an `RTCPeerConnection` and generates an SDP offer.

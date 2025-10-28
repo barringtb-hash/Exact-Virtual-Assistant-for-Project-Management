@@ -12,22 +12,43 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   ```json
   {
     "messages": [
-      { "role": "user", "content": "..." }
+      { "role": "user", "content": "Generate a project charter." }
     ],
     "attachments": [
       { "name": "Vision Brief", "text": "Trimmed excerpt..." }
-    ]
+    ],
+    "operationId": "bdf4d0b8-7c3f-4f63-b3c2-7f2ad5b1a090",
+    "execute": true
   }
   ```
-  `attachments` is optional and should contain the trimmed text for each supporting file you want the assistant to reference.
+  `attachments` is optional and should contain the trimmed text for each supporting file you want the assistant to reference. `operationId` is optional and, when provided, is echoed back so the client can dedupe UI updates; `execute` (or `?execute=1` on the request URL) enables synchronous registry execution.
 - **Response**
   ```json
   {
-    "reply": "Assistant response"
+    "reply": "Here’s the refreshed charter.",
+    "actions": [
+      { "action": "charter.extract", "executeNow": true },
+      { "action": "charter.validate", "executeNow": true },
+      { "action": "charter.render", "executeNow": true }
+    ],
+    "executed": [
+      {
+        "action": "charter.render",
+        "status": "ok",
+        "result": {
+          "filename": "project_charter.docx",
+          "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "buffer": { "byteLength": 23456 }
+        }
+      }
+    ],
+    "operationId": "bdf4d0b8-7c3f-4f63-b3c2-7f2ad5b1a090"
   }
   ```
 - **Notes**
-  - Prepends a project-management system prompt and trims history to the most recent 18 messages.
+  - Prepends a project-management system prompt, appends the contract line `Contract: propose_actions -> ACTIONS registry (charter.extract, charter.validate, charter.render).`, and trims history to the most recent 18 messages.
+  - Collects `tool_calls` for the `propose_actions` function and normalizes the arguments before returning them in the `actions` array.
+  - When execution is enabled, iterates through the actions in order and delegates to the shared `api/_actions/registry.js` helpers. Each registry call reports either `{ status: "ok", result }` or `{ status: "error", message }` so the client can surface validation failures without rerunning the model.
   - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before summarizing oversized files via a map/reduce pass (`lib/tokenize.js`). Attachments that fit under `SMALL_ATTACHMENTS_TOKEN_BUDGET` are inlined verbatim as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
   - Honors `CHAT_PROMPT_TOKEN_LIMIT` when set—payloads exceeding the token budget return a `400` with an explanatory error.
   - Uses the Responses API when the configured model matches `gpt-4o`/`gpt-4.1` families; otherwise falls back to Chat Completions with `temperature: 0.3` for consistent tone.

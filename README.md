@@ -1,11 +1,12 @@
 # Exact Virtual Assistant for Project Management (Phase 1)
 
-A React + Tailwind single-page assistant that drafts project charters, validates structured outputs, and generates export links without leaving the transcript. The latest iteration layers in attachment text extraction, PDF rendering, charter-share health checks, realtime voice, and an inline command router so phrases like “share the charter” immediately validate data and respond with signed download URLs.
+A React + Tailwind single-page assistant that drafts project charters, validates structured outputs, and now fulfills its own commitments without a follow-up prompt. Whenever the model promises work (for example, “I’ll render the charter”), the `/api/chat` handler asks it for structured actions, optionally runs them through a shared action registry, and streams rendered artifacts—complete with inline download chips in the transcript.
 
 ## Architecture Overview
-- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, realtime voice, and feature toggles for LLM usage, auto-extraction, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. Chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input, and the assistant bubble pipes responses through `AssistantFeedbackTemplate` to normalize Markdown links and section headings.
-- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation within the chat transcript. Attachments are stored in memory and routed through `runAutoExtract`, which calls the backend file-text normalizer before summarizing context for the LLM.
-- **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors. Voice transcripts also run through the same command router, so spoken export requests yield shareable links without touching the sidebar.
+- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, realtime voice, and feature toggles for LLM usage, auto-extraction, synchronous auto-execution, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. Chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input, the assistant bubble pipes responses through `AssistantFeedbackTemplate`, and auto-executed files surface as download chips that reuse a shared revocation registry so object URLs are cleaned up.
+- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation. When `autoExecute` is enabled (default for voice), chat requests include `execute=1` so `/api/chat` can synchronously run charter actions and return an `executed` array that the UI can translate into download chips or validation warnings.
+- **Action registry (`api/_actions/registry.js`)** – centralizes `charter.extract`, `charter.validate`, and `charter.render` executors. Each helper reconstructs the deployment base URL from forwarded headers, posts JSON bodies to the existing charter endpoints, and normalizes results (JSON payloads or DOCX buffers) so `/api/chat` can orchestrate them in-order.
+- **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors. Voice transcripts run through the same command router and auto-execution path, so spoken export requests immediately produce charter downloads when the assistant commits to running them.
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
 
@@ -32,9 +33,44 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `CHROME_EXECUTABLE_PATH`, `PUPPETEER_EXECUTABLE_PATH` | `/api/export/pdf`, `/api/charter/download` | Optional custom Chromium paths when the default bundled binary is unavailable in your runtime. |
 
 ### `POST /api/chat`
-- **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
-- **Response** – `{ reply: string }`. Errors return `{ error }` with appropriate HTTP status codes.
-- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone. Attachments are validated for non-empty text, summarized via a map/reduce pass (or inlined when under `SMALL_ATTACHMENTS_TOKEN_BUDGET` tokens), and the resulting bullet summary is prepended to the system prompt as `### {name}` sections.
+- **Payload** –
+  ```json
+  {
+    "messages": [
+      { "role": "user", "content": "..." }
+    ],
+    "attachments": [
+      { "name": "Vision Brief", "text": "Trimmed excerpt..." }
+    ],
+    "operationId": "4b0f...",
+    "execute": true
+  }
+  ```
+  `attachments` is optional and should contain the trimmed text for each supporting file you want the assistant to reference. `operationId` is optional and, when supplied, is echoed back so the client can dedupe UI updates. `execute` (or the query string `?execute=1`) toggles synchronous action execution.
+- **Response** –
+  ```json
+  {
+    "reply": "Assistant response",
+    "actions": [
+      { "action": "charter.extract", "executeNow": true },
+      { "action": "charter.render", "executeNow": true }
+    ],
+    "executed": [
+      {
+        "action": "charter.render",
+        "status": "ok",
+        "result": {
+          "filename": "project_charter.docx",
+          "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "buffer": { "byteLength": 23456 }
+        }
+      }
+    ],
+    "operationId": "4b0f..."
+  }
+  ```
+  When execution is disabled the response still includes `actions` so the UI can offer manual follow-ups.
+- **Notes** – wraps `openai.chat.completions.create` with a concise system prompt tailored for PMO tone plus an explicit contract line instructing the model to call the `propose_actions` tool whenever it commits to work. Attachments are validated for non-empty text, summarized via a map/reduce pass (or inlined when under `SMALL_ATTACHMENTS_TOKEN_BUDGET` tokens), and the resulting bullet summary is prepended to the system prompt as `### {name}` sections. When actions are executed inline, `/api/chat` delegates to the shared ACTIONS registry and records success or `{ status: "error", message }` entries so the client can surface validation issues in the chat transcript.
 
 ### `POST /api/transcribe`
 - **Payload** – `{ audioBase64: string, mimeType: string }` where `audioBase64` is the base64-encoded audio blob captured in the browser.
@@ -91,13 +127,14 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 ## Charter automation workflow
 1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter.schema.json`](templates/charter.schema.json). Customize these files to change tone, required sections, or value formats.
 2. **Extraction** – `/api/charter/extract` (or a direct OpenAI call with the same prompt) produces draft charter JSON keyed to the schema. Downstream processes should assume optional sections may be empty and rely on schema validation before render.
-3. **Validation** – Use `/api/charter/validate` inside the app or run the CLI helper for offline workflows:
+3. **Action proposals + validation** – `/api/chat` asks the model to enumerate the concrete charter steps it plans to run. When `execute=1` the handler immediately forwards the latest charter payload through the ACTIONS registry, including validation; manual runs can replay the returned `actions` array and show richer UI affordances.
+4. **Validation (manual trigger)** – Use `/api/charter/validate` inside the app or run the CLI helper for offline workflows:
    ```bash
    node templates/charter-validate.mjs ./path/to/charter.json
    ```
    The script prints success/failure along with human-readable Ajv errors. Because it loads the schema locally, no API access is required.
-4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX.
-5. **Export/share** – Call `/api/export/pdf` for the styled PDF, or `/api/charter/make-link` to generate signed download URLs for DOCX/PDF/JSON (XLSX placeholder). `/api/charter/download` verifies signatures and streams the requested format on demand.
+5. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX. When invoked through `/api/chat` the rendered buffer is summarized into `{ filename, mime, buffer: { byteLength } }`, allowing the client to detect that a document was produced and perform any follow-up encoding it needs for downloads.
+6. **Export/share** – Call `/api/export/pdf` for the styled PDF, or `/api/charter/make-link` to generate signed download URLs for DOCX/PDF/JSON (XLSX placeholder). `/api/charter/download` verifies signatures and streams the requested format on demand.
 
 ## Local development (Vite)
 Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.

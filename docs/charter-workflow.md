@@ -4,6 +4,15 @@ This guide documents how to maintain the charter templates that power charter ex
 
 For QA coverage of the realtime charter auto-execute edge cases, see the [Auto-Execute QA Scenarios](./auto-execute-qa.md) checklist.
 
+## Synchronous action execution
+
+`/api/chat` now requests structured actions from the model whenever it promises to work on
+the charter. When `execute=1` is present, the handler forwards those actions to
+`api/_actions/registry.js`, which simply calls the existing extract/validate/render
+endpoints and returns a summarized result (including DOCX metadata and buffer lengths).
+Keep these downstream handlers idempotent—auto-execute can trigger them multiple times as
+voice transcripts or text commands arrive in quick succession.
+
 ## Rebuilding the DOCX Template
 
 1. Decode the committed base64 file to a DOCX you can edit:

@@ -1,6 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const DEFAULT_DEBOUNCE_MS = 1000;
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+const PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function shouldRetryStatus(status) {
+  if (typeof status !== "number") return false;
+  if (status === 408 || status === 425 || status === 429) return true;
+  return status >= 500 && status < 600;
+}
+
+function isTransientError(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.name === "AbortError") return false;
+  if (error.name === "TypeError") return true;
+  if (typeof error.status === "number") {
+    return shouldRetryStatus(error.status);
+  }
+  return false;
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -143,6 +164,8 @@ export default function useBackgroundExtraction({
   setDraft,
   normalize,
   debounceMs = DEFAULT_DEBOUNCE_MS,
+  isUploadingAttachments = false,
+  onNotify,
 } = {}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState(null);
@@ -161,6 +184,8 @@ export default function useBackgroundExtraction({
   const timerRef = useRef(null);
   const abortControllerRef = useRef(null);
   const isMountedRef = useRef(true);
+  const notifyRef = useRef(typeof onNotify === "function" ? onNotify : null);
+  const isUploadingRef = useRef(Boolean(isUploadingAttachments));
 
   useEffect(() => {
     return () => {
@@ -196,6 +221,14 @@ export default function useBackgroundExtraction({
     setDraftRef.current = typeof setDraft === "function" ? setDraft : () => {};
   }, [setDraft]);
 
+  useEffect(() => {
+    notifyRef.current = typeof onNotify === "function" ? onNotify : null;
+  }, [onNotify]);
+
+  useEffect(() => {
+    isUploadingRef.current = Boolean(isUploadingAttachments);
+  }, [isUploadingAttachments]);
+
   const clearPendingTimer = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -209,6 +242,10 @@ export default function useBackgroundExtraction({
   }, []);
 
   const performExtraction = useCallback(async () => {
+    if (isUploadingRef.current) {
+      return { ok: false, reason: "attachments-uploading" };
+    }
+
     const { docType: latestDocType, messages: latestMessages, voice: latestVoice, attachments: latestAttachments, seed: latestSeed } =
       latestStateRef.current;
 
@@ -250,57 +287,103 @@ export default function useBackgroundExtraction({
       delete payload.seed;
     }
 
+    const applyDraft = setDraftRef.current;
+
     try {
-      const response = await fetch("/api/charter/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        try {
+          const response = await fetch("/api/charter/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
 
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        const message = errorPayload?.error || `Extraction failed with status ${response.status}`;
-        throw new Error(message);
+          if (!response.ok) {
+            const errorPayload = await response.json().catch(() => ({}));
+            const message = errorPayload?.error || `Extraction failed with status ${response.status}`;
+            const errorInstance = new Error(message);
+            errorInstance.status = response.status;
+            errorInstance.payload = errorPayload;
+            if (attempt < MAX_ATTEMPTS && shouldRetryStatus(response.status)) {
+              await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+              continue;
+            }
+            throw errorInstance;
+          }
+
+          const data = await response.json();
+          if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new Error("Extractor returned unexpected payload");
+          }
+
+          if (Object.prototype.hasOwnProperty.call(data, "result")) {
+            const notify = notifyRef.current;
+            if (typeof notify === "function") {
+              notify({ tone: "warning", message: PARSE_FALLBACK_MESSAGE });
+            }
+            if (isMountedRef.current) {
+              setIsExtracting(false);
+              setError(PARSE_FALLBACK_MESSAGE);
+            }
+            return { ok: false, reason: "parse-fallback", data };
+          }
+
+          const normalizeFn = normalizeRef.current;
+          let normalizedDraft;
+          try {
+            normalizedDraft = normalizeFn(data);
+          } catch (normalizeError) {
+            console.error("Background extraction normalize error", normalizeError);
+            normalizedDraft = data;
+          }
+
+          let finalDraft = normalizedDraft;
+          if (typeof applyDraft === "function") {
+            try {
+              const maybeDraft = await applyDraft(normalizedDraft);
+              if (typeof maybeDraft !== "undefined") {
+                finalDraft = maybeDraft;
+              }
+            } catch (applyError) {
+              console.error("Background extraction apply error", applyError);
+            }
+          }
+
+          if (isMountedRef.current) {
+            setIsExtracting(false);
+            setError(null);
+          }
+
+          return { ok: true, draft: finalDraft };
+        } catch (errorInstance) {
+          if (errorInstance?.name === "AbortError") {
+            throw errorInstance;
+          }
+
+          const retryable = attempt < MAX_ATTEMPTS && isTransientError(errorInstance);
+          if (retryable) {
+            await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+            continue;
+          }
+
+          throw errorInstance;
+        }
       }
-
-      const data = await response.json();
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Extractor returned unexpected payload");
-      }
-
-      const normalizeFn = normalizeRef.current;
-      let normalizedDraft;
-      try {
-        normalizedDraft = normalizeFn(data);
-      } catch (normalizeError) {
-        console.error("Background extraction normalize error", normalizeError);
-        normalizedDraft = data;
-      }
-
-      const finalDraft = mergeExtractedDraft(
-        draftGetterRef.current?.(),
-        normalizedDraft,
-        locksRef.current,
-      );
-
-      setDraftRef.current((prev) => mergeExtractedDraft(prev, normalizedDraft, locksRef.current));
-
-      if (isMountedRef.current) {
-        setIsExtracting(false);
-        setError(null);
-      }
-
-      return { ok: true, draft: finalDraft };
     } catch (errorInstance) {
       if (errorInstance?.name === "AbortError") {
         return { ok: false, reason: "aborted" };
       }
 
       console.error("Background extraction error", errorInstance);
+      const message = errorInstance?.message || "Unable to extract charter data";
       if (isMountedRef.current) {
         setIsExtracting(false);
-        setError(errorInstance?.message || "Unable to extract charter data");
+        setError(message);
+      }
+      const notify = notifyRef.current;
+      if (typeof notify === "function") {
+        notify({ tone: "error", message });
       }
       return { ok: false, reason: "error", error: errorInstance };
     } finally {
@@ -312,8 +395,13 @@ export default function useBackgroundExtraction({
 
   const scheduleExtraction = useCallback(() => {
     clearPendingTimer();
+    if (isUploadingRef.current) {
+      return;
+    }
     timerRef.current = setTimeout(() => {
-      performExtraction();
+      if (!isUploadingRef.current) {
+        performExtraction();
+      }
     }, Math.max(0, debounceMs || DEFAULT_DEBOUNCE_MS));
   }, [clearPendingTimer, debounceMs, performExtraction]);
 
@@ -337,9 +425,24 @@ export default function useBackgroundExtraction({
       return undefined;
     }
 
+    if (isUploadingRef.current) {
+      clearPendingTimer();
+      return undefined;
+    }
+
     scheduleExtraction();
     return clearPendingTimer;
-  }, [messages, voice, attachments, seed, docType, debounceMs, scheduleExtraction, clearPendingTimer]);
+  }, [
+    messages,
+    voice,
+    attachments,
+    seed,
+    docType,
+    debounceMs,
+    isUploadingAttachments,
+    scheduleExtraction,
+    clearPendingTimer,
+  ]);
 
   return { isExtracting, error, syncNow, clearError };
 }

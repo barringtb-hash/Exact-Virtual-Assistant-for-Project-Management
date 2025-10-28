@@ -3,7 +3,7 @@ import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
 import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter from "../lib/charter/normalize.js";
-import useBackgroundExtraction from "./hooks/useBackgroundExtraction";
+import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 
@@ -72,6 +72,132 @@ function hasDraftContent(value) {
   return false;
 }
 
+function walkDraft(value, callback, basePath = "") {
+  if (basePath) {
+    callback(basePath, value);
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      const childPath = basePath ? `${basePath}.${index}` : `${index}`;
+      walkDraft(item, callback, childPath);
+    });
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, entry]) => {
+      const childPath = basePath ? `${basePath}.${key}` : key;
+      walkDraft(entry, callback, childPath);
+    });
+  }
+}
+
+function collectPaths(value) {
+  const paths = [];
+  walkDraft(value, (path) => paths.push(path));
+  return paths;
+}
+
+function expandPathsWithAncestors(paths) {
+  const set = new Set();
+  paths.forEach((path) => {
+    if (!path) return;
+    const segments = path.split(".").filter(Boolean);
+    for (let index = 1; index <= segments.length; index += 1) {
+      set.add(segments.slice(0, index).join("."));
+    }
+  });
+  return set;
+}
+
+function getPathsToUpdate(path) {
+  if (!path) return new Set();
+  const segments = path.split(".").filter(Boolean);
+  const result = new Set();
+  for (let index = 1; index <= segments.length; index += 1) {
+    result.add(segments.slice(0, index).join("."));
+  }
+  return result;
+}
+
+function isPathLocked(locks, path) {
+  if (!locks || !path) return false;
+  const segments = path.split(".").filter(Boolean);
+  let current = "";
+  for (const segment of segments) {
+    current = current ? `${current}.${segment}` : segment;
+    if (locks[current]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function synchronizeFieldStates(
+  draft,
+  prevStates = {},
+  { touchedPaths = new Set(), source, timestamp, locks = {} } = {}
+) {
+  const nextStates = {};
+  const touched = touchedPaths instanceof Set ? touchedPaths : new Set(touchedPaths);
+  const hasTimestamp = typeof timestamp === "number" && !Number.isNaN(timestamp);
+  const baseNow = Date.now();
+
+  walkDraft(draft, (path, value) => {
+    const prevEntry = prevStates[path];
+    const isTouched = touched.has(path);
+    const locked = Boolean(locks && locks[path]);
+    const nextSource = isTouched
+      ? source ?? prevEntry?.source ?? "Auto"
+      : prevEntry?.source ?? "Auto";
+    const nextUpdatedAt = isTouched
+      ? hasTimestamp
+        ? timestamp
+        : baseNow
+      : typeof prevEntry?.updatedAt === "number"
+      ? prevEntry.updatedAt
+      : baseNow;
+
+    nextStates[path] = {
+      value,
+      locked,
+      source: nextSource,
+      updatedAt: nextUpdatedAt,
+    };
+  });
+
+  return nextStates;
+}
+
+function getValueAtPath(source, path) {
+  if (!path) {
+    return source;
+  }
+
+  const segments = Array.isArray(path) ? path : path.split(".").filter(Boolean);
+  let current = source;
+
+  for (const segment of segments) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return undefined;
+      }
+      current = current[index];
+    } else if (current && typeof current === "object") {
+      if (!(segment in current)) {
+        return undefined;
+      }
+      current = current[segment];
+    } else {
+      return undefined;
+    }
+  }
+
+  return current;
+}
+
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -138,14 +264,24 @@ const seedMessages = [
 
 export default function ExactVirtualAssistantPM() {
   const createBlankDraft = useCallback(() => normalizeCharterDraft(getBlankCharter()), []);
+  const initialDraftRef = useRef(null);
+  if (initialDraftRef.current === null) {
+    initialDraftRef.current = createBlankDraft();
+  }
   const [messages, setMessages] = useState(seedMessages);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
-  const [charterPreview, setCharterPreview] = useState(() => createBlankDraft());
+  const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
   const [locks, setLocks] = useState(() => ({}));
+  const [fieldStates, setFieldStates] = useState(() => {
+    const draft = initialDraftRef.current;
+    const paths = expandPathsWithAncestors(collectPaths(draft));
+    const now = Date.now();
+    return synchronizeFieldStates(draft, {}, { touchedPaths: paths, source: "Auto", timestamp: now, locks: {} });
+  });
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
@@ -154,6 +290,8 @@ export default function ExactVirtualAssistantPM() {
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [toasts, setToasts] = useState([]);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -176,8 +314,85 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const charterDraftRef = useRef(initialDraftRef.current);
+  const locksRef = useRef(locks);
+  const toastTimersRef = useRef(new Map());
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
-  const getCurrentDraft = useCallback(() => charterPreview, [charterPreview]);
+  useEffect(() => {
+    charterDraftRef.current = charterPreview;
+  }, [charterPreview]);
+
+  useEffect(() => {
+    locksRef.current = locks;
+  }, [locks]);
+
+  const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
+
+  useEffect(() => {
+    return () => {
+      toastTimersRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      toastTimersRef.current.clear();
+    };
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    if (!id) return;
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timeoutId = toastTimersRef.current.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      toastTimersRef.current.delete(id);
+    }
+  }, []);
+
+  const pushToast = useCallback(
+    ({ tone = "info", message, ttl = 6000 } = {}) => {
+      const text = typeof message === "string" ? message.trim() : "";
+      if (!text) return;
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const toast = { id, tone, message: text, createdAt: Date.now() };
+      setToasts((prev) => [...prev, toast]);
+      if (ttl > 0) {
+        const timeoutId = setTimeout(() => {
+          dismissToast(id);
+        }, ttl);
+        toastTimersRef.current.set(id, timeoutId);
+      }
+    },
+    [dismissToast]
+  );
+  const applyNormalizedDraft = useCallback(
+    (normalizedDraft) => {
+      if (!normalizedDraft || typeof normalizedDraft !== "object") {
+        return charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      }
+
+      const locksSnapshot = locksRef.current || {};
+      const baseDraft = charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const finalDraft = mergeExtractedDraft(baseDraft, normalizedDraft, locksSnapshot);
+
+      charterDraftRef.current = finalDraft;
+      setCharterPreview(finalDraft);
+
+      const candidatePaths = collectPaths(normalizedDraft);
+      const filteredPaths = candidatePaths.filter((path) => !isPathLocked(locksSnapshot, path));
+      const touchedPaths = expandPathsWithAncestors(filteredPaths);
+      const now = Date.now();
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths,
+          source: "Auto",
+          timestamp: now,
+          locks: locksSnapshot,
+        })
+      );
+
+      return finalDraft;
+    },
+    [createBlankDraft]
+  );
+
   const {
     isExtracting,
     error: extractError,
@@ -191,8 +406,10 @@ export default function ExactVirtualAssistantPM() {
     seed: extractionSeed,
     locks,
     getDraft: getCurrentDraft,
-    setDraft: setCharterPreview,
+    setDraft: applyNormalizedDraft,
     normalize: normalizeCharterDraft,
+    isUploadingAttachments,
+    onNotify: pushToast,
   });
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -208,13 +425,34 @@ export default function ExactVirtualAssistantPM() {
   }, [attachments, voiceTranscripts, messages]);
 
   const applyCharterDraft = useCallback(
-    (nextDraft, { resetLocks = false } = {}) => {
-      setCharterPreview(nextDraft);
+    (nextDraft, { resetLocks = false, source = "Auto" } = {}) => {
+      const draft =
+        nextDraft && typeof nextDraft === "object" && !Array.isArray(nextDraft)
+          ? nextDraft
+          : createBlankDraft();
+      const locksSnapshot = resetLocks ? {} : locksRef.current || {};
+
       if (resetLocks) {
+        locksRef.current = {};
         setLocks({});
       }
+
+      charterDraftRef.current = draft;
+      setCharterPreview(draft);
+
+      const touchedPaths = expandPathsWithAncestors(collectPaths(draft));
+      const now = Date.now();
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(draft, resetLocks ? {} : prevStates, {
+          touchedPaths,
+          source,
+          timestamp: now,
+          locks: locksSnapshot,
+        })
+      );
     },
-    []
+    [createBlankDraft]
   );
 
   const handleDraftChange = useCallback(
@@ -225,7 +463,25 @@ export default function ExactVirtualAssistantPM() {
 
       setCharterPreview((prev) => {
         const base = prev ?? createBlankDraft();
-        return setNestedValue(base, segments, value);
+        const next = setNestedValue(base, segments, value);
+        charterDraftRef.current = next;
+        const touchedPaths = getPathsToUpdate(path);
+        const subtreeValue = getValueAtPath(next, segments);
+        if (typeof subtreeValue !== "undefined") {
+          walkDraft(subtreeValue, (subPath) => {
+            touchedPaths.add(subPath);
+          }, path);
+        }
+        const now = Date.now();
+        setFieldStates((prevStates) =>
+          synchronizeFieldStates(next, prevStates, {
+            touchedPaths,
+            source: "Manual",
+            timestamp: now,
+            locks: locksRef.current,
+          })
+        );
+        return next;
       });
     },
     [createBlankDraft]
@@ -237,7 +493,21 @@ export default function ExactVirtualAssistantPM() {
       if (prev[path]) {
         return prev;
       }
-      return { ...prev, [path]: true };
+      const nextLocks = { ...prev, [path]: true };
+      locksRef.current = nextLocks;
+      const touchedPaths = getPathsToUpdate(path);
+      setFieldStates((prevStates) => {
+        const prevEntry = prevStates?.[path];
+        const source = prevEntry?.source ?? "Manual";
+        const updatedAt = typeof prevEntry?.updatedAt === "number" ? prevEntry.updatedAt : Date.now();
+        return synchronizeFieldStates(charterDraftRef.current, prevStates, {
+          touchedPaths,
+          source,
+          timestamp: updatedAt,
+          locks: nextLocks,
+        });
+      });
+      return nextLocks;
     });
   }, []);
 
@@ -1155,41 +1425,62 @@ export default function ExactVirtualAssistantPM() {
 
   const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
-    const pickedFiles = Array.from(list);
-    const baseTimestamp = Date.now();
-    const newFiles = pickedFiles.map((f, index) => ({
-      id: `${baseTimestamp}-${index}`,
-      name: f.name,
-      size: prettyBytes(f.size),
-      file: f,
-    }));
+    setIsUploadingAttachments(true);
+    try {
+      const pickedFiles = Array.from(list);
+      const baseTimestamp = Date.now();
+      const newFiles = pickedFiles.map((f, index) => ({
+        id: `${baseTimestamp}-${index}`,
+        name: f.name,
+        size: prettyBytes(f.size),
+        file: f,
+      }));
 
-    setFiles((prev) => [...prev, ...newFiles]);
+      setFiles((prev) => [...prev, ...newFiles]);
 
-    const processedAttachments = [];
+      const processedAttachments = [];
 
-    for (const file of pickedFiles) {
-      try {
-        const base64 = await fileToBase64(file);
-        const response = await fetch("/api/files/text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: file.name,
-            mimeType: file.type,
-            base64,
-          }),
-        });
-
-        let payload = {};
+      for (const file of pickedFiles) {
         try {
-          payload = await response.json();
-        } catch (err) {
-          console.error("Failed to parse /api/files/text response", err);
-        }
+          const base64 = await fileToBase64(file);
+          const response = await fetch("/api/files/text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: file.name,
+              mimeType: file.type,
+              base64,
+            }),
+          });
 
-        if (!response.ok || payload?.ok === false) {
-          const message = payload?.error || `Unable to process ${file.name}`;
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (err) {
+            console.error("Failed to parse /api/files/text response", err);
+          }
+
+          if (!response.ok || payload?.ok === false) {
+            const message = payload?.error || `Unable to process ${file.name}`;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now() + Math.random(),
+                role: "assistant",
+                text: `Attachment error (${file.name}): ${message}`,
+              },
+            ]);
+            continue;
+          }
+
+          processedAttachments.push({
+            name: payload?.name || file.name,
+            mimeType: payload?.mimeType || file.type,
+            text: payload?.text || "",
+          });
+        } catch (error) {
+          const message = error?.message || "Unknown error";
+          console.error("addPickedFiles error", error);
           setMessages((prev) => [
             ...prev,
             {
@@ -1198,31 +1489,15 @@ export default function ExactVirtualAssistantPM() {
               text: `Attachment error (${file.name}): ${message}`,
             },
           ]);
-          continue;
         }
-
-        processedAttachments.push({
-          name: payload?.name || file.name,
-          mimeType: payload?.mimeType || file.type,
-          text: payload?.text || "",
-        });
-      } catch (error) {
-        const message = error?.message || "Unknown error";
-        console.error("addPickedFiles error", error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now() + Math.random(),
-            role: "assistant",
-            text: `Attachment error (${file.name}): ${message}`,
-          },
-        ]);
       }
-    }
 
-    if (processedAttachments.length) {
-      setAttachments((prev) => [...prev, ...processedAttachments]);
-      setExtractionSeed(Date.now());
+      if (processedAttachments.length) {
+        setAttachments((prev) => [...prev, ...processedAttachments]);
+        setExtractionSeed(Date.now());
+      }
+    } finally {
+      setIsUploadingAttachments(false);
     }
   };
 
@@ -1471,6 +1746,7 @@ export default function ExactVirtualAssistantPM() {
                 <PreviewEditable
                   draft={charterPreview}
                   locks={locks}
+                  fieldStates={fieldStates}
                   isLoading={isExtracting}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
@@ -1568,6 +1844,7 @@ export default function ExactVirtualAssistantPM() {
 
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -1588,6 +1865,48 @@ function ThemeSelect({ mode, resolvedMode, onChange }) {
         <option value="dark">Dark</option>
         <option value="auto">{autoLabel}</option>
       </select>
+    </div>
+  );
+}
+
+function ToastStack({ toasts, onDismiss }) {
+  if (!Array.isArray(toasts) || toasts.length === 0) {
+    return null;
+  }
+
+  const toneStyles = {
+    info: "border-slate-200 bg-white/90 text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/80 dark:text-slate-100",
+    warning: "border-amber-200 bg-amber-100/90 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/80 dark:text-amber-100",
+    error: "border-red-200 bg-red-100/90 text-red-900 dark:border-red-700/60 dark:bg-red-900/80 dark:text-red-100",
+    success: "border-emerald-200 bg-emerald-100/90 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-100",
+  };
+
+  return (
+    <div className="pointer-events-none fixed bottom-4 right-0 z-[60] flex w-full max-w-sm flex-col gap-2 px-4 sm:right-4 sm:px-0">
+      {toasts.map((toast) => {
+        const key = toast?.tone && toneStyles[toast.tone] ? toast.tone : "info";
+        const toneClass = toneStyles[key];
+        const message = typeof toast?.message === "string" ? toast.message : "";
+        if (!message) return null;
+        return (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg backdrop-blur ${toneClass}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 whitespace-pre-line leading-snug">{message}</div>
+              <button
+                type="button"
+                onClick={() => onDismiss?.(toast.id)}
+                className="text-lg leading-none text-slate-500 transition hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                aria-label="Dismiss notification"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -44,6 +44,13 @@ const IconCheck = (props) => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
+const IconDownload = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <path d="M12 3v14" />
+    <path d="M5 13l7 7 7-7" />
+    <path d="M5 21h14" />
+  </svg>
+);
 const IconAlert = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -90,7 +97,8 @@ export default function ExactVirtualAssistantPM() {
   const [autoExtract, setAutoExtract] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
-  const [autoExecute, setAutoExecute] = useState(true);
+  const [autoDownloads, setAutoDownloads] = useState([]);
+  const [previewStatus, setPreviewStatus] = useState("idle");
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -113,7 +121,7 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const operationIdRef = useRef(null);
+  const downloadLinksRef = useRef([]);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
 
   const newOpId = () => {
@@ -181,6 +189,21 @@ export default function ExactVirtualAssistantPM() {
       container.scrollTop = container.scrollHeight;
     }
   }, [messages, isAssistantThinking]);
+
+  useEffect(() => {
+    return () => {
+      for (const item of downloadLinksRef.current) {
+        if (item?.url) {
+          try {
+            URL.revokeObjectURL(item.url);
+          } catch (error) {
+            // Ignore URL cleanup errors in test environments.
+          }
+        }
+      }
+      downloadLinksRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     if (autoExtract && attachments.length) {
@@ -897,6 +920,130 @@ export default function ExactVirtualAssistantPM() {
       reader.readAsDataURL(blob);
     });
 
+  const updateDownloadChips = (list = []) => {
+    const normalized = Array.isArray(list)
+      ? list.map((item) => ({ ...item }))
+      : [];
+    for (const entry of downloadLinksRef.current) {
+      if (entry?.url) {
+        try {
+          URL.revokeObjectURL(entry.url);
+        } catch (error) {
+          // Ignore URL cleanup errors in test environments.
+        }
+      }
+    }
+    downloadLinksRef.current = normalized;
+    setAutoDownloads(normalized);
+  };
+
+  const base64ToBlob = (base64, mime = "application/octet-stream") => {
+    if (typeof base64 !== "string" || !base64.trim()) {
+      throw new Error("Invalid base64 payload");
+    }
+    const normalized = base64.trim();
+    const payload = normalized.includes(",")
+      ? normalized.slice(normalized.indexOf(",") + 1)
+      : normalized;
+    const binary = atob(payload);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime || "application/octet-stream" });
+  };
+
+  const handleExecutedActions = (executed = []) => {
+    if (!Array.isArray(executed) || executed.length === 0) {
+      return;
+    }
+
+    const downloads = [];
+    let latestCharter = null;
+
+    for (const entry of executed) {
+      if (!entry || entry.action !== "charter.render" || entry.status !== "ok") {
+        continue;
+      }
+
+      const result = entry?.result || {};
+      const base64Buffer =
+        typeof result?.buffer === "string"
+          ? result.buffer
+          : typeof result?.buffer?.base64 === "string"
+          ? result.buffer.base64
+          : undefined;
+
+      if (base64Buffer) {
+        try {
+          const blob = base64ToBlob(
+            base64Buffer,
+            result?.mime || "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          );
+          const url = URL.createObjectURL(blob);
+          const filename =
+            typeof result?.filename === "string" && result.filename.trim()
+              ? result.filename.trim()
+              : "Project Charter.docx";
+          downloads.push({
+            id: `${Date.now()}-${Math.random()}`,
+            filename,
+            url,
+          });
+        } catch (error) {
+          console.error("Failed to prepare DOCX download", error);
+        }
+      }
+
+      if (result?.charter && typeof result.charter === "object") {
+        latestCharter = result.charter;
+      }
+    }
+
+    if (latestCharter) {
+      setCharterPreview(normalizeCharterDraft(latestCharter));
+      setPreviewStatus("updated");
+    } else if (downloads.length > 0) {
+      setPreviewStatus("updated");
+    }
+
+    if (downloads.length > 0) {
+      updateDownloadChips(downloads);
+    }
+  };
+
+  const runAutoExecuteChat = async (text, { baseName } = {}) => {
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    if (!trimmed) return false;
+
+    const entry = appendUserMessageToChat(trimmed);
+    if (!entry) return false;
+
+    const nextHistory = [...messages, entry];
+    setIsAssistantThinking(true);
+    try {
+      const result = await callLLM(trimmed, nextHistory, attachments, {
+        execute: true,
+        baseName,
+      });
+      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+      if (reply) {
+        appendAssistantMessage(reply);
+      }
+      handleExecutedActions(result?.executed || []);
+      return Boolean(reply || (Array.isArray(result?.executed) && result.executed.length > 0));
+    } catch (error) {
+      console.error("Voice auto execute failed", error);
+      appendAssistantMessage(
+        "Voice command error: Unable to fulfill the request right now."
+      );
+      return false;
+    } finally {
+      setIsAssistantThinking(false);
+    }
+  };
+
   const startRecording = async () => {
     if (rec) return;
     let stream;
@@ -934,7 +1081,13 @@ export default function ExactVirtualAssistantPM() {
           const transcript = data?.transcript ?? data?.text ?? "";
           const trimmedTranscript = typeof transcript === "string" ? transcript.trim() : "";
           if (trimmedTranscript) {
-            await sendMessage(trimmedTranscript);
+            const handled = await handleCommandFromText(trimmedTranscript);
+            if (!handled) {
+              const executed = await runAutoExecuteChat(trimmedTranscript);
+              if (!executed) {
+                setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
+              }
+            }
           }
         } catch (error) {
           console.error("Transcription failed", error);
@@ -1091,251 +1244,16 @@ export default function ExactVirtualAssistantPM() {
     if (handled) {
       return true;
     }
-
-    const requestMessages = nextHistory.map((item) => ({
-      role: item.role,
-      content: item.text || "",
-      text: item.text || "",
-    }));
-
-    const normalizedAttachments = attachments
-      .map((attachment) => {
-        const name = typeof attachment?.name === "string" ? attachment.name : "";
-        const textValue = typeof attachment?.text === "string" ? attachment.text : "";
-        const mimeType = typeof attachment?.mimeType === "string" ? attachment.mimeType : undefined;
-        if (!name) return null;
-        const payload = { name, text: textValue };
-        if (mimeType) {
-          payload.mimeType = mimeType;
-        }
-        return payload;
-      })
-      .filter(Boolean);
-
-    const requestBody = { messages: requestMessages };
-    if (normalizedAttachments.length > 0) {
-      requestBody.attachments = normalizedAttachments;
-    }
-
-    const opId = newOpId();
-    setIsAssistantThinking(true);
-
-    const gatherDownloads = async (entry) => {
-      if (!entry || typeof entry !== "object") return [];
-      const sources = [];
-      if (Array.isArray(entry.files)) {
-        sources.push(...entry.files);
-      }
-      if (entry.file) {
-        sources.push(entry.file);
-      }
-      if (!sources.length && entry.buffer) {
-        sources.push({
-          buffer: entry.buffer,
-          name: entry.filename,
-          mimeType: entry.mime,
-        });
-      }
-
-      const downloads = [];
-      for (const source of sources) {
-        if (!source || typeof source !== "object") continue;
-        const nameCandidate =
-          typeof source.name === "string" && source.name.trim()
-            ? source.name.trim()
-            : typeof source.filename === "string" && source.filename.trim()
-            ? source.filename.trim()
-            : "Download";
-        const mimeCandidate =
-          typeof source.mimeType === "string" && source.mimeType.trim()
-            ? source.mimeType.trim()
-            : typeof source.mime === "string" && source.mime.trim()
-            ? source.mime.trim()
-            : "application/octet-stream";
-
-        let arrayBuffer = null;
-        try {
-          if (source.arrayBuffer instanceof ArrayBuffer) {
-            arrayBuffer = source.arrayBuffer;
-          } else if (source.buffer instanceof ArrayBuffer) {
-            arrayBuffer = source.buffer;
-          } else if (
-            source.buffer &&
-            typeof source.buffer === "object" &&
-            source.buffer.type === "Buffer" &&
-            Array.isArray(source.buffer.data)
-          ) {
-            arrayBuffer = Uint8Array.from(source.buffer.data).buffer;
-          } else if (Array.isArray(source.buffer)) {
-            arrayBuffer = Uint8Array.from(source.buffer).buffer;
-          } else if (Array.isArray(source.data)) {
-            arrayBuffer = Uint8Array.from(source.data).buffer;
-          } else {
-            const base64Candidate =
-              typeof source.base64 === "string" && source.base64.trim()
-                ? source.base64
-                : typeof source.data === "string" && source.data.trim()
-                ? source.data
-                : typeof source.buffer === "string" && source.buffer.trim()
-                ? source.buffer
-                : null;
-            if (base64Candidate) {
-              arrayBuffer = await arrayBufferFromBase64(base64Candidate);
-            }
-          }
-        } catch (error) {
-          console.error("Failed to decode executed file", error);
-          arrayBuffer = null;
-        }
-
-        if (!arrayBuffer) {
-          continue;
-        }
-
-        if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
-          continue;
-        }
-
-        const blob = new Blob([arrayBuffer], { type: mimeCandidate });
-        const href = URL.createObjectURL(blob);
-        downloads.push({
-          name: nameCandidate,
-          href,
-          mimeType: mimeCandidate,
-          size: arrayBuffer.byteLength,
-          revokeOnDispose: () => URL.revokeObjectURL(href),
-        });
-      }
-
-      return downloads;
-    };
-
-    try {
-      const result = await postChat(requestBody, { execute: autoExecute });
-      if (operationIdRef.current !== opId) {
-        return true;
-      }
-
-      const additions = [];
-      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
-      if (reply) {
-        additions.push({
-          id: Date.now() + Math.random(),
-          role: "assistant",
-          text: reply,
-        });
-      }
-
-      const actions = Array.isArray(result?.actions) ? result.actions : [];
-      const executed = Array.isArray(result?.executed) ? result.executed : [];
-      const executedMap = new Map();
-      for (const entry of executed) {
-        if (!entry || typeof entry !== "object") continue;
-        const key = typeof entry.action === "string" ? entry.action : null;
-        if (key) {
-          executedMap.set(key, entry);
-        }
-      }
-
-      const handledKeys = new Set();
-
-      for (const action of actions) {
-        if (!action || typeof action !== "object") continue;
-        const actionKey = typeof action.action === "string" ? action.action : null;
-        const label =
-          typeof action.label === "string" && action.label.trim()
-            ? action.label.trim()
-            : actionKey;
-
-        if (!actionKey && !label) continue;
-
-        const executedEntry = actionKey ? executedMap.get(actionKey) : null;
-        if (executedEntry) {
-          if (actionKey) {
-            handledKeys.add(actionKey);
-          }
-          if (executedEntry.ok === false) {
-            const errorMessage =
-              typeof executedEntry.error === "string" && executedEntry.error.trim()
-                ? executedEntry.error.trim()
-                : "Action execution failed.";
-            additions.push({
-              id: Date.now() + Math.random(),
-              role: "system",
-              text: `${label || actionKey} failed: ${errorMessage}`,
-              tone: "error",
-              status: "Failed",
-            });
-          } else {
-            const downloads = await gatherDownloads(executedEntry);
-            additions.push({
-              id: Date.now() + Math.random(),
-              role: "system",
-              text: `${label || actionKey} completed successfully.`,
-              tone: "success",
-              status: "Executed",
-              downloads,
-            });
-          }
-        } else if (!autoExecute) {
-          additions.push({
-            id: Date.now() + Math.random(),
-            role: "system",
-            text: `${label || actionKey} is ready to execute.`,
-            tone: "info",
-            status: "Ready",
-          });
-        }
-      }
-
-      for (const entry of executed) {
-        if (!entry || typeof entry !== "object") continue;
-        const key = typeof entry.action === "string" ? entry.action : null;
-        if (key && handledKeys.has(key)) {
-          continue;
-        }
-        const label =
-          typeof entry.label === "string" && entry.label.trim()
-            ? entry.label.trim()
-            : key;
-        if (entry.ok === false) {
-          const errorMessage =
-            typeof entry.error === "string" && entry.error.trim()
-              ? entry.error.trim()
-              : "Action execution failed.";
-          additions.push({
-            id: Date.now() + Math.random(),
-            role: "system",
-            text: `${label || key || "Action"} failed: ${errorMessage}`,
-            tone: "error",
-            status: "Failed",
-          });
-        } else {
-          const downloads = await gatherDownloads(entry);
-          additions.push({
-            id: Date.now() + Math.random(),
-            role: "system",
-            text: `${label || key || "Action"} completed successfully.`,
-            tone: "success",
-            status: "Executed",
-            downloads,
-          });
-        }
-      }
-
-      if (additions.length) {
-        setMessages((prev) => [...prev, ...additions]);
-      }
-    } catch (error) {
-      if (operationIdRef.current !== opId) {
-        return true;
-      }
-      appendAssistantMessage(
-        `Assistant error: ${error?.message || "Unable to complete the request."}`,
-        { role: "system", tone: "error", status: "Error" }
-      );
-    } finally {
-      if (operationIdRef.current === opId) {
+    let reply = "";
+    if (isLLMEnabled) {
+      setIsAssistantThinking(true);
+      try {
+        const result = await callLLM(text, nextHistory, attachments);
+        reply = typeof result?.reply === "string" ? result.reply : "";
+        handleExecutedActions(result?.executed || []);
+      } catch (e) {
+        reply = "LLM error (demo): " + (e?.message || "unknown");
+      } finally {
         setIsAssistantThinking(false);
       }
     }
@@ -1369,39 +1287,14 @@ export default function ExactVirtualAssistantPM() {
         ...messages,
         { id: Date.now(), role: "user", text: summarizationPrompt },
       ];
-
-      const requestMessages = historyWithPrompt.map((item) => ({
-        role: item.role,
-        content: item.text || "",
-        text: item.text || "",
-      }));
-
-      const normalizedAttachments = attachments
-        .map((attachment) => {
-          const name = typeof attachment?.name === "string" ? attachment.name : "";
-          const textValue = typeof attachment?.text === "string" ? attachment.text : "";
-          const mimeType = typeof attachment?.mimeType === "string" ? attachment.mimeType : undefined;
-          if (!name) return null;
-          const payload = { name, text: textValue };
-          if (mimeType) {
-            payload.mimeType = mimeType;
-          }
-          return payload;
-        })
-        .filter(Boolean);
-
-      const requestBody = { messages: requestMessages };
-      if (normalizedAttachments.length > 0) {
-        requestBody.attachments = normalizedAttachments;
-      }
-
-      const result = await postChat(requestBody, { execute: autoExecute });
-      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
-      const safeReply = reply || "No summary available.";
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + Math.random(), role: "assistant", text: safeReply },
-      ]);
+      const result = await callLLM(
+        summarizationPrompt,
+        historyWithPrompt,
+        attachments,
+      );
+      handleExecutedActions(result?.executed || []);
+      const safeReply = result?.reply || "No summary available.";
+      setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
     } catch (error) {
       const message = error?.message || "Failed to summarize attachments.";
       setMessages((prev) => [
@@ -1804,6 +1697,15 @@ export default function ExactVirtualAssistantPM() {
                   <span>Auto‑extract (beta)</span>
                 </label>
               </div>
+              {previewStatus === "updated" && (
+                <div
+                  data-testid="preview-status"
+                  className="mb-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-700/60 dark:bg-emerald-900/40 dark:text-emerald-200"
+                >
+                  <IconCheck className="h-3.5 w-3.5" />
+                  <span>Preview synced with voice command</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 {['Charter','DDP','RAID'].map((tab) => (
                   <button
@@ -1896,6 +1798,22 @@ export default function ExactVirtualAssistantPM() {
                   {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
                 </button>
               </div>
+              {autoDownloads.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="auto-downloads">
+                  {autoDownloads.map((item) => (
+                    <a
+                      key={item.id}
+                      data-testid="auto-download-link"
+                      href={item.url}
+                      download={item.filename}
+                      className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 dark:border-indigo-500/50 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-800/60"
+                    >
+                      <IconDownload className="h-4 w-4" />
+                      <span className="truncate max-w-[200px]">{item.filename}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
               {extractError && (
                 <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
                   {extractError}
@@ -2212,5 +2130,60 @@ function mockAssistantReply(text) {
   if (lower.includes("milestone")) return "Captured. I’ll reflect these in the Charter and DDP timelines.";
   if (lower.includes("scope")) return "Thanks! I’ll parse scope and map to templates. Anything else to add?";
   return "Got it. I’ll incorporate that into the draft. (Note: this is a UI‑only prototype for Phase 1)";
+}
+
+// --- LLM wiring (placeholder) ---
+async function callLLM(text, history = [], contextAttachments = [], options = {}) {
+  const { execute = false, baseName } = options || {};
+  try {
+    const normalizedHistory = Array.isArray(history)
+      ? history.map((item) => ({ role: item.role, content: item.text || "" }))
+      : [];
+    const preparedAttachments = Array.isArray(contextAttachments)
+      ? contextAttachments
+          .map((attachment) => ({ name: attachment?.name, text: attachment?.text }))
+          .filter((attachment) => attachment.name && attachment.text)
+      : [];
+    const systemMessage = {
+      role: "system",
+      content:
+        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.",
+    };
+    const payload = {
+      messages: [systemMessage, ...normalizedHistory.slice(-19)],
+      attachments: preparedAttachments,
+    };
+    if (execute) {
+      payload.execute = true;
+      if (baseName) {
+        payload.baseName = baseName;
+      }
+    }
+    const endpoint = execute ? "/api/chat?execute=1" : "/api/chat";
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (parseError) {
+      console.error("Failed to parse chat response", parseError);
+      data = {};
+    }
+    if (!res.ok) {
+      const message =
+        typeof data?.error === "string"
+          ? data.error
+          : typeof data?.message === "string"
+          ? data.message
+          : `Chat request failed with status ${res.status}`;
+      throw new Error(message);
+    }
+    return data && typeof data === "object" ? data : { reply: "" };
+  } catch (e) {
+    return { reply: "OpenAI endpoint error: " + (e?.message || "unknown") };
+  }
 }
 

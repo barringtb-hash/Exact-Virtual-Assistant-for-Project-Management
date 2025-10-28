@@ -2173,26 +2173,35 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
-  const structuredSections = useMemo(() => {
+  const { structuredSections, hasStructuredContent } = useMemo(() => {
     if (!Array.isArray(sections)) {
-      return [];
+      return { structuredSections: [], hasStructuredContent: false };
     }
 
-    return sections.filter((section) => {
+    let containsStructuredContent = false;
+
+    const filteredSections = sections.filter((section) => {
       if (!section) {
         return false;
       }
 
       const hasHeading = typeof section.heading === "string" && section.heading.trim().length > 0;
       const hasItems = Array.isArray(section.items) && section.items.length > 0;
+      const hasParagraphs = Array.isArray(section.paragraphs) && section.paragraphs.length > 0;
 
-      return hasHeading || hasItems;
+      if (hasHeading || hasItems) {
+        containsStructuredContent = true;
+      }
+
+      return hasHeading || hasItems || hasParagraphs;
     });
+
+    return { structuredSections: filteredSections, hasStructuredContent: containsStructuredContent };
   }, [sections]);
   const showStructured =
     !isUser &&
     Array.isArray(sections) &&
-    (structuredSections.length > 0 || hideEmptySections === false);
+    (hasStructuredContent || hideEmptySections === false);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div

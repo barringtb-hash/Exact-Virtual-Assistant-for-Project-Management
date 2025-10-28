@@ -166,6 +166,7 @@ export default function useBackgroundExtraction({
   debounceMs = DEFAULT_DEBOUNCE_MS,
   isUploadingAttachments = false,
   onNotify,
+  enabled = true,
 } = {}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState(null);
@@ -395,7 +396,7 @@ export default function useBackgroundExtraction({
 
   const scheduleExtraction = useCallback(() => {
     clearPendingTimer();
-    if (isUploadingRef.current) {
+    if (!enabled || isUploadingRef.current) {
       return;
     }
     timerRef.current = setTimeout(() => {
@@ -403,14 +404,36 @@ export default function useBackgroundExtraction({
         performExtraction();
       }
     }, Math.max(0, debounceMs || DEFAULT_DEBOUNCE_MS));
-  }, [clearPendingTimer, debounceMs, performExtraction]);
+  }, [clearPendingTimer, debounceMs, enabled, performExtraction]);
 
-  const syncNow = useCallback(() => {
-    clearPendingTimer();
-    return performExtraction();
-  }, [clearPendingTimer, performExtraction]);
+  const syncNow = useCallback(
+    (force = false) => {
+      clearPendingTimer();
+      if (!enabled && !force) {
+        return Promise.resolve({ ok: false, reason: "disabled" });
+      }
+      return performExtraction();
+    },
+    [clearPendingTimer, enabled, performExtraction]
+  );
 
   useEffect(() => {
+    if (enabled) {
+      return undefined;
+    }
+
+    clearPendingTimer();
+    if (isMountedRef.current) {
+      setIsExtracting(false);
+    }
+    return undefined;
+  }, [enabled, clearPendingTimer]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+
     const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
     const shouldExtract =
       sanitizeAttachments(latestAttachments).length > 0 ||
@@ -442,6 +465,7 @@ export default function useBackgroundExtraction({
     isUploadingAttachments,
     scheduleExtraction,
     clearPendingTimer,
+    enabled,
   ]);
 
   return { isExtracting, error, syncNow, clearError };

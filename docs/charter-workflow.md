@@ -32,10 +32,12 @@ This guide documents how to maintain the charter templates that power charter ex
 7. Re-encode the DOCX back into the repository’s base64 file so that Git tracks a text diff:
 
    ```sh
-   node templates/sync-charter-template.mjs encode
+   npm run docx:encode
    ```
 
-   If you saved the DOCX to a different path, pass that path as the second argument.
+   The script defaults to `templates/project_charter_tokens.docx` and writes the updated
+   `project_charter_tokens.docx.b64` alongside it. If you saved the DOCX to a different
+   path, pass that path after a `--`, for example `npm run docx:encode -- ./drafts/charter.docx`.
 
 ## Validation
 
@@ -69,5 +71,5 @@ The PDF export reuses the same normalized charter payload but renders it with Mu
 ## Version Control Notes
 
 - Only the base64 file `project_charter_tokens.docx.b64` is committed. This keeps pull requests text-only and avoids binary diff limitations in the review tooling.
-- Use `templates/sync-charter-template.mjs decode` when you need the DOCX locally, and `encode` after you save changes so the base64 file stays in sync.
+- Use `templates/sync-charter-template.mjs decode` when you need the DOCX locally, and `npm run docx:encode` after you save changes so the base64 file stays in sync.
 - Document any structural changes or new tokens in this file to keep the workflow transparent.

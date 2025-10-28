@@ -136,6 +136,13 @@ Open the printed localhost URL.
   npm run validate:charter-docx
   ```
 
+- After editing `templates/project_charter_tokens.docx`, regenerate the base64 store so the
+  renderer picks up your changes:
+
+  ```bash
+  npm run docx:encode
+  ```
+
 ## Deploying to Vercel or other hosts
 1. Provision secrets – configure `OPENAI_API_KEY`, `OPENAI_STT_MODEL` (optional override), `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, and `FILES_LINK_SECRET` in your deployment environment. In Vercel, add them under **Project Settings → Environment Variables**; for other hosts, export them in the serverless runtime. Generate `FILES_LINK_SECRET` as a long, random string so signed charter links cannot be forged.
 2. Ensure the platform supports Node 18+ and either native Vercel serverless runtime or an equivalent serverless adapter for `api/` routes (e.g., Netlify Functions, AWS Lambda). If you deploy outside Vercel, map the functions to their platform-specific entrypoints while preserving the route names above.

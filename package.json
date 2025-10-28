@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "validate:charter-docx": "node templates/validate-docx-template.mjs",
     "docx:encode": "node templates/tools/encode-docx.mjs",
-    "docx:lint": "node templates/tools/lint-tokens.mjs"
+    "docx:lint": "node templates/tools/lint-tokens.mjs",
+    "docx:smoke": "node templates/tools/render-smoke.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -124,6 +124,65 @@ export default function ExactVirtualAssistantPM() {
   const downloadLinksRef = useRef([]);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
 
+  const newOpId = () => {
+    const nextId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    operationIdRef.current = nextId;
+    return nextId;
+  };
+
+  const arrayBufferFromBase64 = async (base64) => {
+    const safe = typeof base64 === "string" ? base64.trim() : "";
+    if (!safe) {
+      throw new Error("Missing base64 payload");
+    }
+    const normalized = safe.includes(",") ? safe.split(",").pop() : safe;
+    const cleaned = normalized.replace(/\s+/g, "");
+    let binaryString = "";
+    if (typeof atob === "function") {
+      binaryString = atob(cleaned);
+    } else if (typeof Buffer !== "undefined") {
+      binaryString = Buffer.from(cleaned, "base64").toString("binary");
+    } else {
+      throw new Error("No base64 decoder available");
+    }
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
+  const postChat = async (body, { execute = false } = {}) => {
+    const query = execute ? "?execute=1" : "";
+    let response;
+    try {
+      response = await fetch(`/api/chat${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      });
+    } catch (error) {
+      throw new Error(error?.message || "Unable to reach /api/chat");
+    }
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error("Invalid response from /api/chat");
+    }
+
+    if (!response.ok || payload?.error) {
+      throw new Error(payload?.error || `Chat request failed (status ${response.status})`);
+    }
+
+    return payload;
+  };
+
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
@@ -206,12 +265,21 @@ export default function ExactVirtualAssistantPM() {
     error: "Error",
   };
 
-  const appendAssistantMessage = (text) => {
+  const appendAssistantMessage = (text, extras = {}) => {
     const safeText = typeof text === "string" ? text.trim() : "";
-    if (!safeText) return;
+    const hasDownloads = Array.isArray(extras.downloads) && extras.downloads.length > 0;
+    if (!safeText && !hasDownloads) return;
+    const { role = "assistant", tone, status, downloads } = extras;
     setMessages((prev) => [
       ...prev,
-      { id: Date.now() + Math.random(), role: "assistant", text: safeText },
+      {
+        id: Date.now() + Math.random(),
+        role,
+        text: safeText,
+        tone,
+        status,
+        downloads,
+      },
     ]);
   };
 
@@ -734,6 +802,7 @@ export default function ExactVirtualAssistantPM() {
   const startRealtime = async () => {
     if (!realtimeEnabled) return;
     if (rtcState === "connecting" || rtcState === "live") return;
+    setAutoExecute(true);
     setRtcState("connecting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1140,18 +1209,40 @@ export default function ExactVirtualAssistantPM() {
     return false;
   };
 
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text) return;
-    if (isAssistantThinking) return;
-    const isLLMEnabled = useLLM;
-    const userMsg = { id: Date.now() + Math.random(), role: "user", text };
-    const nextHistory = [...messages, userMsg];
-    setMessages(nextHistory);
+  const sendMessage = async (rawText) => {
+    const text = typeof rawText === "string" ? rawText.trim() : "";
+    if (!text) return false;
+
+    if (!useLLM) {
+      setInput("");
+      const userEntry = { id: Date.now() + Math.random(), role: "user", text };
+      setMessages((prev) => [...prev, userEntry]);
+      const handled = await handleCommandFromText(text, { userMessageAppended: true });
+      if (handled) {
+        return true;
+      }
+      appendAssistantMessage(mockAssistantReply(text));
+      return true;
+    }
+
+    if (isAssistantThinking) return false;
+
     setInput("");
+
+    const userEntry = { id: Date.now() + Math.random(), role: "user", text };
+    let nextHistory = null;
+    setMessages((prev) => {
+      const updated = [...prev, userEntry];
+      nextHistory = updated;
+      return updated;
+    });
+    if (!nextHistory) {
+      nextHistory = [...messages, userEntry];
+    }
+
     const handled = await handleCommandFromText(text, { userMessageAppended: true });
     if (handled) {
-      return;
+      return true;
     }
     let reply = "";
     if (isLLMEnabled) {
@@ -1165,10 +1256,15 @@ export default function ExactVirtualAssistantPM() {
       } finally {
         setIsAssistantThinking(false);
       }
-    } else {
-      reply = mockAssistantReply(text);
     }
-    appendAssistantMessage(reply || "");
+
+    return true;
+  };
+
+  const handleSend = async () => {
+    const text = input;
+    if (!text.trim()) return;
+    await sendMessage(text);
   };
 
   const handleSummarizeAttachments = async () => {
@@ -1178,6 +1274,15 @@ export default function ExactVirtualAssistantPM() {
     setIsSummarizing(true);
     try {
       const summarizationPrompt = "Summarize the attached documents.";
+      if (!useLLM) {
+        const mockReply = mockAssistantReply(summarizationPrompt);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + Math.random(), role: "assistant", text: mockReply },
+        ]);
+        return;
+      }
+
       const historyWithPrompt = [
         ...messages,
         { id: Date.now(), role: "user", text: summarizationPrompt },
@@ -1399,15 +1504,26 @@ export default function ExactVirtualAssistantPM() {
             <Panel
               title="Assistant Chat"
               right={
-                <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
-                  <IconPlus className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-white/60 bg-white/60 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={autoExecute}
+                      onChange={(event) => setAutoExecute(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-500"
+                    />
+                    <span>Auto-execute</span>
+                  </label>
+                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                    <IconPlus className="h-4 w-4" />
+                  </button>
+                </div>
               }
             >
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.map((m) => (
-                    <ChatBubble key={m.id} role={m.role} text={m.text} />
+                    <ChatBubble key={m.id} message={m} />
                   ))}
                 </div>
                 {isAssistantThinking && (
@@ -1772,22 +1888,110 @@ function AssistantThinkingIndicator() {
   );
 }
 
-function ChatBubble({ role, text }) {
+function ChatBubble({ message }) {
+  const role = message?.role;
+  const tone = typeof message?.tone === "string" ? message.tone : undefined;
+  const statusLabel =
+    typeof message?.status === "string" && message.status.trim()
+      ? message.status.trim()
+      : "";
+  const downloads = Array.isArray(message?.downloads) ? message.downloads : [];
   const isUser = role === "user";
-  const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
+  const isSystem = role === "system";
+  const safeText =
+    typeof message?.text === "string"
+      ? message.text
+      : message?.text != null
+      ? String(message.text)
+      : "";
+
+  useEffect(() => {
+    return () => {
+      if (!Array.isArray(downloads)) return;
+      downloads.forEach((item) => {
+        if (typeof item?.revokeOnDispose === "function") {
+          try {
+            item.revokeOnDispose();
+          } catch (error) {
+            // Swallow cleanup errors in non-browser environments.
+          }
+        }
+      });
+    };
+  }, [downloads, message?.id]);
+
+  const baseClass =
+    "max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border";
+
+  const toneVariants = {
+    success:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-700 dark:text-emerald-200",
+    error:
+      "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-700 dark:text-red-200",
+    info:
+      "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-700 dark:text-sky-200",
+  };
+
+  const systemClass = toneVariants[tone] ||
+    "bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100";
+
+  const bubbleClass = isUser
+    ? `${baseClass} bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400`
+    : isSystem
+    ? `${baseClass} ${systemClass}`
+    : `${baseClass} bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100`;
+
+  const statusToneClass = toneVariants[tone] ||
+    "bg-slate-200 border-slate-200 text-slate-700 dark:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200";
+
+  const formatBytes = (value) => {
+    if (!Number.isFinite(value) || value <= 0) return "";
+    if (value < 1024) return `${value} B`;
+    const kb = value / 1024;
+    if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+  };
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
-          isUser
-            ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-            : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
-        }`}
-      >
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={bubbleClass}>
+        {statusLabel && (
+          <div
+            className={`mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClass}`}
+          >
+            {statusLabel}
+          </div>
+        )}
         {isUser ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
+        ) : isSystem ? (
+          <span className="whitespace-pre-wrap text-sm leading-6">{safeText}</span>
         ) : (
           <AssistantFeedbackTemplate text={safeText} />
+        )}
+        {downloads.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {downloads.map((download, index) => {
+              const label =
+                typeof download?.name === "string" && download.name.trim()
+                  ? download.name.trim()
+                  : `File ${index + 1}`;
+              const href = typeof download?.href === "string" ? download.href : "";
+              const sizeLabel = formatBytes(download?.size);
+              return (
+                <a
+                  key={href || `${message?.id || "download"}-${index}`}
+                  href={href}
+                  download={label}
+                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200"
+                >
+                  <span>{label}</span>
+                  {sizeLabel && <span className="text-[11px] opacity-75">{sizeLabel}</span>}
+                </a>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

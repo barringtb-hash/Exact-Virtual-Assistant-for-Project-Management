@@ -1,11 +1,75 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
+import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter from "../lib/charter/normalize.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
+
+const NUMERIC_SEGMENT_PATTERN = /^\d+$/;
+
+function setNestedValue(source, segments, value) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return source;
+  }
+
+  const [segment, ...rest] = segments;
+  const isIndex = NUMERIC_SEGMENT_PATTERN.test(segment);
+  const key = isIndex ? Number(segment) : segment;
+
+  let container;
+  if (Array.isArray(source)) {
+    container = [...source];
+  } else if (source && typeof source === "object") {
+    container = { ...source };
+  } else {
+    container = isIndex ? [] : {};
+  }
+
+  if (rest.length === 0) {
+    if (Array.isArray(container) && typeof key === "number") {
+      const arr = [...container];
+      arr[key] = value;
+      return arr;
+    }
+    container[key] = value;
+    return container;
+  }
+
+  const nextSource = container[key];
+  const nextContainer = setNestedValue(nextSource, rest, value);
+
+  if (Array.isArray(container) && typeof key === "number") {
+    const arr = [...container];
+    arr[key] = nextContainer;
+    return arr;
+  }
+
+  container[key] = nextContainer;
+  return container;
+}
+
+function hasDraftContent(value) {
+  if (!value) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasDraftContent(entry));
+  }
+
+  if (typeof value === "object") {
+    return Object.values(value).some((entry) => hasDraftContent(entry));
+  }
+
+  return false;
+}
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -72,11 +136,13 @@ const seedMessages = [
 ];
 
 export default function ExactVirtualAssistantPM() {
+  const createBlankDraft = useCallback(() => normalizeCharterDraft(getBlankCharter()), []);
   const [messages, setMessages] = useState(seedMessages);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
-  const [charterPreview, setCharterPreview] = useState(null);
+  const [charterPreview, setCharterPreview] = useState(() => createBlankDraft());
+  const [locks, setLocks] = useState(() => ({}));
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
@@ -85,7 +151,6 @@ export default function ExactVirtualAssistantPM() {
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
-  const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
   const [autoExtract, setAutoExtract] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -113,6 +178,42 @@ export default function ExactVirtualAssistantPM() {
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+
+  const applyCharterDraft = useCallback(
+    (nextDraft, { resetLocks = false } = {}) => {
+      setCharterPreview(nextDraft);
+      if (resetLocks) {
+        setLocks({});
+      }
+    },
+    []
+  );
+
+  const handleDraftChange = useCallback(
+    (path, value) => {
+      if (!path) return;
+      const segments = path.split(".").filter(Boolean);
+      if (segments.length === 0) return;
+
+      setCharterPreview((prev) => {
+        const base = prev ?? createBlankDraft();
+        return setNestedValue(base, segments, value);
+      });
+    },
+    [createBlankDraft]
+  );
+
+  const handleLockField = useCallback((path) => {
+    if (!path) return;
+    setLocks((prev) => {
+      if (prev[path]) {
+        return prev;
+      }
+      return { ...prev, [path]: true };
+    });
+  }, []);
+
+  const draftHasContent = useMemo(() => hasDraftContent(charterPreview), [charterPreview]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -393,7 +494,7 @@ export default function ExactVirtualAssistantPM() {
       : null;
 
     if (hasCharterDraft) {
-      setCharterPreview(normalizedCharter);
+      applyCharterDraft(normalizedCharter);
     }
 
     const validation = await validateCharter(normalizedCharter);
@@ -1154,7 +1255,7 @@ export default function ExactVirtualAssistantPM() {
 
     if (nextAttachments) {
       if (!nextAttachments.length) {
-        setCharterPreview(null);
+        applyCharterDraft(createBlankDraft(), { resetLocks: true });
         setExtractError(null);
       } else if (autoExtract) {
         runAutoExtract(nextAttachments);
@@ -1208,12 +1309,12 @@ export default function ExactVirtualAssistantPM() {
         throw new Error(data.error);
       }
 
-      setCharterPreview(data);
+      const normalizedDraft = normalizeCharterDraft(data);
+      applyCharterDraft(normalizedDraft, { resetLocks: true });
     } catch (error) {
       const message = error?.message || "Failed to extract charter";
       console.error("runAutoExtract error", error);
       setExtractError(message);
-      setCharterPreview(null);
     } finally {
       setIsExtracting(false);
     }
@@ -1426,43 +1527,31 @@ export default function ExactVirtualAssistantPM() {
                   <span>Auto‑extract (beta)</span>
                 </label>
               </div>
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                {['Charter','DDP','RAID'].map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActivePreview(tab)}
-                    className={`px-3 py-1.5 rounded-xl text-sm border ${
-                      activePreview===tab
-                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-                        : 'bg-white/70 border-white/60 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100'
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
+                <PreviewEditable
+                  draft={charterPreview}
+                  locks={locks}
+                  isLoading={isExtracting}
+                  onDraftChange={handleDraftChange}
+                  onLockField={handleLockField}
+                />
               </div>
-
-              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <CharterCard data={charterPreview} isLoading={isExtracting} />
-                <DDPCard data={charterPreview} isLoading={isExtracting} />
-                <RAIDCard data={charterPreview} isLoading={isExtracting} />
-                {isExtracting && (
-                  <div className="text-xs text-slate-500">Extracting charter insights…</div>
-                )}
-              </div>
+              {isExtracting && (
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Extracting charter insights…</div>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => exportDocxViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
@@ -1477,14 +1566,14 @@ export default function ExactVirtualAssistantPM() {
                   type="button"
                   onClick={() => shareLinksViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
@@ -1499,14 +1588,14 @@ export default function ExactVirtualAssistantPM() {
                   type="button"
                   onClick={() => exportPdfViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
+                    !draftHasContent ||
                     isExtracting ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
@@ -1610,131 +1699,6 @@ function ChatBubble({ role, text }) {
           <AssistantFeedbackTemplate text={safeText} />
         )}
       </div>
-    </div>
-  );
-}
-
-function CharterCard({ data, isLoading }) {
-  const timeline = [];
-  if (data?.start_date) timeline.push(`Start: ${data.start_date}`);
-  if (data?.end_date) timeline.push(`End: ${data.end_date}`);
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Project Charter</div>
-      <Field label="Project Title" value={data?.project_name} isLoading={isLoading} />
-      <Field label="Sponsor" value={data?.sponsor} isLoading={isLoading} />
-      <Field label="Project Lead" value={data?.project_lead} isLoading={isLoading} />
-      <Field label="Problem Statement" value={data?.problem} lines={2} isLoading={isLoading} />
-      <Field label="Timeline" value={timeline.join(" • ")} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function DDPCard({ data, isLoading }) {
-  const scopeItems = [];
-  if (Array.isArray(data?.scope_in) && data.scope_in.length) {
-    scopeItems.push(...data.scope_in.map((item) => `In Scope: ${item}`));
-  }
-  if (Array.isArray(data?.scope_out) && data.scope_out.length) {
-    scopeItems.push(...data.scope_out.map((item) => `Out of Scope: ${item}`));
-  }
-
-  const successMetrics = Array.isArray(data?.success_metrics)
-    ? data.success_metrics
-        .map((metric) => {
-          const parts = [metric?.benefit, metric?.metric, metric?.system_of_measurement]
-            .filter(Boolean)
-            .join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  const milestoneItems = Array.isArray(data?.milestones)
-    ? data.milestones
-        .map((item) => {
-          const parts = [item?.phase, item?.deliverable, item?.date].filter(Boolean).join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Design & Development Plan</div>
-      <Field label="Objectives" value={data?.vision} lines={2} isLoading={isLoading} />
-      <Field label="Scope" value={scopeItems} lines={2} isLoading={isLoading} />
-      <Field label="Verification Strategy" value={successMetrics} lines={2} isLoading={isLoading} />
-      <Field label="Milestones" value={milestoneItems} lines={2} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function RAIDCard({ data, isLoading }) {
-  const riskItems = Array.isArray(data?.risks) ? data.risks.filter(Boolean) : [];
-  const assumptionItems = Array.isArray(data?.assumptions) ? data.assumptions.filter(Boolean) : [];
-  const coreTeamItems = Array.isArray(data?.core_team)
-    ? data.core_team
-        .map((member) => {
-          const parts = [member?.name, member?.role, member?.responsibilities]
-            .filter(Boolean)
-            .join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  const descriptionItems = data?.description ? [data.description] : [];
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">RAID Log Snapshot</div>
-      <Field label="Risks" value={riskItems} lines={2} isLoading={isLoading} />
-      <Field label="Assumptions" value={assumptionItems} lines={2} isLoading={isLoading} />
-      <Field label="Core Team" value={coreTeamItems} lines={2} isLoading={isLoading} />
-      <Field label="Notes" value={descriptionItems} lines={2} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function Field({ label, value, lines = 1, isLoading }) {
-  const isArray = Array.isArray(value);
-  const arrayItems = isArray ? value.filter((item) => typeof item === "string" && item.trim()) : [];
-  const stringValue = !isArray && typeof value === "string" ? value.trim() : "";
-  const hasContent = arrayItems.length > 0 || stringValue;
-  const heightClass = lines > 1 ? "min-h-[80px]" : "min-h-[36px]";
-
-  return (
-    <div className="mb-3">
-      <div className="text-xs text-slate-500 mb-1 dark:text-slate-400">{label}</div>
-      {hasContent ? (
-        <div className="rounded-xl border border-white/70 bg-white/90 dark:border-slate-600/60 dark:bg-slate-800/70">
-          {arrayItems.length > 0 ? (
-            <ul className="list-disc space-y-1 px-4 py-3 text-sm text-slate-700 dark:text-slate-100">
-              {arrayItems.map((item, idx) => (
-                <li key={`${label}-${idx}`} className="whitespace-pre-wrap">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap dark:text-slate-100">{stringValue}</div>
-          )}
-        </div>
-      ) : (
-        <div
-          className={`rounded-xl bg-white/60 border border-white/60 ${heightClass} overflow-hidden dark:bg-slate-900/40 dark:border-slate-700/60`}
-        >
-          <div
-            className={`h-full w-full ${
-              isLoading
-                ? "animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-700 dark:to-slate-800"
-                : "bg-white/40 dark:bg-slate-800/60"
-            }`}
-          />
-        </div>
-      )}
     </div>
   );
 }

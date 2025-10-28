@@ -90,6 +90,7 @@ export default function ExactVirtualAssistantPM() {
   const [autoExtract, setAutoExtract] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [autoExecute, setAutoExecute] = useState(true);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -112,7 +113,67 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const operationIdRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+
+  const newOpId = () => {
+    const nextId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    operationIdRef.current = nextId;
+    return nextId;
+  };
+
+  const arrayBufferFromBase64 = async (base64) => {
+    const safe = typeof base64 === "string" ? base64.trim() : "";
+    if (!safe) {
+      throw new Error("Missing base64 payload");
+    }
+    const normalized = safe.includes(",") ? safe.split(",").pop() : safe;
+    const cleaned = normalized.replace(/\s+/g, "");
+    let binaryString = "";
+    if (typeof atob === "function") {
+      binaryString = atob(cleaned);
+    } else if (typeof Buffer !== "undefined") {
+      binaryString = Buffer.from(cleaned, "base64").toString("binary");
+    } else {
+      throw new Error("No base64 decoder available");
+    }
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
+  const postChat = async (body, { execute = false } = {}) => {
+    const query = execute ? "?execute=1" : "";
+    let response;
+    try {
+      response = await fetch(`/api/chat${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      });
+    } catch (error) {
+      throw new Error(error?.message || "Unable to reach /api/chat");
+    }
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error("Invalid response from /api/chat");
+    }
+
+    if (!response.ok || payload?.error) {
+      throw new Error(payload?.error || `Chat request failed (status ${response.status})`);
+    }
+
+    return payload;
+  };
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -181,12 +242,21 @@ export default function ExactVirtualAssistantPM() {
     error: "Error",
   };
 
-  const appendAssistantMessage = (text) => {
+  const appendAssistantMessage = (text, extras = {}) => {
     const safeText = typeof text === "string" ? text.trim() : "";
-    if (!safeText) return;
+    const hasDownloads = Array.isArray(extras.downloads) && extras.downloads.length > 0;
+    if (!safeText && !hasDownloads) return;
+    const { role = "assistant", tone, status, downloads } = extras;
     setMessages((prev) => [
       ...prev,
-      { id: Date.now() + Math.random(), role: "assistant", text: safeText },
+      {
+        id: Date.now() + Math.random(),
+        role,
+        text: safeText,
+        tone,
+        status,
+        downloads,
+      },
     ]);
   };
 
@@ -709,6 +779,7 @@ export default function ExactVirtualAssistantPM() {
   const startRealtime = async () => {
     if (!realtimeEnabled) return;
     if (rtcState === "connecting" || rtcState === "live") return;
+    setAutoExecute(true);
     setRtcState("connecting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -863,10 +934,7 @@ export default function ExactVirtualAssistantPM() {
           const transcript = data?.transcript ?? data?.text ?? "";
           const trimmedTranscript = typeof transcript === "string" ? transcript.trim() : "";
           if (trimmedTranscript) {
-            const handled = await handleCommandFromText(trimmedTranscript);
-            if (!handled) {
-              setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
-            }
+            await sendMessage(trimmedTranscript);
           }
         } catch (error) {
           console.error("Transcription failed", error);
@@ -988,33 +1056,293 @@ export default function ExactVirtualAssistantPM() {
     return false;
   };
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const sendMessage = async (rawText) => {
+    const text = typeof rawText === "string" ? rawText.trim() : "";
     if (!text) return;
+
+    if (!useLLM) {
+      const userEntry = { id: Date.now() + Math.random(), role: "user", text };
+      setMessages((prev) => [...prev, userEntry]);
+      const handled = await handleCommandFromText(text, { userMessageAppended: true });
+      if (handled) {
+        return;
+      }
+      appendAssistantMessage(mockAssistantReply(text));
+      return;
+    }
+
     if (isAssistantThinking) return;
-    const isLLMEnabled = useLLM;
-    const userMsg = { id: Date.now() + Math.random(), role: "user", text };
-    const nextHistory = [...messages, userMsg];
-    setMessages(nextHistory);
-    setInput("");
+
+    const userEntry = { id: Date.now() + Math.random(), role: "user", text };
+    let nextHistory = null;
+    setMessages((prev) => {
+      const updated = [...prev, userEntry];
+      nextHistory = updated;
+      return updated;
+    });
+    if (!nextHistory) {
+      nextHistory = [...messages, userEntry];
+    }
+
     const handled = await handleCommandFromText(text, { userMessageAppended: true });
     if (handled) {
       return;
     }
-    let reply = "";
-    if (isLLMEnabled) {
-      setIsAssistantThinking(true);
-      try {
-        reply = await callLLM(text, nextHistory, attachments);
-      } catch (e) {
-        reply = "LLM error (demo): " + (e?.message || "unknown");
-      } finally {
+
+    const requestMessages = nextHistory.map((item) => ({
+      role: item.role,
+      content: item.text || "",
+      text: item.text || "",
+    }));
+
+    const normalizedAttachments = attachments
+      .map((attachment) => {
+        const name = typeof attachment?.name === "string" ? attachment.name : "";
+        const textValue = typeof attachment?.text === "string" ? attachment.text : "";
+        const mimeType = typeof attachment?.mimeType === "string" ? attachment.mimeType : undefined;
+        if (!name) return null;
+        const payload = { name, text: textValue };
+        if (mimeType) {
+          payload.mimeType = mimeType;
+        }
+        return payload;
+      })
+      .filter(Boolean);
+
+    const requestBody = { messages: requestMessages };
+    if (normalizedAttachments.length > 0) {
+      requestBody.attachments = normalizedAttachments;
+    }
+
+    const opId = newOpId();
+    setIsAssistantThinking(true);
+
+    const gatherDownloads = async (entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const sources = [];
+      if (Array.isArray(entry.files)) {
+        sources.push(...entry.files);
+      }
+      if (entry.file) {
+        sources.push(entry.file);
+      }
+      if (!sources.length && entry.buffer) {
+        sources.push({
+          buffer: entry.buffer,
+          name: entry.filename,
+          mimeType: entry.mime,
+        });
+      }
+
+      const downloads = [];
+      for (const source of sources) {
+        if (!source || typeof source !== "object") continue;
+        const nameCandidate =
+          typeof source.name === "string" && source.name.trim()
+            ? source.name.trim()
+            : typeof source.filename === "string" && source.filename.trim()
+            ? source.filename.trim()
+            : "Download";
+        const mimeCandidate =
+          typeof source.mimeType === "string" && source.mimeType.trim()
+            ? source.mimeType.trim()
+            : typeof source.mime === "string" && source.mime.trim()
+            ? source.mime.trim()
+            : "application/octet-stream";
+
+        let arrayBuffer = null;
+        try {
+          if (source.arrayBuffer instanceof ArrayBuffer) {
+            arrayBuffer = source.arrayBuffer;
+          } else if (source.buffer instanceof ArrayBuffer) {
+            arrayBuffer = source.buffer;
+          } else if (
+            source.buffer &&
+            typeof source.buffer === "object" &&
+            source.buffer.type === "Buffer" &&
+            Array.isArray(source.buffer.data)
+          ) {
+            arrayBuffer = Uint8Array.from(source.buffer.data).buffer;
+          } else if (Array.isArray(source.buffer)) {
+            arrayBuffer = Uint8Array.from(source.buffer).buffer;
+          } else if (Array.isArray(source.data)) {
+            arrayBuffer = Uint8Array.from(source.data).buffer;
+          } else {
+            const base64Candidate =
+              typeof source.base64 === "string" && source.base64.trim()
+                ? source.base64
+                : typeof source.data === "string" && source.data.trim()
+                ? source.data
+                : typeof source.buffer === "string" && source.buffer.trim()
+                ? source.buffer
+                : null;
+            if (base64Candidate) {
+              arrayBuffer = await arrayBufferFromBase64(base64Candidate);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to decode executed file", error);
+          arrayBuffer = null;
+        }
+
+        if (!arrayBuffer) {
+          continue;
+        }
+
+        if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+          continue;
+        }
+
+        const blob = new Blob([arrayBuffer], { type: mimeCandidate });
+        const href = URL.createObjectURL(blob);
+        downloads.push({
+          name: nameCandidate,
+          href,
+          mimeType: mimeCandidate,
+          size: arrayBuffer.byteLength,
+          revokeOnDispose: () => URL.revokeObjectURL(href),
+        });
+      }
+
+      return downloads;
+    };
+
+    try {
+      const result = await postChat(requestBody, { execute: autoExecute });
+      if (operationIdRef.current !== opId) {
+        return;
+      }
+
+      const additions = [];
+      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+      if (reply) {
+        additions.push({
+          id: Date.now() + Math.random(),
+          role: "assistant",
+          text: reply,
+        });
+      }
+
+      const actions = Array.isArray(result?.actions) ? result.actions : [];
+      const executed = Array.isArray(result?.executed) ? result.executed : [];
+      const executedMap = new Map();
+      for (const entry of executed) {
+        if (!entry || typeof entry !== "object") continue;
+        const key = typeof entry.action === "string" ? entry.action : null;
+        if (key) {
+          executedMap.set(key, entry);
+        }
+      }
+
+      const handledKeys = new Set();
+
+      for (const action of actions) {
+        if (!action || typeof action !== "object") continue;
+        const actionKey = typeof action.action === "string" ? action.action : null;
+        const label =
+          typeof action.label === "string" && action.label.trim()
+            ? action.label.trim()
+            : actionKey;
+
+        if (!actionKey && !label) continue;
+
+        const executedEntry = actionKey ? executedMap.get(actionKey) : null;
+        if (executedEntry) {
+          if (actionKey) {
+            handledKeys.add(actionKey);
+          }
+          if (executedEntry.ok === false) {
+            const errorMessage =
+              typeof executedEntry.error === "string" && executedEntry.error.trim()
+                ? executedEntry.error.trim()
+                : "Action execution failed.";
+            additions.push({
+              id: Date.now() + Math.random(),
+              role: "system",
+              text: `${label || actionKey} failed: ${errorMessage}`,
+              tone: "error",
+              status: "Failed",
+            });
+          } else {
+            const downloads = await gatherDownloads(executedEntry);
+            additions.push({
+              id: Date.now() + Math.random(),
+              role: "system",
+              text: `${label || actionKey} completed successfully.`,
+              tone: "success",
+              status: "Executed",
+              downloads,
+            });
+          }
+        } else if (!autoExecute) {
+          additions.push({
+            id: Date.now() + Math.random(),
+            role: "system",
+            text: `${label || actionKey} is ready to execute.`,
+            tone: "info",
+            status: "Ready",
+          });
+        }
+      }
+
+      for (const entry of executed) {
+        if (!entry || typeof entry !== "object") continue;
+        const key = typeof entry.action === "string" ? entry.action : null;
+        if (key && handledKeys.has(key)) {
+          continue;
+        }
+        const label =
+          typeof entry.label === "string" && entry.label.trim()
+            ? entry.label.trim()
+            : key;
+        if (entry.ok === false) {
+          const errorMessage =
+            typeof entry.error === "string" && entry.error.trim()
+              ? entry.error.trim()
+              : "Action execution failed.";
+          additions.push({
+            id: Date.now() + Math.random(),
+            role: "system",
+            text: `${label || key || "Action"} failed: ${errorMessage}`,
+            tone: "error",
+            status: "Failed",
+          });
+        } else {
+          const downloads = await gatherDownloads(entry);
+          additions.push({
+            id: Date.now() + Math.random(),
+            role: "system",
+            text: `${label || key || "Action"} completed successfully.`,
+            tone: "success",
+            status: "Executed",
+            downloads,
+          });
+        }
+      }
+
+      if (additions.length) {
+        setMessages((prev) => [...prev, ...additions]);
+      }
+    } catch (error) {
+      if (operationIdRef.current !== opId) {
+        return;
+      }
+      appendAssistantMessage(
+        `Assistant error: ${error?.message || "Unable to complete the request."}`,
+        { role: "system", tone: "error", status: "Error" }
+      );
+    } finally {
+      if (operationIdRef.current === opId) {
         setIsAssistantThinking(false);
       }
-    } else {
-      reply = mockAssistantReply(text);
     }
-    appendAssistantMessage(reply || "");
+  };
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    await sendMessage(text);
   };
 
   const handleSummarizeAttachments = async () => {
@@ -1024,17 +1352,52 @@ export default function ExactVirtualAssistantPM() {
     setIsSummarizing(true);
     try {
       const summarizationPrompt = "Summarize the attached documents.";
+      if (!useLLM) {
+        const mockReply = mockAssistantReply(summarizationPrompt);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + Math.random(), role: "assistant", text: mockReply },
+        ]);
+        return;
+      }
+
       const historyWithPrompt = [
         ...messages,
         { id: Date.now(), role: "user", text: summarizationPrompt },
       ];
-      const reply = await callLLM(
-        summarizationPrompt,
-        historyWithPrompt,
-        attachments,
-      );
+
+      const requestMessages = historyWithPrompt.map((item) => ({
+        role: item.role,
+        content: item.text || "",
+        text: item.text || "",
+      }));
+
+      const normalizedAttachments = attachments
+        .map((attachment) => {
+          const name = typeof attachment?.name === "string" ? attachment.name : "";
+          const textValue = typeof attachment?.text === "string" ? attachment.text : "";
+          const mimeType = typeof attachment?.mimeType === "string" ? attachment.mimeType : undefined;
+          if (!name) return null;
+          const payload = { name, text: textValue };
+          if (mimeType) {
+            payload.mimeType = mimeType;
+          }
+          return payload;
+        })
+        .filter(Boolean);
+
+      const requestBody = { messages: requestMessages };
+      if (normalizedAttachments.length > 0) {
+        requestBody.attachments = normalizedAttachments;
+      }
+
+      const result = await postChat(requestBody, { execute: autoExecute });
+      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
       const safeReply = reply || "No summary available.";
-      setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + Math.random(), role: "assistant", text: safeReply },
+      ]);
     } catch (error) {
       const message = error?.message || "Failed to summarize attachments.";
       setMessages((prev) => [
@@ -1244,15 +1607,26 @@ export default function ExactVirtualAssistantPM() {
             <Panel
               title="Assistant Chat"
               right={
-                <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
-                  <IconPlus className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-white/60 bg-white/60 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={autoExecute}
+                      onChange={(event) => setAutoExecute(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-500"
+                    />
+                    <span>Auto-execute</span>
+                  </label>
+                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                    <IconPlus className="h-4 w-4" />
+                  </button>
+                </div>
               }
             >
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.map((m) => (
-                    <ChatBubble key={m.id} role={m.role} text={m.text} />
+                    <ChatBubble key={m.id} message={m} />
                   ))}
                 </div>
                 {isAssistantThinking && (
@@ -1592,22 +1966,110 @@ function AssistantThinkingIndicator() {
   );
 }
 
-function ChatBubble({ role, text }) {
+function ChatBubble({ message }) {
+  const role = message?.role;
+  const tone = typeof message?.tone === "string" ? message.tone : undefined;
+  const statusLabel =
+    typeof message?.status === "string" && message.status.trim()
+      ? message.status.trim()
+      : "";
+  const downloads = Array.isArray(message?.downloads) ? message.downloads : [];
   const isUser = role === "user";
-  const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
+  const isSystem = role === "system";
+  const safeText =
+    typeof message?.text === "string"
+      ? message.text
+      : message?.text != null
+      ? String(message.text)
+      : "";
+
+  useEffect(() => {
+    return () => {
+      if (!Array.isArray(downloads)) return;
+      downloads.forEach((item) => {
+        if (typeof item?.revokeOnDispose === "function") {
+          try {
+            item.revokeOnDispose();
+          } catch (error) {
+            // Swallow cleanup errors in non-browser environments.
+          }
+        }
+      });
+    };
+  }, [downloads, message?.id]);
+
+  const baseClass =
+    "max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border";
+
+  const toneVariants = {
+    success:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-700 dark:text-emerald-200",
+    error:
+      "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-700 dark:text-red-200",
+    info:
+      "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-700 dark:text-sky-200",
+  };
+
+  const systemClass = toneVariants[tone] ||
+    "bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100";
+
+  const bubbleClass = isUser
+    ? `${baseClass} bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400`
+    : isSystem
+    ? `${baseClass} ${systemClass}`
+    : `${baseClass} bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100`;
+
+  const statusToneClass = toneVariants[tone] ||
+    "bg-slate-200 border-slate-200 text-slate-700 dark:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200";
+
+  const formatBytes = (value) => {
+    if (!Number.isFinite(value) || value <= 0) return "";
+    if (value < 1024) return `${value} B`;
+    const kb = value / 1024;
+    if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+  };
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
-          isUser
-            ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-            : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
-        }`}
-      >
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={bubbleClass}>
+        {statusLabel && (
+          <div
+            className={`mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClass}`}
+          >
+            {statusLabel}
+          </div>
+        )}
         {isUser ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
+        ) : isSystem ? (
+          <span className="whitespace-pre-wrap text-sm leading-6">{safeText}</span>
         ) : (
           <AssistantFeedbackTemplate text={safeText} />
+        )}
+        {downloads.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {downloads.map((download, index) => {
+              const label =
+                typeof download?.name === "string" && download.name.trim()
+                  ? download.name.trim()
+                  : `File ${index + 1}`;
+              const href = typeof download?.href === "string" ? download.href : "";
+              const sizeLabel = formatBytes(download?.size);
+              return (
+                <a
+                  key={href || `${message?.id || "download"}-${index}`}
+                  href={href}
+                  download={label}
+                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200"
+                >
+                  <span>{label}</span>
+                  {sizeLabel && <span className="text-[11px] opacity-75">{sizeLabel}</span>}
+                </a>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -1748,34 +2210,3 @@ function mockAssistantReply(text) {
   return "Got it. I’ll incorporate that into the draft. (Note: this is a UI‑only prototype for Phase 1)";
 }
 
-// --- LLM wiring (placeholder) ---
-async function callLLM(text, history = [], contextAttachments = []) {
-  try {
-    const normalizedHistory = Array.isArray(history)
-      ? history.map((item) => ({ role: item.role, content: item.text || "" }))
-      : [];
-    const preparedAttachments = Array.isArray(contextAttachments)
-      ? contextAttachments
-          .map((attachment) => ({ name: attachment?.name, text: attachment?.text }))
-          .filter((attachment) => attachment.name && attachment.text)
-      : [];
-    const systemMessage = {
-      role: "system",
-      content:
-        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites."
-    };
-    const payload = {
-      messages: [systemMessage, ...normalizedHistory.slice(-19)],
-      attachments: preparedAttachments,
-    };
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    return data.reply || "";
-  } catch (e) {
-    return "OpenAI endpoint error: " + (e?.message || "unknown");
-  }
-}

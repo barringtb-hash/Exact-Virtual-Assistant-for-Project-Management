@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
+import AssistantFeedbackTemplate, {
+  useAssistantFeedbackSections,
+} from "./components/AssistantFeedbackTemplate";
 import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter from "../lib/charter/normalize.js";
@@ -269,6 +271,13 @@ export default function ExactVirtualAssistantPM() {
     initialDraftRef.current = createBlankDraft();
   }
   const [messages, setMessages] = useState(seedMessages);
+  const visibleMessages = useMemo(() => {
+    if (!Array.isArray(messages)) {
+      return [];
+    }
+
+    return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
+  }, [messages]);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
@@ -314,6 +323,14 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const hideEmptySections = useMemo(() => {
+    const raw = import.meta?.env?.VITE_HIDE_EMPTY_SECTIONS;
+    if (raw == null) {
+      return true;
+    }
+
+    return String(raw).trim().toLowerCase() !== "false";
+  }, []);
   const charterDraftRef = useRef(initialDraftRef.current);
   const locksRef = useRef(locks);
   const toastTimersRef = useRef(new Map());
@@ -1570,8 +1587,13 @@ export default function ExactVirtualAssistantPM() {
             >
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {messages.map((m) => (
-                    <ChatBubble key={m.id} role={m.role} text={m.text} />
+                  {visibleMessages.map((m) => (
+                    <ChatBubble
+                      key={m.id}
+                      role={m.role}
+                      text={m.text}
+                      hideEmptySections={hideEmptySections}
+                    />
                   ))}
                 </div>
                 {isAssistantThinking && (
@@ -1940,9 +1962,11 @@ function AssistantThinkingIndicator() {
   );
 }
 
-function ChatBubble({ role, text }) {
+function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
+  const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
+  const showStructured = !isUser && !hideEmptySections && Array.isArray(sections) && sections.length > 0;
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -1952,10 +1976,10 @@ function ChatBubble({ role, text }) {
             : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
         }`}
       >
-        {isUser ? (
+        {isUser || !showStructured ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
         ) : (
-          <AssistantFeedbackTemplate text={safeText} />
+          <AssistantFeedbackTemplate sections={sections} />
         )}
       </div>
     </div>

@@ -18,40 +18,58 @@ function renderRichText(content) {
   return renderRichTextBase(content ?? "");
 }
 
-const DEFAULT_SECTIONS = [
-  {
-    heading: "Summary",
-    placeholder: "No summary is available yet.",
-  },
-  {
-    heading: "Recommended Actions",
-    placeholder: "No recommended actions have been captured.",
-  },
-  {
-    heading: "Open Questions",
-    placeholder: "No open questions at this time.",
-  },
-];
-
-function normalizeSection(section, fallbackHeading, placeholder) {
-  const heading = section.heading || fallbackHeading || "";
-  const hasContent = section.items.length > 0 || section.paragraphs.length > 0;
-  if (hasContent) {
-    return {
-      heading,
-      paragraphs: section.paragraphs,
-      items: section.items,
-      listType: section.listType,
-      isPlaceholder: false,
-    };
+function normalizeSection(section) {
+  if (!section) {
+    return null;
   }
+
+  const heading = typeof section.heading === "string" ? section.heading.trim() : "";
+  const paragraphs = Array.isArray(section.paragraphs)
+    ? section.paragraphs
+        .map((paragraph) => (typeof paragraph === "string" ? paragraph.trim() : ""))
+        .filter(Boolean)
+    : [];
+
+  const items = Array.isArray(section.items)
+    ? section.items
+        .map((item) => {
+          const text = typeof item?.text === "string" ? item.text.trim() : "";
+          if (!text) {
+            return null;
+          }
+
+          const subpoints = Array.isArray(item.subpoints)
+            ? item.subpoints
+                .map((subpoint) => {
+                  const subText = typeof subpoint?.text === "string" ? subpoint.text.trim() : "";
+                  if (!subText) {
+                    return null;
+                  }
+
+                  return { text: subText };
+                })
+                .filter(Boolean)
+            : [];
+
+          return {
+            text,
+            subpoints,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  if (!paragraphs.length && !items.length) {
+    return null;
+  }
+
+  const listType = section.listType === "ol" ? "ol" : section.listType === "ul" ? "ul" : items.length ? "ul" : null;
 
   return {
     heading,
-    paragraphs: placeholder ? [placeholder] : [],
-    items: [],
-    listType: null,
-    isPlaceholder: true,
+    paragraphs,
+    items,
+    listType,
   };
 }
 
@@ -95,51 +113,24 @@ function renderParagraphs(paragraphs) {
   ));
 }
 
-export default function AssistantFeedbackTemplate({ text, className = "", defaultSections = DEFAULT_SECTIONS }) {
-  const sections = useMemo(() => {
+export function useAssistantFeedbackSections(text) {
+  return useMemo(() => {
     const formatted = formatAssistantFeedback(typeof text === "string" ? text : "");
-
-    const consumed = new Set();
-    const defaultsWithContent = defaultSections.map((defaultSection) => {
-      const matchIndex = formatted.sections.findIndex(
-        (section) => section.heading && section.heading.toLowerCase() === defaultSection.heading.toLowerCase(),
-      );
-
-      if (matchIndex !== -1) {
-        consumed.add(matchIndex);
-        return normalizeSection(formatted.sections[matchIndex], defaultSection.heading, defaultSection.placeholder);
-      }
-
-      return {
-        heading: defaultSection.heading,
-        paragraphs: [defaultSection.placeholder],
-        items: [],
-        listType: null,
-        isPlaceholder: true,
-      };
-    });
-
-    const additionalSections = formatted.sections
-      .map((section, index) => ({ section, index }))
-      .filter(({ index }) => !consumed.has(index))
-      .map(({ section }) => normalizeSection(section));
-
-    if (defaultsWithContent.length > 0) {
-      return [...defaultsWithContent, ...additionalSections];
+    if (!Array.isArray(formatted.sections) || formatted.sections.length === 0) {
+      return null;
     }
 
-    return additionalSections.length > 0
-      ? additionalSections
-      : defaultSections.map((defaultSection) => ({
-          heading: defaultSection.heading,
-          paragraphs: [defaultSection.placeholder],
-          items: [],
-          listType: null,
-          isPlaceholder: true,
-        }));
-  }, [text, defaultSections]);
+    const sections = formatted.sections.map(normalizeSection).filter(Boolean);
 
-  if (!sections.length) {
+    return sections.length > 0 ? sections : null;
+  }, [text]);
+}
+
+export default function AssistantFeedbackTemplate({ text, sections: providedSections, className = "" }) {
+  const derivedSections = useAssistantFeedbackSections(text);
+  const sections = providedSections ?? derivedSections;
+
+  if (!sections || sections.length === 0) {
     return null;
   }
 

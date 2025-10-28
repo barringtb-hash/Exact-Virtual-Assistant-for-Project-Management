@@ -307,7 +307,7 @@ export default function ExactVirtualAssistantPM() {
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
-  const [autoExtractEnabled, setAutoExtractEnabled] = useState(false);
+  const [autoExtractEnabled, setAutoExtractEnabled] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const [charterSyncError, setCharterSyncError] = useState(null);

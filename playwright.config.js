@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4010";
+
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
@@ -7,7 +9,7 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4010",
+    baseURL,
   },
   webServer: {
     command: "node tests/e2e/test-server.mjs",
@@ -22,10 +24,20 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "api", // API-only flow; no browser required
+      name: "api",
+      testMatch: /.*\.api\.spec\.js/,
       use: {
-        baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4010",
+        baseURL,
       },
+    },
+    {
+      name: "chromium",
+      use: {
+        baseURL,
+        browserName: "chromium",
+        viewport: { width: 1280, height: 720 },
+      },
+      testIgnore: /.*\.api\.spec\.js/,
     },
   ],
 });

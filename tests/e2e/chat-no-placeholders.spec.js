@@ -6,7 +6,9 @@ const PLACEHOLDER_TEXTS = [
   "Recommended Actions",
   "Open Questions",
   "No recommended actions yet.",
+  "No recommended actions have been captured.",
   "No open questions yet.",
+  "No open questions at this time.",
 ];
 
 test.describe("assistant chat", () => {

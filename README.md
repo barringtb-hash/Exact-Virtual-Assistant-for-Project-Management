@@ -3,8 +3,10 @@
 A React + Tailwind single-page assistant that drafts project charters, validates structured outputs, and generates export links without leaving the transcript. The latest iteration layers in attachment text extraction, PDF rendering, charter-share health checks, realtime voice, and an inline command router so phrases like “share the charter” immediately validate data and respond with signed download URLs.
 
 ## Architecture Overview
-- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, the right-hand charter preview selector, realtime voice, and feature toggles for LLM usage, auto-extraction, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. Chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input, and the assistant bubble pipes responses through `AssistantFeedbackTemplate` to normalize Markdown links and section headings.
-- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation within the chat transcript. Attachments are stored in memory and routed through `runAutoExtract`, which calls the backend file-text normalizer before summarizing context for the LLM.
+- **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, realtime voice, the editable preview draft, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. Chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input, and the assistant bubble pipes responses through `AssistantFeedbackTemplate` to normalize Markdown links and section headings.
+- **Editable preview** – the right rail renders `PreviewEditable`, a reusable form that binds to the charter draft. User edits mark fields as locked so background extraction cannot overwrite them, while list editors make risks, scope, and milestone maintenance quick.
+- **Background extraction** – `useBackgroundExtraction` watches chat, voice, and attachment updates. It debounces activity (~1s), calls `/api/charter/extract` with the latest signals, normalizes the payload, and merges the result into the draft without touching locked fields. The Summarize button now triggers the same extractor immediately as a "Sync now" accelerator.
+- **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation within the chat transcript.
 - **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors. Voice transcripts also run through the same command router, so spoken export requests yield shareable links without touching the sidebar.
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
@@ -55,9 +57,9 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 All endpoints live under `/api/charter` and share the same OpenAI key dependency when they call the API.
 
 #### `POST /api/charter/extract`
-- **Payload** – `{ messages: [{ role, content | text }] }` representing the chat context to analyze.
+- **Payload** – `{ docType, messages, voice, attachments, seed }` representing the active document type plus the latest chat, voice, and upload context to analyze. `docType` defaults to `"charter"`, `voice` is optional, `attachments` accepts `{ id, name, mime, size }` metadata, and `seed` carries the current draft so the extractor can preserve existing values.
 - **Response** – JSON body generated by OpenAI that aligns to the schema rules (falls back to raw string if parsing fails).
-- **Behavior** – loads [`templates/extract_prompt.txt`](templates/extract_prompt.txt) and prepends it as the system prompt before asking the model for structured charter data.
+- **Behavior** – loads [`templates/extract_prompt.txt`](templates/extract_prompt.txt) and prepends it as the system prompt before asking the model for structured charter data. Future doc types can switch prompts based on `docType` without changing the client flow.
 
 #### `POST /api/charter/render`
 - **Payload** – Structured charter object (e.g. `{ title, sponsor, risks, milestones, ... }`) whose keys correspond to the placeholders in the charter template stored at [`templates/project_charter_tokens.docx.b64`](templates/project_charter_tokens.docx.b64).
@@ -147,7 +149,7 @@ Open the printed localhost URL.
 
 ## Notes
 - Tailwind is preconfigured (see `tailwind.config.js`, `postcss.config.js`, and `src/index.css`).
-- The “Auto-extract (beta)” toggle is wired to a mocked filename-based extractor. Swap in a real parser later.
+- Background extraction is always on; `useBackgroundExtraction` debounces chat, voice, and attachment signals and keeps the editable preview in sync without overwriting manually locked fields.
 - This is a UI-only prototype; no data persistence yet.
 - Attachment picker resets after each upload so the same file can be reattached without refreshing. Removing the last attachment now clears stale charter previews to avoid confusion.
 - Dark mode preference is stored under `localStorage['eva-theme-mode']` and respects the OS scheme when set to **Auto**.

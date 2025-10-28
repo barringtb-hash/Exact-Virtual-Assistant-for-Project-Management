@@ -85,6 +85,48 @@ test("normalizeCharterServer normalizes alias keys from extractor payloads", () 
   ]);
 });
 
+test("normalizeCharterServer supports snake_case aliases without overwriting canonical values", () => {
+  const canonicalPreferred = normalizeCharterServer({
+    project_name: "Launch Gamma",
+    project_title: "Alias Title",
+    project_lead: "Nina Example",
+    project_manager: "Jordan Alias",
+    success_metrics: [
+      {
+        benefit: "Activation",
+        metric: "Daily actives",
+        system_of_measurement: " Units ",
+        systemOfMeasurement: " Percent ",
+      },
+    ],
+  });
+
+  assert.strictEqual(canonicalPreferred.project_name, "Launch Gamma");
+  assert.strictEqual(canonicalPreferred.project_lead, "Nina Example");
+  assert.deepStrictEqual(canonicalPreferred.success_metrics, [
+    { benefit: "Activation", metric: "Daily actives", system_of_measurement: "Units" },
+  ]);
+
+  const aliasOnly = normalizeCharterServer({
+    project_title: "Alias Title Only",
+    project_manager: "Taylor Example",
+    sponsor_name: "Morgan Example",
+    project_sponsor: "Morgan Example",
+    vision_statement: "  Broaden reach  ",
+    success_metrics: [
+      { benefit: "Engagement", metric: "Usage", systemOfMeasurement: " hours " },
+    ],
+  });
+
+  assert.strictEqual(aliasOnly.project_name, "Alias Title Only");
+  assert.strictEqual(aliasOnly.project_lead, "Taylor Example");
+  assert.strictEqual(aliasOnly.sponsor, "Morgan Example");
+  assert.strictEqual(aliasOnly.vision, "Broaden reach");
+  assert.deepStrictEqual(aliasOnly.success_metrics, [
+    { benefit: "Engagement", metric: "Usage", system_of_measurement: "hours" },
+  ]);
+});
+
 test("normalizeAjvErrors trims messages and removes duplicates", () => {
   const errors = [
     { instancePath: "/scope_in/0", message: " must be string ", keyword: "type" },

@@ -2173,7 +2173,26 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
-  const showStructured = !isUser && Array.isArray(sections) && sections.length > 0;
+  const structuredSections = useMemo(() => {
+    if (!Array.isArray(sections)) {
+      return [];
+    }
+
+    return sections.filter((section) => {
+      if (!section) {
+        return false;
+      }
+
+      const hasHeading = typeof section.heading === "string" && section.heading.trim().length > 0;
+      const hasItems = Array.isArray(section.items) && section.items.length > 0;
+
+      return hasHeading || hasItems;
+    });
+  }, [sections]);
+  const showStructured =
+    !isUser &&
+    Array.isArray(sections) &&
+    (structuredSections.length > 0 || hideEmptySections === false);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -2186,7 +2205,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
         {isUser || !showStructured ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
         ) : (
-          <AssistantFeedbackTemplate sections={sections} />
+          <AssistantFeedbackTemplate sections={structuredSections} />
         )}
       </div>
     </div>

@@ -98,23 +98,33 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 - **Body**
   ```json
   {
+    "docType": "charter",
     "messages": [
       { "role": "user", "content": "Project kickoff notes..." }
     ],
+    "voice": [
+      { "id": "evt_1", "text": "Latest transcript text", "timestamp": 1715909745123 }
+    ],
     "attachments": [
       {
+        "id": "file_123",
         "name": "Vision Brief",
         "mimeType": "application/pdf",
-        "text": "Trimmed file contents..."
+        "text": "Trimmed attachment excerpt..."
       }
-    ]
+    ],
+    "seed": {
+      "project_name": "Data Platform Modernization",
+      "sponsor": "Emily Carter"
+    }
   }
   ```
-- **Response** – JSON object whose keys align with `templates/charter.schema.json` (falls back to raw string when parsing fails).
+  `docType` defaults to `"charter"` and selects the prompt/schema pair. `attachments` must include a `text` excerpt (up to ~20k characters are considered) so the extractor can build context; additional metadata like `mimeType` or `name` is optional but encouraged. `voice` should be an array of transcript events with `text` (and optionally `timestamp` in milliseconds) in the order they were captured. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
+- **Response** – JSON object whose keys align with `templates/charter.schema.json` (falls back to `{ "result": "…" }` when parsing fails).
 - **Notes**
-  - Prepends the system prompt from `templates/extract_prompt.txt`. When attachments are present, the handler builds a leading block where each entry becomes `### {name}\n{text}` before the base prompt so the model reads attachment context first.
-  - `attachments` is optional. Each object must include a `text` field (trimmed to ~20k characters before submission), along with descriptive `name`/`mimeType` metadata that mirrors the upload.
-  - Use the response as input to validation/rendering endpoints.
+  - Prepends the system prompt from `templates/extract_prompt.txt` (or other doc-type templates) before requesting structured data from OpenAI.
+  - Returns normalized JSON when the model emits a valid object; downstream callers should merge the payload with manual edits, skipping locked fields.
+  - `voice` is optional and should include the consolidated transcript of the latest recording.
 
 ## Charter validation – `POST /api/charter/validate`
 - **Body** – Charter JSON object to validate.

@@ -7,6 +7,66 @@ import {
   validateCharterPayload,
 } from "./validate.js";
 
+const TEMPLATE_ALIAS_TO_SNAKE_CASE = {
+  projectTitle: "project_name",
+  projectName: "project_name",
+  project_title: "project_name",
+  title: "project_name",
+  projectManager: "project_lead",
+  projectLead: "project_lead",
+  project_manager: "project_lead",
+  manager: "project_lead",
+  sponsorName: "sponsor",
+  sponsor_name: "sponsor",
+  projectSponsor: "sponsor",
+  project_sponsor: "sponsor",
+  startDate: "start_date",
+  endDate: "end_date",
+  visionStatement: "vision",
+  vision_statement: "vision",
+  problemStatement: "problem",
+  projectProblem: "problem",
+  problem_statement: "problem",
+  project_problem: "problem",
+  projectDescription: "description",
+  project_description: "description",
+  scopeIn: "scope_in",
+  scopeOut: "scope_out",
+  riskList: "risks",
+  risk_list: "risks",
+  risksList: "risks",
+  assumptionList: "assumptions",
+  assumption_list: "assumptions",
+  assumptionsList: "assumptions",
+  milestonesList: "milestones",
+  milestones_list: "milestones",
+  successMetrics: "success_metrics",
+  metrics: "success_metrics",
+  coreTeam: "core_team",
+  systemOfMeasurement: "system_of_measurement",
+};
+
+export function expandTemplateAliases(charter) {
+  if (!charter || typeof charter !== "object" || Array.isArray(charter)) {
+    return charter;
+  }
+
+  const expanded = { ...charter };
+
+  for (const [legacyKey, canonicalKey] of Object.entries(
+    TEMPLATE_ALIAS_TO_SNAKE_CASE
+  )) {
+    if (
+      Object.prototype.hasOwnProperty.call(charter, legacyKey) &&
+      !Object.prototype.hasOwnProperty.call(expanded, canonicalKey)
+    ) {
+      expanded[canonicalKey] = charter[legacyKey];
+    }
+  }
+
+  return expanded;
+}
+
 export const config = {
   api: {
     bodyParser: {
@@ -35,7 +95,11 @@ async function loadTemplateBuffer() {
 }
 
 export async function renderDocxBuffer(charter) {
-  const { isValid, errors, normalized } = await validateCharterPayload(charter);
+  // Temporary shim to support legacy payload keys until upstream callers migrate.
+  const expandedCharter = expandTemplateAliases(charter);
+  const { isValid, errors, normalized } = await validateCharterPayload(
+    expandedCharter
+  );
   if (!isValid) {
     throw createCharterValidationError(errors, normalized);
   }
@@ -49,6 +113,44 @@ export async function renderDocxBuffer(charter) {
 
   doc.setData(normalized);
   doc.render();
+
+  const unresolvedTags = [];
+  try {
+    const docZip = doc.getZip();
+    const documentFile =
+      docZip && typeof docZip.file === "function"
+        ? docZip.file("word/document.xml")
+        : undefined;
+    const documentXml =
+      documentFile && typeof documentFile.asText === "function"
+        ? documentFile.asText()
+        : undefined;
+
+    if (typeof documentXml === "string" && documentXml.includes("{{")) {
+      const seen = new Set();
+      const regex = /{{\s*([^{}]+?)\s*}}/g;
+      let match;
+      while ((match = regex.exec(documentXml)) !== null) {
+        const tag = match[1]?.trim();
+        if (tag && !seen.has(tag)) {
+          seen.add(tag);
+          unresolvedTags.push(tag);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("failed to inspect rendered charter document", error);
+  }
+
+  if (unresolvedTags.length > 0) {
+    const validationErrors = unresolvedTags.map((tag) => ({
+      instancePath: "",
+      message: `Missing template value for tag "{{${tag}}}"`,
+      keyword: "unresolved_template_tag",
+      params: { tag },
+    }));
+    throw createCharterValidationError(validationErrors, normalized);
+  }
 
   return doc.getZip().generate({ type: "nodebuffer" });
 }

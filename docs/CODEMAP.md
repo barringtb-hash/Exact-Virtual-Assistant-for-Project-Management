@@ -9,9 +9,13 @@
 
 ## Frontend (`src/`)
 - `src/App.jsx`
-  - Owns application state for messages, draft input, attachment metadata, feature toggles, theme preference, realtime voice, and charter preview data.
-  - Provides helpers `callLLM`, `runAutoExtract`, and voice/transcription orchestration that call the API routes. `THEME_STORAGE_KEY` persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, `shareLinksViaChat`, and `generateBlankCharter`) validates charters and posts signed download links without hitting the LLM when possible.
-  - Renders chat composer, transcript, attachment chips, charter preview tabs, realtime voice controls, and the appearance selector in the footer. Assistant replies flow through `AssistantFeedbackTemplate` to normalize headings and Markdown links.
+  - Owns application state for messages, draft input, attachment metadata, realtime voice, the editable charter preview, and theme preference.
+  - Provides helpers `callLLM`, voice/transcription orchestration, and the Summarize/"Sync now" accelerator that reuses background extraction. `THEME_STORAGE_KEY` persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, `shareLinksViaChat`, and `generateBlankCharter`) validates charters and posts signed download links without hitting the LLM when possible.
+  - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer. Assistant replies flow through `AssistantFeedbackTemplate` to normalize headings and Markdown links.
+- `src/components/PreviewEditable.jsx`
+  - Editable charter form that drives the preview panel. Field edits immediately update the draft and mark the associated path as locked so background extraction cannot overwrite manual values. Includes list editors for scope, risks, assumptions, milestones, success metrics, and core team members.
+- `src/hooks/useBackgroundExtraction.js`
+  - Debounced watcher that monitors messages, voice transcripts, and attachment metadata. Calls `/api/charter/extract`, normalizes the response, and merges it into the draft while skipping locked fields. Exposes the same merge behavior for the Summarize/"Sync now" action.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
 - `src/index.css`
@@ -78,11 +82,12 @@
 4. Frontend applies the answer, enabling bidirectional audio streaming between the user and OpenAI; fallback to transcription occurs if errors arise.
 
 ### Charter extraction, validation, and rendering
-1. User toggles auto-extraction or uploads supporting files; `runAutoExtract` orchestrates calls to `POST /api/charter/extract` with recent chat context.
-2. `api/charter/extract.js` synthesizes structured charter data, which the client stores for preview.
-3. Before exporting, the client can POST the draft to `POST /api/charter/validate` to ensure schema compliance.
-4. Validated data is sent to `POST /api/charter/render`, which merges values into the DOCX template and responds with the downloadable charter document.
-5. `/api/export/pdf` converts the same charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
+1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls `POST /api/charter/extract` with the latest transcript, upload metadata, and the current draft as a seed value.
+2. The hook normalizes the response and merges fields that are not locked by manual edits. The Summarize/"Sync now" button triggers the same extractor immediately when project managers want an on-demand refresh.
+3. `api/charter/extract.js` synthesizes structured charter data using the doc-type-specific prompt and returns normalized JSON when parsing succeeds (falling back to `{ result: ... }` otherwise).
+4. Before exporting, the client can POST the draft to `POST /api/charter/validate` to ensure schema compliance.
+5. Validated data is sent to `POST /api/charter/render`, which merges values into the DOCX template and responds with the downloadable charter document.
+6. `/api/export/pdf` converts the same charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
 
 ### Attachment text normalization
 1. File uploads are routed through `POST /api/files/text` to extract text from PDFs, DOCX, JSON, or plain text while respecting size limits.

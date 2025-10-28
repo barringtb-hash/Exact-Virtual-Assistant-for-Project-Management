@@ -32,20 +32,41 @@ This guide documents how to maintain the charter templates that power charter ex
 7. Re-encode the DOCX back into the repository’s base64 file so that Git tracks a text diff:
 
    ```sh
-   node templates/sync-charter-template.mjs encode
+   npm run docx:encode
    ```
 
-   If you saved the DOCX to a different path, pass that path as the second argument.
+   The script defaults to `templates/project_charter_tokens.docx` and writes the updated
+   `project_charter_tokens.docx.b64` alongside it. If you saved the DOCX to a different
+   path, pass that path after a `--`, for example `npm run docx:encode -- ./drafts/charter.docx`.
 
 ## Validation
 
-Run the template validation script before committing. The validator reads from the base64 store and checks for malformed or duplicated tokens:
+Run the DOCX lint and validation scripts before committing. They read from the checked-in template and fail when the charter tokens fall out of sync with the schema or when docxtemplater detects malformed tags:
 
 ```sh
+npm run docx:lint
 npm run validate:charter-docx
 ```
 
-The script loads the template with representative data and fails if docxtemplater reports malformed, duplicated, or unresolvable tags. CI should also execute this command.
+The linter ensures every `{{token}}` in the DOCX maps to a schema field (including loop placeholders), and the validator renders the template with representative data to catch structural issues. CI should also execute both commands.
+
+## Post-Edit Checklist
+
+After saving template edits, run the encoding, lint, and smoke rendering scripts to verify everything is synchronized:
+
+```sh
+npm run docx:encode
+npm run docx:lint
+npm run docx:smoke
+```
+
+`docx:smoke` renders the sample payload at `samples/charter.smoke.json` and writes the DOCX to `samples/charter.smoke.docx` by default. Pass alternative payload and output paths as arguments to exercise other scenarios.
+
+If `templates/project_charter_tokens.docx` is missing, decode it from the base64 store first:
+
+```sh
+node templates/sync-charter-template.mjs decode
+```
 
 In addition to the template validator, the automated test suite exercises the charter link and download endpoints end-to-end. Run `npm test` for the unit coverage (HMAC signing, expiry handling, and template validation responses) and `npm run test:e2e` to confirm the Playwright flow can request signed downloads with the latest template changes.
 
@@ -69,5 +90,5 @@ The PDF export reuses the same normalized charter payload but renders it with Mu
 ## Version Control Notes
 
 - Only the base64 file `project_charter_tokens.docx.b64` is committed. This keeps pull requests text-only and avoids binary diff limitations in the review tooling.
-- Use `templates/sync-charter-template.mjs decode` when you need the DOCX locally, and `encode` after you save changes so the base64 file stays in sync.
+- Use `templates/sync-charter-template.mjs decode` when you need the DOCX locally, and `npm run docx:encode` after you save changes so the base64 file stays in sync.
 - Document any structural changes or new tokens in this file to keep the workflow transparent.

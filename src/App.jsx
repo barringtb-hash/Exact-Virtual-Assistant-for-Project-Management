@@ -1,11 +1,205 @@
-import React, { useEffect, useRef, useState } from "react";
-import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AssistantFeedbackTemplate, {
+  useAssistantFeedbackSections,
+} from "./components/AssistantFeedbackTemplate";
+import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
-import normalizeCharter from "../lib/charter/normalize.js";
+import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
+import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
+const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
+
+const NUMERIC_SEGMENT_PATTERN = /^\d+$/;
+
+function setNestedValue(source, segments, value) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return source;
+  }
+
+  const [segment, ...rest] = segments;
+  const isIndex = NUMERIC_SEGMENT_PATTERN.test(segment);
+  const key = isIndex ? Number(segment) : segment;
+
+  let container;
+  if (Array.isArray(source)) {
+    container = [...source];
+  } else if (source && typeof source === "object") {
+    container = { ...source };
+  } else {
+    container = isIndex ? [] : {};
+  }
+
+  if (rest.length === 0) {
+    if (Array.isArray(container) && typeof key === "number") {
+      const arr = [...container];
+      arr[key] = value;
+      return arr;
+    }
+    container[key] = value;
+    return container;
+  }
+
+  const nextSource = container[key];
+  const nextContainer = setNestedValue(nextSource, rest, value);
+
+  if (Array.isArray(container) && typeof key === "number") {
+    const arr = [...container];
+    arr[key] = nextContainer;
+    return arr;
+  }
+
+  container[key] = nextContainer;
+  return container;
+}
+
+function hasDraftContent(value) {
+  if (!value) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasDraftContent(entry));
+  }
+
+  if (typeof value === "object") {
+    return Object.values(value).some((entry) => hasDraftContent(entry));
+  }
+
+  return false;
+}
+
+function walkDraft(value, callback, basePath = "") {
+  if (basePath) {
+    callback(basePath, value);
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      const childPath = basePath ? `${basePath}.${index}` : `${index}`;
+      walkDraft(item, callback, childPath);
+    });
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, entry]) => {
+      const childPath = basePath ? `${basePath}.${key}` : key;
+      walkDraft(entry, callback, childPath);
+    });
+  }
+}
+
+function collectPaths(value) {
+  const paths = [];
+  walkDraft(value, (path) => paths.push(path));
+  return paths;
+}
+
+function expandPathsWithAncestors(paths) {
+  const set = new Set();
+  paths.forEach((path) => {
+    if (!path) return;
+    const segments = path.split(".").filter(Boolean);
+    for (let index = 1; index <= segments.length; index += 1) {
+      set.add(segments.slice(0, index).join("."));
+    }
+  });
+  return set;
+}
+
+function getPathsToUpdate(path) {
+  if (!path) return new Set();
+  const segments = path.split(".").filter(Boolean);
+  const result = new Set();
+  for (let index = 1; index <= segments.length; index += 1) {
+    result.add(segments.slice(0, index).join("."));
+  }
+  return result;
+}
+
+function isPathLocked(locks, path) {
+  if (!locks || !path) return false;
+  const segments = path.split(".").filter(Boolean);
+  let current = "";
+  for (const segment of segments) {
+    current = current ? `${current}.${segment}` : segment;
+    if (locks[current]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function synchronizeFieldStates(
+  draft,
+  prevStates = {},
+  { touchedPaths = new Set(), source, timestamp, locks = {} } = {}
+) {
+  const nextStates = {};
+  const touched = touchedPaths instanceof Set ? touchedPaths : new Set(touchedPaths);
+  const hasTimestamp = typeof timestamp === "number" && !Number.isNaN(timestamp);
+  const baseNow = Date.now();
+
+  walkDraft(draft, (path, value) => {
+    const prevEntry = prevStates[path];
+    const isTouched = touched.has(path);
+    const locked = Boolean(locks && locks[path]);
+    const nextSource = isTouched
+      ? source ?? prevEntry?.source ?? "Auto"
+      : prevEntry?.source ?? "Auto";
+    const nextUpdatedAt = isTouched
+      ? hasTimestamp
+        ? timestamp
+        : baseNow
+      : typeof prevEntry?.updatedAt === "number"
+      ? prevEntry.updatedAt
+      : baseNow;
+
+    nextStates[path] = {
+      value,
+      locked,
+      source: nextSource,
+      updatedAt: nextUpdatedAt,
+    };
+  });
+
+  return nextStates;
+}
+
+function getValueAtPath(source, path) {
+  if (!path) {
+    return source;
+  }
+
+  const segments = Array.isArray(path) ? path : path.split(".").filter(Boolean);
+  let current = source;
+
+  for (const segment of segments) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return undefined;
+      }
+      current = current[index];
+    } else if (current && typeof current === "object") {
+      if (!(segment in current)) {
+        return undefined;
+      }
+      current = current[segment];
+    } else {
+      return undefined;
+    }
+  }
+
+  return current;
+}
 
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
@@ -65,31 +259,60 @@ const fileToBase64 = (file) =>
   });
 
 // --- Seed messages ---
+// Friendly, generic starter messages to welcome users
 const seedMessages = [
-  { id: 1, role: "assistant", text: "Hi! Attach files or paste in scope details. I’ll draft a Project Charter and DDP and ask quick follow‑ups for anything missing." },
-  { id: 2, role: "assistant", text: "Who’s the Sponsor?" },
-  { id: 3, role: "assistant", text: "Does this require approvals?" },
+  {
+    id: 1,
+    role: "assistant",
+    text: "Hello! I’m your project management assistant. How can I help you today?",
+  },
+  {
+    id: 2,
+    role: "assistant",
+    text: "Feel free to share your project scope or ask any project‑related questions.",
+  },
 ];
 
 export default function ExactVirtualAssistantPM() {
+  const createBlankDraft = useCallback(() => normalizeCharterDraft(getBlankCharter()), []);
+  const initialDraftRef = useRef(null);
+  if (initialDraftRef.current === null) {
+    initialDraftRef.current = createBlankDraft();
+  }
   const [messages, setMessages] = useState(seedMessages);
+  const visibleMessages = useMemo(() => {
+    if (!Array.isArray(messages)) {
+      return [];
+    }
+
+    return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
+  }, [messages]);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
-  const [charterPreview, setCharterPreview] = useState(null);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [extractError, setExtractError] = useState(null);
+  const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
+  const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
+  const [locks, setLocks] = useState(() => ({}));
+  const [fieldStates, setFieldStates] = useState(() => {
+    const draft = initialDraftRef.current;
+    const paths = expandPathsWithAncestors(collectPaths(draft));
+    const now = Date.now();
+    return synchronizeFieldStates(draft, {}, { touchedPaths: paths, source: "Auto", timestamp: now, locks: {} });
+  });
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
-  const [activePreview, setActivePreview] = useState("Charter");
   const [useLLM, setUseLLM] = useState(true);
-  const [autoExtract, setAutoExtract] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [autoExtractEnabled, setAutoExtractEnabled] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [isCharterSyncing, setIsCharterSyncing] = useState(false);
+  const [charterSyncError, setCharterSyncError] = useState(null);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [toasts, setToasts] = useState([]);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -112,7 +335,214 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const hideEmptySections = useMemo(() => {
+    const raw = import.meta?.env?.VITE_HIDE_EMPTY_SECTIONS;
+    if (raw == null) {
+      return true;
+    }
+
+    return String(raw).trim().toLowerCase() !== "false";
+  }, []);
+  const charterDraftRef = useRef(initialDraftRef.current);
+  const locksRef = useRef(locks);
+  const toastTimersRef = useRef(new Map());
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+  useEffect(() => {
+    charterDraftRef.current = charterPreview;
+  }, [charterPreview]);
+
+  useEffect(() => {
+    locksRef.current = locks;
+  }, [locks]);
+
+  const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
+
+  useEffect(() => {
+    return () => {
+      toastTimersRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      toastTimersRef.current.clear();
+    };
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    if (!id) return;
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timeoutId = toastTimersRef.current.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      toastTimersRef.current.delete(id);
+    }
+  }, []);
+
+  const pushToast = useCallback(
+    ({ tone = "info", message, ttl = 6000 } = {}) => {
+      const text = typeof message === "string" ? message.trim() : "";
+      if (!text) return;
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const toast = { id, tone, message: text, createdAt: Date.now() };
+      setToasts((prev) => [...prev, toast]);
+      if (ttl > 0) {
+        const timeoutId = setTimeout(() => {
+          dismissToast(id);
+        }, ttl);
+        toastTimersRef.current.set(id, timeoutId);
+      }
+    },
+    [dismissToast]
+  );
+  const applyNormalizedDraft = useCallback(
+    (normalizedDraft) => {
+      if (!normalizedDraft || typeof normalizedDraft !== "object") {
+        return charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      }
+
+      const locksSnapshot = locksRef.current || {};
+      const baseDraft = charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const finalDraft = mergeExtractedDraft(baseDraft, normalizedDraft, locksSnapshot);
+
+      charterDraftRef.current = finalDraft;
+      setCharterPreview(finalDraft);
+
+      const candidatePaths = collectPaths(normalizedDraft);
+      const filteredPaths = candidatePaths.filter((path) => !isPathLocked(locksSnapshot, path));
+      const touchedPaths = expandPathsWithAncestors(filteredPaths);
+      const now = Date.now();
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths,
+          source: "Auto",
+          timestamp: now,
+          locks: locksSnapshot,
+        })
+      );
+
+      return finalDraft;
+    },
+    [createBlankDraft]
+  );
+
+  const {
+    isExtracting,
+    error: extractError,
+    clearError: clearExtractionError,
+  } = useBackgroundExtraction({
+    docType: "charter",
+    messages,
+    voice: voiceTranscripts,
+    attachments,
+    seed: extractionSeed,
+    locks,
+    getDraft: getCurrentDraft,
+    setDraft: applyNormalizedDraft,
+    normalize: normalizeCharterDraft,
+    isUploadingAttachments,
+    onNotify: pushToast,
+    enabled: autoExtractEnabled,
+  });
+  const canSyncNow = useMemo(() => {
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;
+    const hasUserMessage = Array.isArray(messages)
+      ? messages.some((entry) => {
+          if ((entry?.role || "user") !== "user") return false;
+          const text = typeof entry?.text === "string" ? entry.text : entry?.content;
+          return Boolean(typeof text === "string" && text.trim());
+        })
+      : false;
+    return hasAttachments || hasVoice || hasUserMessage;
+  }, [attachments, voiceTranscripts, messages]);
+  const isCharterSyncInFlight = isExtracting || isCharterSyncing;
+  const activeCharterError = charterSyncError || extractError;
+
+  const applyCharterDraft = useCallback(
+    (nextDraft, { resetLocks = false, source = "Auto" } = {}) => {
+      const draft =
+        nextDraft && typeof nextDraft === "object" && !Array.isArray(nextDraft)
+          ? nextDraft
+          : createBlankDraft();
+      const locksSnapshot = resetLocks ? {} : locksRef.current || {};
+
+      if (resetLocks) {
+        locksRef.current = {};
+        setLocks({});
+      }
+
+      charterDraftRef.current = draft;
+      setCharterPreview(draft);
+
+      const touchedPaths = expandPathsWithAncestors(collectPaths(draft));
+      const now = Date.now();
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(draft, resetLocks ? {} : prevStates, {
+          touchedPaths,
+          source,
+          timestamp: now,
+          locks: locksSnapshot,
+        })
+      );
+    },
+    [createBlankDraft]
+  );
+
+  const handleDraftChange = useCallback(
+    (path, value) => {
+      if (!path) return;
+      const segments = path.split(".").filter(Boolean);
+      if (segments.length === 0) return;
+
+      setCharterPreview((prev) => {
+        const base = prev ?? createBlankDraft();
+        const next = setNestedValue(base, segments, value);
+        charterDraftRef.current = next;
+        const touchedPaths = getPathsToUpdate(path);
+        const subtreeValue = getValueAtPath(next, segments);
+        if (typeof subtreeValue !== "undefined") {
+          walkDraft(subtreeValue, (subPath) => {
+            touchedPaths.add(subPath);
+          }, path);
+        }
+        const now = Date.now();
+        setFieldStates((prevStates) =>
+          synchronizeFieldStates(next, prevStates, {
+            touchedPaths,
+            source: "Manual",
+            timestamp: now,
+            locks: locksRef.current,
+          })
+        );
+        return next;
+      });
+    },
+    [createBlankDraft]
+  );
+
+  const handleLockField = useCallback((path) => {
+    if (!path) return;
+    setLocks((prev) => {
+      if (prev[path]) {
+        return prev;
+      }
+      const nextLocks = { ...prev, [path]: true };
+      locksRef.current = nextLocks;
+      const touchedPaths = getPathsToUpdate(path);
+      setFieldStates((prevStates) => {
+        const prevEntry = prevStates?.[path];
+        const source = prevEntry?.source ?? "Manual";
+        const updatedAt = typeof prevEntry?.updatedAt === "number" ? prevEntry.updatedAt : Date.now();
+        return synchronizeFieldStates(charterDraftRef.current, prevStates, {
+          touchedPaths,
+          source,
+          timestamp: updatedAt,
+          locks: nextLocks,
+        });
+      });
+      return nextLocks;
+    });
+  }, []);
+
+  const draftHasContent = useMemo(() => hasDraftContent(charterPreview), [charterPreview]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -120,12 +550,6 @@ export default function ExactVirtualAssistantPM() {
       container.scrollTop = container.scrollHeight;
     }
   }, [messages, isAssistantThinking]);
-
-  useEffect(() => {
-    if (autoExtract && attachments.length) {
-      runAutoExtract(attachments);
-    }
-  }, [autoExtract]);
 
   const handleThemeModeChange = (value) => {
     if (value === "light" || value === "dark" || value === "auto") {
@@ -181,25 +605,176 @@ export default function ExactVirtualAssistantPM() {
     error: "Error",
   };
 
-  const appendAssistantMessage = (text) => {
+  const appendAssistantMessage = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return;
     setMessages((prev) => [
       ...prev,
       { id: Date.now() + Math.random(), role: "assistant", text: safeText },
     ]);
-  };
+  }, []);
 
-  const appendUserMessageToChat = (text) => {
+  const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return null;
     const entry = { id: Date.now() + Math.random(), role: "user", text: safeText };
     setMessages((prev) => [...prev, entry]);
     return entry;
-  };
+  }, []);
 
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
+
+  const syncCharterFromChat = useCallback(async () => {
+    if (isExtracting || isCharterSyncing) {
+      appendAssistantMessage(
+        "I’m already refreshing the charter preview. I’ll share updates here once they’re ready."
+      );
+      return { ok: false, reason: "busy" };
+    }
+
+    if (!canSyncNow) {
+      appendAssistantMessage(
+        "Share some scope details, voice notes, or attachments first and I’ll update the charter preview."
+      );
+      return { ok: false, reason: "idle" };
+    }
+
+    setIsCharterSyncing(true);
+    setCharterSyncError(null);
+
+    const sanitizeMessages = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((entry) => {
+          const role = entry?.role === "assistant" ? "assistant" : "user";
+          const text =
+            typeof entry?.text === "string"
+              ? entry.text
+              : typeof entry?.content === "string"
+              ? entry.content
+              : "";
+          const trimmed = text.trim();
+          if (!trimmed) return null;
+          return { role, text: trimmed, content: trimmed };
+        })
+        .filter(Boolean);
+    };
+
+    const sanitizeAttachments = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((item) => {
+          const text = typeof item?.text === "string" ? item.text : "";
+          const trimmed = text.trim();
+          if (!trimmed) return null;
+          return {
+            name: typeof item?.name === "string" ? item.name : undefined,
+            mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
+            text: trimmed,
+          };
+        })
+        .filter(Boolean);
+    };
+
+    const sanitizeVoice = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((entry) => {
+          const text = typeof entry?.text === "string" ? entry.text.trim() : "";
+          if (!text) return null;
+          const timestamp = typeof entry?.timestamp === "number" ? entry.timestamp : Date.now();
+          return { id: entry?.id ?? `${timestamp}`, text, timestamp };
+        })
+        .filter(Boolean);
+    };
+
+    try {
+      const payload = {
+        docType: "charter",
+        messages: sanitizeMessages(messages),
+        attachments: sanitizeAttachments(attachments),
+        voice: sanitizeVoice(voiceTranscripts),
+      };
+
+      const seedDraft = getCurrentDraft();
+      if (seedDraft && typeof seedDraft === "object") {
+        payload.seed = seedDraft;
+      }
+
+      const response = await fetch("/api/charter/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const message =
+          typeof errorPayload?.error === "string" && errorPayload.error.trim()
+            ? errorPayload.error.trim()
+            : `Extraction failed with status ${response.status}`;
+        throw new Error(message);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error("Failed to parse extractor response.");
+      }
+
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Extractor returned unexpected payload.");
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, "result")) {
+        throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
+      }
+
+      const coercedData = coerceAliasesToSchemaKeys(data);
+
+      let normalizedDraft;
+      try {
+        normalizedDraft = normalizeCharterDraft(coercedData);
+      } catch (normalizeError) {
+        console.error("Manual charter sync normalize error", normalizeError);
+        normalizedDraft = coercedData;
+      }
+
+      const finalDraft = await applyNormalizedDraft(normalizedDraft);
+      clearExtractionError();
+      setCharterSyncError(null);
+      appendAssistantMessage("I’ve refreshed the charter preview with the latest context.");
+      return { ok: true, draft: finalDraft };
+    } catch (error) {
+      const fallbackMessage =
+        typeof error?.message === "string" && error.message.trim()
+          ? error.message.trim()
+          : "Unable to update the charter preview. Please try again.";
+      setCharterSyncError(fallbackMessage);
+      if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
+        appendAssistantMessage(`${fallbackMessage}`);
+      } else {
+        appendAssistantMessage(`I couldn’t update the preview: ${fallbackMessage}`);
+      }
+      return { ok: false, reason: "error", error };
+    } finally {
+      setIsCharterSyncing(false);
+    }
+  }, [
+    appendAssistantMessage,
+    applyNormalizedDraft,
+    attachments,
+    canSyncNow,
+    clearExtractionError,
+    getCurrentDraft,
+    isCharterSyncing,
+    isExtracting,
+    messages,
+    setCharterSyncError,
+    voiceTranscripts,
+  ]);
 
   const formatValidationErrorsForChat = (errors = []) => {
     if (!Array.isArray(errors) || errors.length === 0) {
@@ -393,7 +968,7 @@ export default function ExactVirtualAssistantPM() {
       : null;
 
     if (hasCharterDraft) {
-      setCharterPreview(normalizedCharter);
+      applyCharterDraft(normalizedCharter);
     }
 
     const validation = await validateCharter(normalizedCharter);
@@ -765,6 +1340,15 @@ export default function ExactVirtualAssistantPM() {
         if (transcript) {
           const trimmedTranscript = transcript.trim();
           if (!trimmedTranscript) return;
+          setVoiceTranscripts((prev) => {
+            const entry = {
+              id: Date.now() + Math.random(),
+              text: trimmedTranscript,
+              timestamp: Date.now(),
+            };
+            const next = [...prev, entry];
+            return next.slice(-20);
+          });
           const handled = await handleCommandFromText(trimmedTranscript);
           if (!handled) {
             appendUserMessageToChat(trimmedTranscript);
@@ -913,6 +1497,23 @@ export default function ExactVirtualAssistantPM() {
     if (!trimmed) return false;
 
     const normalized = trimmed.toLowerCase();
+    const wantsCharterCommit =
+      normalized.startsWith("/charter") ||
+      normalized.includes("commit charter") ||
+      normalized.includes("commit the charter") ||
+      normalized.includes("update charter") ||
+      normalized.includes("update the charter") ||
+      normalized.includes("sync charter") ||
+      normalized.includes("sync the charter");
+
+    if (wantsCharterCommit) {
+      if (!userMessageAppended) {
+        appendUserMessageToChat(trimmed);
+      }
+      await syncCharterFromChat();
+      return true;
+    }
+
     const mentionsDocx = normalized.includes("docx") || normalized.includes("word");
     const mentionsPdf = normalized.includes("pdf");
     const mentionsBlankCharter =
@@ -1017,76 +1618,68 @@ export default function ExactVirtualAssistantPM() {
     appendAssistantMessage(reply || "");
   };
 
-  const handleSummarizeAttachments = async () => {
-    if (isSummarizing) return;
-    if (!attachments || attachments.length === 0) return;
-
-    setIsSummarizing(true);
-    try {
-      const summarizationPrompt = "Summarize the attached documents.";
-      const historyWithPrompt = [
-        ...messages,
-        { id: Date.now(), role: "user", text: summarizationPrompt },
-      ];
-      const reply = await callLLM(
-        summarizationPrompt,
-        historyWithPrompt,
-        attachments,
-      );
-      const safeReply = reply || "No summary available.";
-      setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
-    } catch (error) {
-      const message = error?.message || "Failed to summarize attachments.";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + Math.random(),
-          role: "assistant",
-          text: `Summary error: ${message}`,
-        },
-      ]);
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
+  const handleSyncNow = useCallback(() => {
+    return syncCharterFromChat();
+  }, [syncCharterFromChat]);
 
   const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
-    const pickedFiles = Array.from(list);
-    const baseTimestamp = Date.now();
-    const newFiles = pickedFiles.map((f, index) => ({
-      id: `${baseTimestamp}-${index}`,
-      name: f.name,
-      size: prettyBytes(f.size),
-      file: f,
-    }));
+    setIsUploadingAttachments(true);
+    try {
+      const pickedFiles = Array.from(list);
+      const baseTimestamp = Date.now();
+      const newFiles = pickedFiles.map((f, index) => ({
+        id: `${baseTimestamp}-${index}`,
+        name: f.name,
+        size: prettyBytes(f.size),
+        file: f,
+      }));
 
-    setFiles((prev) => [...prev, ...newFiles]);
+      setFiles((prev) => [...prev, ...newFiles]);
 
-    const processedAttachments = [];
+      const processedAttachments = [];
 
-    for (const file of pickedFiles) {
-      try {
-        const base64 = await fileToBase64(file);
-        const response = await fetch("/api/files/text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: file.name,
-            mimeType: file.type,
-            base64,
-          }),
-        });
-
-        let payload = {};
+      for (const file of pickedFiles) {
         try {
-          payload = await response.json();
-        } catch (err) {
-          console.error("Failed to parse /api/files/text response", err);
-        }
+          const base64 = await fileToBase64(file);
+          const response = await fetch("/api/files/text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: file.name,
+              mimeType: file.type,
+              base64,
+            }),
+          });
 
-        if (!response.ok || payload?.ok === false) {
-          const message = payload?.error || `Unable to process ${file.name}`;
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (err) {
+            console.error("Failed to parse /api/files/text response", err);
+          }
+
+          if (!response.ok || payload?.ok === false) {
+            const message = payload?.error || `Unable to process ${file.name}`;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now() + Math.random(),
+                role: "assistant",
+                text: `Attachment error (${file.name}): ${message}`,
+              },
+            ]);
+            continue;
+          }
+
+          processedAttachments.push({
+            name: payload?.name || file.name,
+            mimeType: payload?.mimeType || file.type,
+            text: payload?.text || "",
+          });
+        } catch (error) {
+          const message = error?.message || "Unknown error";
+          console.error("addPickedFiles error", error);
           setMessages((prev) => [
             ...prev,
             {
@@ -1095,38 +1688,17 @@ export default function ExactVirtualAssistantPM() {
               text: `Attachment error (${file.name}): ${message}`,
             },
           ]);
-          continue;
         }
-
-        processedAttachments.push({
-          name: payload?.name || file.name,
-          mimeType: payload?.mimeType || file.type,
-          text: payload?.text || "",
-        });
-      } catch (error) {
-        const message = error?.message || "Unknown error";
-        console.error("addPickedFiles error", error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now() + Math.random(),
-            role: "assistant",
-            text: `Attachment error (${file.name}): ${message}`,
-          },
-        ]);
       }
-    }
 
-    if (processedAttachments.length) {
-      let mergedAttachments = null;
-      setAttachments((prev) => {
-        const merged = [...prev, ...processedAttachments];
-        mergedAttachments = merged;
-        return merged;
-      });
-      if (autoExtract && mergedAttachments?.length) {
-        runAutoExtract(mergedAttachments);
+      if (processedAttachments.length) {
+        setAttachments((prev) => [...prev, ...processedAttachments]);
+        if (autoExtractEnabled) {
+          setExtractionSeed(Date.now());
+        }
       }
+    } finally {
+      setIsUploadingAttachments(false);
     }
   };
 
@@ -1154,10 +1726,12 @@ export default function ExactVirtualAssistantPM() {
 
     if (nextAttachments) {
       if (!nextAttachments.length) {
-        setCharterPreview(null);
-        setExtractError(null);
-      } else if (autoExtract) {
-        runAutoExtract(nextAttachments);
+        applyCharterDraft(createBlankDraft(), { resetLocks: true });
+        clearExtractionError();
+        setCharterSyncError(null);
+      }
+      if (autoExtractEnabled) {
+        setExtractionSeed(Date.now());
       }
     }
   };
@@ -1167,57 +1741,6 @@ export default function ExactVirtualAssistantPM() {
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
-
-  async function runAutoExtract(sourceAttachments = attachments) {
-    if (!sourceAttachments || !sourceAttachments.length) return;
-    setIsExtracting(true);
-    setExtractError(null);
-    try {
-      const payload = {
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.text || "",
-          text: m.text || "",
-        })),
-        attachments: sourceAttachments,
-      };
-
-      const response = await fetch("/api/charter/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (err) {
-        console.error("Failed to parse /api/charter/extract response", err);
-        throw new Error("Invalid response from charter extractor");
-      }
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to extract charter");
-      }
-
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Charter extractor returned unexpected data");
-      }
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-
-      setCharterPreview(data);
-    } catch (error) {
-      const message = error?.message || "Failed to extract charter";
-      console.error("runAutoExtract error", error);
-      setExtractError(message);
-      setCharterPreview(null);
-    } finally {
-      setIsExtracting(false);
-    }
-  }
 
   return (
     <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
@@ -1251,8 +1774,13 @@ export default function ExactVirtualAssistantPM() {
             >
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {messages.map((m) => (
-                    <ChatBubble key={m.id} role={m.role} text={m.text} />
+                  {visibleMessages.map((m) => (
+                    <ChatBubble
+                      key={m.id}
+                      role={m.role}
+                      text={m.text}
+                      hideEmptySections={hideEmptySections}
+                    />
                   ))}
                 </div>
                 {isAssistantThinking && (
@@ -1360,15 +1888,16 @@ export default function ExactVirtualAssistantPM() {
                     )}
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={handleSummarizeAttachments}
-                        disabled={isSummarizing || !attachments.length}
+                        onClick={handleSyncNow}
+                        disabled={isCharterSyncInFlight || !canSyncNow}
                         className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
-                          isSummarizing || !attachments.length
+                          isCharterSyncInFlight || !canSyncNow
                             ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                             : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
                         }`}
+                        title="Commit the latest updates to the preview"
                       >
-                        {isSummarizing ? "Summarizing…" : "Summarize documents"}
+                        {isCharterSyncInFlight ? "Syncing…" : "Sync now"}
                       </button>
                       <button
                         onClick={handleSend}
@@ -1418,52 +1947,67 @@ export default function ExactVirtualAssistantPM() {
             <Panel title="Preview">
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input type="checkbox" checked={useLLM} onChange={(e)=>setUseLLM(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={useLLM}
+                    onChange={(e) => setUseLLM(e.target.checked)}
+                  />
                   <span>Use LLM (beta)</span>
                 </label>
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input type="checkbox" checked={autoExtract} onChange={(e)=>setAutoExtract(e.target.checked)} />
-                  <span>Auto‑extract (beta)</span>
+                <label className="inline-flex items-start gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={autoExtractEnabled}
+                    onChange={(e) => setAutoExtractEnabled(e.target.checked)}
+                  />
+                  <span className="text-left leading-tight">
+                    <span className="block font-medium">Auto-extract</span>
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      Use /charter to sync manually.
+                    </span>
+                  </span>
                 </label>
               </div>
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                {['Charter','DDP','RAID'].map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActivePreview(tab)}
-                    className={`px-3 py-1.5 rounded-xl text-sm border ${
-                      activePreview===tab
-                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-                        : 'bg-white/70 border-white/60 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100'
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
+                <PreviewEditable
+                  draft={charterPreview}
+                  locks={locks}
+                  fieldStates={fieldStates}
+                  isLoading={isCharterSyncInFlight}
+                  onDraftChange={handleDraftChange}
+                  onLockField={handleLockField}
+                />
               </div>
-
-              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 space-y-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <CharterCard data={charterPreview} isLoading={isExtracting} />
-                <DDPCard data={charterPreview} isLoading={isExtracting} />
-                <RAIDCard data={charterPreview} isLoading={isExtracting} />
-                {isExtracting && (
-                  <div className="text-xs text-slate-500">Extracting charter insights…</div>
-                )}
-              </div>
+              {isCharterSyncInFlight && (
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating charter preview…</div>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={syncCharterFromChat}
+                  disabled={!canSyncNow || isCharterSyncInFlight || isAssistantThinking}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !canSyncNow || isCharterSyncInFlight || isAssistantThinking
+                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
+                      : "bg-sky-600 text-white hover:bg-sky-500 dark:bg-sky-500 dark:hover:bg-sky-400"
+                  }`}
+                  title="Commit the latest chat context to the preview"
+                >
+                  {isCharterSyncInFlight ? "Committing…" : "Commit to Preview"}
+                </button>
                 <button
                   type="button"
                   onClick={() => exportDocxViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
@@ -1477,15 +2021,15 @@ export default function ExactVirtualAssistantPM() {
                   type="button"
                   onClick={() => shareLinksViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
@@ -1499,15 +2043,15 @@ export default function ExactVirtualAssistantPM() {
                   type="button"
                   onClick={() => exportPdfViaChat(defaultShareBaseName)}
                   disabled={
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !charterPreview ||
-                    isExtracting ||
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
@@ -1518,9 +2062,9 @@ export default function ExactVirtualAssistantPM() {
                   {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
                 </button>
               </div>
-              {extractError && (
+              {activeCharterError && (
                 <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
-                  {extractError}
+                  {activeCharterError}
                 </div>
               )}
 
@@ -1539,6 +2083,7 @@ export default function ExactVirtualAssistantPM() {
 
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -1559,6 +2104,48 @@ function ThemeSelect({ mode, resolvedMode, onChange }) {
         <option value="dark">Dark</option>
         <option value="auto">{autoLabel}</option>
       </select>
+    </div>
+  );
+}
+
+function ToastStack({ toasts, onDismiss }) {
+  if (!Array.isArray(toasts) || toasts.length === 0) {
+    return null;
+  }
+
+  const toneStyles = {
+    info: "border-slate-200 bg-white/90 text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/80 dark:text-slate-100",
+    warning: "border-amber-200 bg-amber-100/90 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/80 dark:text-amber-100",
+    error: "border-red-200 bg-red-100/90 text-red-900 dark:border-red-700/60 dark:bg-red-900/80 dark:text-red-100",
+    success: "border-emerald-200 bg-emerald-100/90 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-100",
+  };
+
+  return (
+    <div className="pointer-events-none fixed bottom-4 right-0 z-[60] flex w-full max-w-sm flex-col gap-2 px-4 sm:right-4 sm:px-0">
+      {toasts.map((toast) => {
+        const key = toast?.tone && toneStyles[toast.tone] ? toast.tone : "info";
+        const toneClass = toneStyles[key];
+        const message = typeof toast?.message === "string" ? toast.message : "";
+        if (!message) return null;
+        return (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg backdrop-blur ${toneClass}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 whitespace-pre-line leading-snug">{message}</div>
+              <button
+                type="button"
+                onClick={() => onDismiss?.(toast.id)}
+                className="text-lg leading-none text-slate-500 transition hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                aria-label="Dismiss notification"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1592,9 +2179,39 @@ function AssistantThinkingIndicator() {
   );
 }
 
-function ChatBubble({ role, text }) {
+function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
+  const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
+  const { structuredSections, hasStructuredContent } = useMemo(() => {
+    if (!Array.isArray(sections)) {
+      return { structuredSections: [], hasStructuredContent: false };
+    }
+
+    let containsStructuredContent = false;
+
+    const filteredSections = sections.filter((section) => {
+      if (!section) {
+        return false;
+      }
+
+      const hasHeading = typeof section.heading === "string" && section.heading.trim().length > 0;
+      const hasItems = Array.isArray(section.items) && section.items.length > 0;
+      const hasParagraphs = Array.isArray(section.paragraphs) && section.paragraphs.length > 0;
+
+      if (hasHeading || hasItems) {
+        containsStructuredContent = true;
+      }
+
+      return hasHeading || hasItems || hasParagraphs;
+    });
+
+    return { structuredSections: filteredSections, hasStructuredContent: containsStructuredContent };
+  }, [sections]);
+  const showStructured =
+    !isUser &&
+    Array.isArray(sections) &&
+    (hasStructuredContent || hideEmptySections === false);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -1604,137 +2221,12 @@ function ChatBubble({ role, text }) {
             : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
         }`}
       >
-        {isUser ? (
+        {isUser || !showStructured ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
         ) : (
-          <AssistantFeedbackTemplate text={safeText} />
+          <AssistantFeedbackTemplate sections={structuredSections} />
         )}
       </div>
-    </div>
-  );
-}
-
-function CharterCard({ data, isLoading }) {
-  const timeline = [];
-  if (data?.start_date) timeline.push(`Start: ${data.start_date}`);
-  if (data?.end_date) timeline.push(`End: ${data.end_date}`);
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Project Charter</div>
-      <Field label="Project Title" value={data?.project_name} isLoading={isLoading} />
-      <Field label="Sponsor" value={data?.sponsor} isLoading={isLoading} />
-      <Field label="Project Lead" value={data?.project_lead} isLoading={isLoading} />
-      <Field label="Problem Statement" value={data?.problem} lines={2} isLoading={isLoading} />
-      <Field label="Timeline" value={timeline.join(" • ")} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function DDPCard({ data, isLoading }) {
-  const scopeItems = [];
-  if (Array.isArray(data?.scope_in) && data.scope_in.length) {
-    scopeItems.push(...data.scope_in.map((item) => `In Scope: ${item}`));
-  }
-  if (Array.isArray(data?.scope_out) && data.scope_out.length) {
-    scopeItems.push(...data.scope_out.map((item) => `Out of Scope: ${item}`));
-  }
-
-  const successMetrics = Array.isArray(data?.success_metrics)
-    ? data.success_metrics
-        .map((metric) => {
-          const parts = [metric?.benefit, metric?.metric, metric?.system_of_measurement]
-            .filter(Boolean)
-            .join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  const milestoneItems = Array.isArray(data?.milestones)
-    ? data.milestones
-        .map((item) => {
-          const parts = [item?.phase, item?.deliverable, item?.date].filter(Boolean).join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Design & Development Plan</div>
-      <Field label="Objectives" value={data?.vision} lines={2} isLoading={isLoading} />
-      <Field label="Scope" value={scopeItems} lines={2} isLoading={isLoading} />
-      <Field label="Verification Strategy" value={successMetrics} lines={2} isLoading={isLoading} />
-      <Field label="Milestones" value={milestoneItems} lines={2} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function RAIDCard({ data, isLoading }) {
-  const riskItems = Array.isArray(data?.risks) ? data.risks.filter(Boolean) : [];
-  const assumptionItems = Array.isArray(data?.assumptions) ? data.assumptions.filter(Boolean) : [];
-  const coreTeamItems = Array.isArray(data?.core_team)
-    ? data.core_team
-        .map((member) => {
-          const parts = [member?.name, member?.role, member?.responsibilities]
-            .filter(Boolean)
-            .join(" • ");
-          return parts || null;
-        })
-        .filter(Boolean)
-    : [];
-
-  const descriptionItems = data?.description ? [data.description] : [];
-
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">RAID Log Snapshot</div>
-      <Field label="Risks" value={riskItems} lines={2} isLoading={isLoading} />
-      <Field label="Assumptions" value={assumptionItems} lines={2} isLoading={isLoading} />
-      <Field label="Core Team" value={coreTeamItems} lines={2} isLoading={isLoading} />
-      <Field label="Notes" value={descriptionItems} lines={2} isLoading={isLoading} />
-    </div>
-  );
-}
-
-function Field({ label, value, lines = 1, isLoading }) {
-  const isArray = Array.isArray(value);
-  const arrayItems = isArray ? value.filter((item) => typeof item === "string" && item.trim()) : [];
-  const stringValue = !isArray && typeof value === "string" ? value.trim() : "";
-  const hasContent = arrayItems.length > 0 || stringValue;
-  const heightClass = lines > 1 ? "min-h-[80px]" : "min-h-[36px]";
-
-  return (
-    <div className="mb-3">
-      <div className="text-xs text-slate-500 mb-1 dark:text-slate-400">{label}</div>
-      {hasContent ? (
-        <div className="rounded-xl border border-white/70 bg-white/90 dark:border-slate-600/60 dark:bg-slate-800/70">
-          {arrayItems.length > 0 ? (
-            <ul className="list-disc space-y-1 px-4 py-3 text-sm text-slate-700 dark:text-slate-100">
-              {arrayItems.map((item, idx) => (
-                <li key={`${label}-${idx}`} className="whitespace-pre-wrap">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap dark:text-slate-100">{stringValue}</div>
-          )}
-        </div>
-      ) : (
-        <div
-          className={`rounded-xl bg-white/60 border border-white/60 ${heightClass} overflow-hidden dark:bg-slate-900/40 dark:border-slate-700/60`}
-        >
-          <div
-            className={`h-full w-full ${
-              isLoading
-                ? "animate-pulse bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-700 dark:to-slate-800"
-                : "bg-white/40 dark:bg-slate-800/60"
-            }`}
-          />
-        </div>
-      )}
     </div>
   );
 }

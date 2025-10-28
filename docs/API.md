@@ -102,13 +102,15 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
     "messages": [
       { "role": "user", "content": "Project kickoff notes..." }
     ],
-    "voice": "Latest transcript text (optional)",
+    "voice": [
+      { "id": "evt_1", "text": "Latest transcript text", "timestamp": 1715909745123 }
+    ],
     "attachments": [
       {
         "id": "file_123",
         "name": "Vision Brief",
-        "mime": "application/pdf",
-        "size": 184320
+        "mimeType": "application/pdf",
+        "text": "Trimmed attachment excerpt..."
       }
     ],
     "seed": {
@@ -117,7 +119,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
     }
   }
   ```
-  `docType` defaults to `"charter"` and selects the prompt/schema pair. `attachments` can omit `text` because uploads are pre-processed elsewhere; only lightweight metadata is forwarded. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
+  `docType` defaults to `"charter"` and selects the prompt/schema pair. `attachments` must include a `text` excerpt (up to ~20k characters are considered) so the extractor can build context; additional metadata like `mimeType` or `name` is optional but encouraged. `voice` should be an array of transcript events with `text` (and optionally `timestamp` in milliseconds) in the order they were captured. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
 - **Response** – JSON object whose keys align with `templates/charter.schema.json` (falls back to `{ "result": "…" }` when parsing fails).
 - **Notes**
   - Prepends the system prompt from `templates/extract_prompt.txt` (or other doc-type templates) before requesting structured data from OpenAI.

@@ -28,8 +28,9 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   ```
 - **Notes**
   - Prepends a project-management system prompt and trims history to the most recent 18 messages.
-  - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before folding them into the system prompt as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
-  - Uses `gpt-4o-mini` with `temperature: 0.3` for consistent tone.
+  - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before summarizing oversized files via a map/reduce pass (`lib/tokenize.js`). Attachments that fit under `SMALL_ATTACHMENTS_TOKEN_BUDGET` are inlined verbatim as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
+  - Honors `CHAT_PROMPT_TOKEN_LIMIT` when set—payloads exceeding the token budget return a `400` with an explanatory error.
+  - Uses the Responses API when the configured model matches `gpt-4o`/`gpt-4.1` families; otherwise falls back to Chat Completions with `temperature: 0.3` for consistent tone.
 
 ## Speech-to-text – `POST /api/transcribe`
 - **Body**
@@ -140,6 +141,14 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Large payloads up to 10 MB are supported via the endpoint's body parser limit.
   - The caller is responsible for prompting downloads (`URL.createObjectURL` on the frontend) or forwarding to storage.
 
+## Charter PDF export – `POST /api/export/pdf`
+- **Body** – Charter JSON matching the schema consumed by `/api/charter/render`.
+- **Response** – Binary PDF buffer streamed with `Content-Disposition: attachment; filename=project_charter.pdf`.
+- **Notes**
+  - Uses `validateCharterPayload` (Ajv) before rendering; invalid payloads return `400` with structured error data identical to the DOCX handler.
+  - Renders the HTML template in `templates/charter-export.html.mustache` and prints to PDF using `@sparticuz/chromium` + `puppeteer-core`.
+  - Provide `CHROME_EXECUTABLE_PATH` or `PUPPETEER_EXECUTABLE_PATH` when deploying to a runtime without the default Chromium binary.
+
 ## Charter share links – `POST /api/charter/make-link`
 - **Body**
   ```json
@@ -167,6 +176,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Signs the download payload with `FILES_LINK_SECRET` and includes an `exp` timestamp (epoch seconds) that expires 15 minutes after issuance.
   - The `formats` array is optional; when omitted the handler falls back to `docx` + `pdf`. Unsupported values are ignored.
   - The flattened `docx`/`pdf` keys remain for backward compatibility, but callers should prefer the `links` map so new formats (such as `json` or `xlsx`) flow through automatically.
+  - Token payloads store the normalized charter and sanitized filename base. Use `/api/charter/normalize` server-side if you need to reproduce the payload structure.
   - Callers should surface a friendly message when the route fails because `FILES_LINK_SECRET` is missing; see the health endpoint below.
 
 ## Charter download – `GET /api/charter/download`
@@ -176,6 +186,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Rejects requests when the signature fails (`403`) or when the embedded `exp` is earlier than the current epoch second (`410` with `{ error: "Download link expired" }`).
   - Returns `400` for unsupported formats and surfaces template validation errors with structured details so the UI can highlight the field failures.
   - Exposes consistent filenames that mirror the sanitized `baseName` supplied during link creation.
+  - Format handlers cover DOCX (Docxtemplater), PDF (Chromium render), and JSON (plain buffer). XLSX responses delegate to `templates/renderers.js`, which currently throws a `FormatNotImplementedError` (`501`).
 
 ## Charter link health – `GET /api/charter/health`
 - **Response**

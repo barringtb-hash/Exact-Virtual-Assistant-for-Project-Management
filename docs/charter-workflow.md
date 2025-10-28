@@ -1,8 +1,8 @@
 # Project Charter Template Workflow
 
-This guide documents how to maintain the charter template (`project_charter_tokens.docx`) that powers charter exports. The repository stores the template as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors.
+This guide documents how to maintain the charter templates that power charter exports. The repository stores the DOCX source as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors, and renders the PDF layout from `templates/charter-export.html.mustache`.
 
-## Rebuilding the Template
+## Rebuilding the DOCX Template
 
 1. Decode the committed base64 file to a DOCX you can edit:
 
@@ -48,6 +48,23 @@ npm run validate:charter-docx
 The script loads the template with representative data and fails if docxtemplater reports malformed, duplicated, or unresolvable tags. CI should also execute this command.
 
 In addition to the template validator, the automated test suite exercises the charter link and download endpoints end-to-end. Run `npm test` for the unit coverage (HMAC signing, expiry handling, and template validation responses) and `npm run test:e2e` to confirm the Playwright flow can request signed downloads with the latest template changes.
+
+## Updating the PDF Layout
+
+The PDF export reuses the same normalized charter payload but renders it with Mustache before printing to PDF via headless Chromium.
+
+1. Edit `templates/charter-export.html.mustache` using standard HTML/CSS. Keep inline styles self-contained—external assets are not loaded in the serverless runtime.
+2. Place tokens like `{{projectName}}`, `{{#scopeIn}}`, and `{{#milestones}}` where values should appear. These mirror the normalized keys produced by `lib/charter/normalize.js` (camelCase conversion happens inside the renderer).
+3. Use conditional sections (e.g., `{{#scopeIn}}`) to hide empty lists and apply `{{^scopeIn}}` blocks for fallbacks if needed.
+4. After updating the template, run `npm run validate:charter-docx` and `npm test` to ensure both the DOCX validator and PDF charter download tests still pass.
+5. Deployments that cannot run the default Chromium binary should supply `CHROME_EXECUTABLE_PATH` or `PUPPETEER_EXECUTABLE_PATH` so `/api/export/pdf` can launch the browser.
+
+## JSON & XLSX Renderers
+
+`templates/renderers.js` exposes helpers that back the `/api/charter/download` endpoint:
+
+- `renderJsonBuffer` serializes the charter payload into a prettified JSON buffer.
+- `renderXlsxBuffer` currently throws `FormatNotImplementedError`. Implementing XLSX exports should replace this stub with a real generator and update the tests to expect a successful response.
 
 ## Version Control Notes
 

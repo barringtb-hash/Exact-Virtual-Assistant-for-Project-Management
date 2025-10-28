@@ -557,17 +557,164 @@ function buildExecutorArgs(req, payload) {
   return args;
 }
 
-async function requestChatCompletionWithActions(client, { messages, temperature }) {
-  const completion = await client.chat.completions.create({
-    model: CHAT_MODEL,
-    temperature,
-    messages,
-    tools,
-  });
+function normalizeMessageForResponses(message) {
+  const role = typeof message?.role === "string" ? message.role : "user";
+  const content = message?.content;
 
-  const choice = completion?.choices?.[0]?.message || {};
-  const reply = extractMessageText(choice.content);
-  const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+  if (Array.isArray(content)) {
+    const normalized = content
+      .map((part) => {
+        if (part && typeof part === "object") {
+          if (typeof part.type === "string" && part.type !== "text") {
+            return part;
+          }
+
+          if (typeof part.text === "string") {
+            return { type: "text", text: part.text };
+          }
+        }
+
+        if (typeof part === "string") {
+          return { type: "text", text: part };
+        }
+
+        if (part == null) {
+          return null;
+        }
+
+        return { type: "text", text: JSON.stringify(part) };
+      })
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      return { role, content: normalized };
+    }
+  }
+
+  if (typeof content === "string" && content.length > 0) {
+    return { role, content: [{ type: "text", text: content }] };
+  }
+
+  if (content && typeof content === "object") {
+    return {
+      role,
+      content: [{ type: "text", text: JSON.stringify(content) }],
+    };
+  }
+
+  return { role, content: [] };
+}
+
+function normalizeResponsesToolCall(part) {
+  if (!part || typeof part !== "object") return null;
+  if (part.type !== "tool_call") return null;
+
+  const name = typeof part.name === "string" ? part.name : null;
+  if (!name) return null;
+
+  let args = "";
+  if (typeof part.arguments === "string") {
+    args = part.arguments;
+  } else if (part.arguments != null) {
+    try {
+      args = JSON.stringify(part.arguments);
+    } catch (err) {
+      args = "";
+    }
+  }
+
+  const call = {
+    type: "function",
+    function: {
+      name,
+      arguments: args,
+    },
+  };
+
+  if (typeof part.id === "string" && part.id.trim()) {
+    call.id = part.id.trim();
+  } else if (
+    typeof part.tool_call_id === "string" &&
+    part.tool_call_id.trim()
+  ) {
+    call.id = part.tool_call_id.trim();
+  }
+
+  return call;
+}
+
+function mapResponsesToChoice(response) {
+  const message = Array.isArray(response?.output)
+    ? response.output.find(
+        (item) => item?.type === "message" && item?.role === "assistant"
+      )
+    : null;
+
+  const contentParts = [];
+  const toolCalls = [];
+
+  if (Array.isArray(message?.content)) {
+    for (const part of message.content) {
+      if (part?.type === "output_text" && typeof part.text === "string") {
+        contentParts.push({ text: part.text });
+        continue;
+      }
+
+      const toolCall = normalizeResponsesToolCall(part);
+      if (toolCall) {
+        toolCalls.push(toolCall);
+      }
+    }
+  }
+
+  if (contentParts.length === 0 && typeof response?.output_text === "string") {
+    contentParts.push({ text: response.output_text });
+  }
+
+  const content = contentParts.length > 0 ? contentParts : undefined;
+
+  return {
+    message: {
+      content,
+    },
+    tool_calls: toolCalls,
+  };
+}
+
+async function requestChatCompletionWithActions(client, { messages, temperature }) {
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+  let choice;
+  let completion;
+
+  if (useResponses) {
+    const input = Array.isArray(messages)
+      ? messages
+          .map((message) => normalizeMessageForResponses(message))
+          .filter((item) => Array.isArray(item?.content) && item.content.length > 0)
+      : [];
+
+    completion = await client.responses.create({
+      model: CHAT_MODEL,
+      temperature,
+      input,
+      tools,
+    });
+
+    choice = mapResponsesToChoice(completion);
+  } else {
+    completion = await client.chat.completions.create({
+      model: CHAT_MODEL,
+      temperature,
+      messages,
+      tools,
+    });
+
+    choice = completion?.choices?.[0] ?? {};
+  }
+
+  const message = choice?.message || {};
+  const reply = extractMessageText(message.content);
+  const toolCalls = Array.isArray(choice?.tool_calls) ? choice.tool_calls : [];
 
   let operationId = null;
   const actions = [];

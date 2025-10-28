@@ -2,6 +2,8 @@
 
 This guide documents how to maintain the charter templates that power charter exports. The repository stores the DOCX source as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors, and renders the PDF layout from `templates/charter-export.html.mustache`.
 
+For QA coverage of the realtime charter auto-execute edge cases, see the [Auto-Execute QA Scenarios](./auto-execute-qa.md) checklist.
+
 ## Rebuilding the DOCX Template
 
 1. Decode the committed base64 file to a DOCX you can edit:

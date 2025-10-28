@@ -114,6 +114,44 @@ export async function renderDocxBuffer(charter) {
   doc.setData(normalized);
   doc.render();
 
+  const unresolvedTags = [];
+  try {
+    const docZip = doc.getZip();
+    const documentFile =
+      docZip && typeof docZip.file === "function"
+        ? docZip.file("word/document.xml")
+        : undefined;
+    const documentXml =
+      documentFile && typeof documentFile.asText === "function"
+        ? documentFile.asText()
+        : undefined;
+
+    if (typeof documentXml === "string" && documentXml.includes("{{")) {
+      const seen = new Set();
+      const regex = /{{\s*([^{}]+?)\s*}}/g;
+      let match;
+      while ((match = regex.exec(documentXml)) !== null) {
+        const tag = match[1]?.trim();
+        if (tag && !seen.has(tag)) {
+          seen.add(tag);
+          unresolvedTags.push(tag);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("failed to inspect rendered charter document", error);
+  }
+
+  if (unresolvedTags.length > 0) {
+    const validationErrors = unresolvedTags.map((tag) => ({
+      instancePath: "",
+      message: `Missing template value for tag "{{${tag}}}"`,
+      keyword: "unresolved_template_tag",
+      params: { tag },
+    }));
+    throw createCharterValidationError(validationErrors, normalized);
+  }
+
   return doc.getZip().generate({ type: "nodebuffer" });
 }
 

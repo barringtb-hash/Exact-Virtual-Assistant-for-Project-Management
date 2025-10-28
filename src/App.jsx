@@ -1966,7 +1966,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
-  const showStructured = !isUser && !hideEmptySections && Array.isArray(sections) && sections.length > 0;
+  const showStructured = !isUser && Array.isArray(sections) && sections.length > 0;
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div

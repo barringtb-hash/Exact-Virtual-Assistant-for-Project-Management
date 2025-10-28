@@ -44,6 +44,13 @@ const IconCheck = (props) => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
+const IconDownload = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <path d="M12 3v14" />
+    <path d="M5 13l7 7 7-7" />
+    <path d="M5 21h14" />
+  </svg>
+);
 const IconAlert = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -90,6 +97,8 @@ export default function ExactVirtualAssistantPM() {
   const [autoExtract, setAutoExtract] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [autoDownloads, setAutoDownloads] = useState([]);
+  const [previewStatus, setPreviewStatus] = useState("idle");
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -112,6 +121,7 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const downloadLinksRef = useRef([]);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
 
   useEffect(() => {
@@ -120,6 +130,21 @@ export default function ExactVirtualAssistantPM() {
       container.scrollTop = container.scrollHeight;
     }
   }, [messages, isAssistantThinking]);
+
+  useEffect(() => {
+    return () => {
+      for (const item of downloadLinksRef.current) {
+        if (item?.url) {
+          try {
+            URL.revokeObjectURL(item.url);
+          } catch (error) {
+            // Ignore URL cleanup errors in test environments.
+          }
+        }
+      }
+      downloadLinksRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     if (autoExtract && attachments.length) {
@@ -826,6 +851,130 @@ export default function ExactVirtualAssistantPM() {
       reader.readAsDataURL(blob);
     });
 
+  const updateDownloadChips = (list = []) => {
+    const normalized = Array.isArray(list)
+      ? list.map((item) => ({ ...item }))
+      : [];
+    for (const entry of downloadLinksRef.current) {
+      if (entry?.url) {
+        try {
+          URL.revokeObjectURL(entry.url);
+        } catch (error) {
+          // Ignore URL cleanup errors in test environments.
+        }
+      }
+    }
+    downloadLinksRef.current = normalized;
+    setAutoDownloads(normalized);
+  };
+
+  const base64ToBlob = (base64, mime = "application/octet-stream") => {
+    if (typeof base64 !== "string" || !base64.trim()) {
+      throw new Error("Invalid base64 payload");
+    }
+    const normalized = base64.trim();
+    const payload = normalized.includes(",")
+      ? normalized.slice(normalized.indexOf(",") + 1)
+      : normalized;
+    const binary = atob(payload);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime || "application/octet-stream" });
+  };
+
+  const handleExecutedActions = (executed = []) => {
+    if (!Array.isArray(executed) || executed.length === 0) {
+      return;
+    }
+
+    const downloads = [];
+    let latestCharter = null;
+
+    for (const entry of executed) {
+      if (!entry || entry.action !== "charter.render" || entry.status !== "ok") {
+        continue;
+      }
+
+      const result = entry?.result || {};
+      const base64Buffer =
+        typeof result?.buffer === "string"
+          ? result.buffer
+          : typeof result?.buffer?.base64 === "string"
+          ? result.buffer.base64
+          : undefined;
+
+      if (base64Buffer) {
+        try {
+          const blob = base64ToBlob(
+            base64Buffer,
+            result?.mime || "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          );
+          const url = URL.createObjectURL(blob);
+          const filename =
+            typeof result?.filename === "string" && result.filename.trim()
+              ? result.filename.trim()
+              : "Project Charter.docx";
+          downloads.push({
+            id: `${Date.now()}-${Math.random()}`,
+            filename,
+            url,
+          });
+        } catch (error) {
+          console.error("Failed to prepare DOCX download", error);
+        }
+      }
+
+      if (result?.charter && typeof result.charter === "object") {
+        latestCharter = result.charter;
+      }
+    }
+
+    if (latestCharter) {
+      setCharterPreview(normalizeCharterDraft(latestCharter));
+      setPreviewStatus("updated");
+    } else if (downloads.length > 0) {
+      setPreviewStatus("updated");
+    }
+
+    if (downloads.length > 0) {
+      updateDownloadChips(downloads);
+    }
+  };
+
+  const runAutoExecuteChat = async (text, { baseName } = {}) => {
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    if (!trimmed) return false;
+
+    const entry = appendUserMessageToChat(trimmed);
+    if (!entry) return false;
+
+    const nextHistory = [...messages, entry];
+    setIsAssistantThinking(true);
+    try {
+      const result = await callLLM(trimmed, nextHistory, attachments, {
+        execute: true,
+        baseName,
+      });
+      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+      if (reply) {
+        appendAssistantMessage(reply);
+      }
+      handleExecutedActions(result?.executed || []);
+      return Boolean(reply || (Array.isArray(result?.executed) && result.executed.length > 0));
+    } catch (error) {
+      console.error("Voice auto execute failed", error);
+      appendAssistantMessage(
+        "Voice command error: Unable to fulfill the request right now."
+      );
+      return false;
+    } finally {
+      setIsAssistantThinking(false);
+    }
+  };
+
   const startRecording = async () => {
     if (rec) return;
     let stream;
@@ -865,7 +1014,10 @@ export default function ExactVirtualAssistantPM() {
           if (trimmedTranscript) {
             const handled = await handleCommandFromText(trimmedTranscript);
             if (!handled) {
-              setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
+              const executed = await runAutoExecuteChat(trimmedTranscript);
+              if (!executed) {
+                setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
+              }
             }
           }
         } catch (error) {
@@ -1005,7 +1157,9 @@ export default function ExactVirtualAssistantPM() {
     if (isLLMEnabled) {
       setIsAssistantThinking(true);
       try {
-        reply = await callLLM(text, nextHistory, attachments);
+        const result = await callLLM(text, nextHistory, attachments);
+        reply = typeof result?.reply === "string" ? result.reply : "";
+        handleExecutedActions(result?.executed || []);
       } catch (e) {
         reply = "LLM error (demo): " + (e?.message || "unknown");
       } finally {
@@ -1028,12 +1182,13 @@ export default function ExactVirtualAssistantPM() {
         ...messages,
         { id: Date.now(), role: "user", text: summarizationPrompt },
       ];
-      const reply = await callLLM(
+      const result = await callLLM(
         summarizationPrompt,
         historyWithPrompt,
         attachments,
       );
-      const safeReply = reply || "No summary available.";
+      handleExecutedActions(result?.executed || []);
+      const safeReply = result?.reply || "No summary available.";
       setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
     } catch (error) {
       const message = error?.message || "Failed to summarize attachments.";
@@ -1426,6 +1581,15 @@ export default function ExactVirtualAssistantPM() {
                   <span>Auto‑extract (beta)</span>
                 </label>
               </div>
+              {previewStatus === "updated" && (
+                <div
+                  data-testid="preview-status"
+                  className="mb-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-700/60 dark:bg-emerald-900/40 dark:text-emerald-200"
+                >
+                  <IconCheck className="h-3.5 w-3.5" />
+                  <span>Preview synced with voice command</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 {['Charter','DDP','RAID'].map((tab) => (
                   <button
@@ -1518,6 +1682,22 @@ export default function ExactVirtualAssistantPM() {
                   {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
                 </button>
               </div>
+              {autoDownloads.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="auto-downloads">
+                  {autoDownloads.map((item) => (
+                    <a
+                      key={item.id}
+                      data-testid="auto-download-link"
+                      href={item.url}
+                      download={item.filename}
+                      className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 dark:border-indigo-500/50 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-800/60"
+                    >
+                      <IconDownload className="h-4 w-4" />
+                      <span className="truncate max-w-[200px]">{item.filename}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
               {extractError && (
                 <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
                   {extractError}
@@ -1749,7 +1929,8 @@ function mockAssistantReply(text) {
 }
 
 // --- LLM wiring (placeholder) ---
-async function callLLM(text, history = [], contextAttachments = []) {
+async function callLLM(text, history = [], contextAttachments = [], options = {}) {
+  const { execute = false, baseName } = options || {};
   try {
     const normalizedHistory = Array.isArray(history)
       ? history.map((item) => ({ role: item.role, content: item.text || "" }))
@@ -1762,20 +1943,43 @@ async function callLLM(text, history = [], contextAttachments = []) {
     const systemMessage = {
       role: "system",
       content:
-        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites."
+        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.",
     };
     const payload = {
       messages: [systemMessage, ...normalizedHistory.slice(-19)],
       attachments: preparedAttachments,
     };
-    const res = await fetch("/api/chat", {
+    if (execute) {
+      payload.execute = true;
+      if (baseName) {
+        payload.baseName = baseName;
+      }
+    }
+    const endpoint = execute ? "/api/chat?execute=1" : "/api/chat";
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    return data.reply || "";
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (parseError) {
+      console.error("Failed to parse chat response", parseError);
+      data = {};
+    }
+    if (!res.ok) {
+      const message =
+        typeof data?.error === "string"
+          ? data.error
+          : typeof data?.message === "string"
+          ? data.message
+          : `Chat request failed with status ${res.status}`;
+      throw new Error(message);
+    }
+    return data && typeof data === "object" ? data : { reply: "" };
   } catch (e) {
-    return "OpenAI endpoint error: " + (e?.message || "unknown");
+    return { reply: "OpenAI endpoint error: " + (e?.message || "unknown") };
   }
 }
+

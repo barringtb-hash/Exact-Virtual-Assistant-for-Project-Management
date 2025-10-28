@@ -8,6 +8,7 @@ import { createServer as createViteServer } from "vite";
 
 import makeLinkHandler from "../../api/charter/make-link.js";
 import downloadHandler from "../../api/charter/download.js";
+import extractHandler from "../../api/charter/extract.js";
 import healthHandler from "../../api/charter/health.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,6 +89,23 @@ const server = http.createServer(async (req, res) => {
       };
       const nextRes = wrapResponse(res);
       await makeLinkHandler(nextReq, nextRes);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/charter/extract") {
+      const body = await readJsonBody(req);
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host,
+          "x-forwarded-proto": "http",
+        },
+        body,
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await extractHandler(nextReq, nextRes);
       return;
     }
 

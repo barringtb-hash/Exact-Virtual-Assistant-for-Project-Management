@@ -55,6 +55,36 @@ test("normalizeCharterServer trims fields and normalizes collections", () => {
   ]);
 });
 
+test("normalizeCharterServer normalizes alias keys from extractor payloads", () => {
+  const normalized = normalizeCharterServer({
+    projectTitle: "Launch Beta",
+    projectManager: "Jordan Example",
+    sponsorName: "Casey Example",
+    startDate: "2024-06-01",
+    endDate: " 2024-12-31 ",
+    scopeIn: "Discovery\nExecution\nExecution",
+    scopeOut: ["Operations", " "],
+    successMetrics: [
+      {
+        benefit: " Engagement ",
+        metric: " Active users ",
+        system_of_measurement: " percent ",
+      },
+    ],
+  });
+
+  assert.strictEqual(normalized.project_name, "Launch Beta");
+  assert.strictEqual(normalized.project_lead, "Jordan Example");
+  assert.strictEqual(normalized.sponsor, "Casey Example");
+  assert.strictEqual(normalized.start_date, "2024-06-01");
+  assert.strictEqual(normalized.end_date, "2024-12-31");
+  assert.deepStrictEqual(normalized.scope_in, ["Discovery", "Execution"]);
+  assert.deepStrictEqual(normalized.scope_out, ["Operations"]);
+  assert.deepStrictEqual(normalized.success_metrics, [
+    { benefit: "Engagement", metric: "Active users", system_of_measurement: "percent" },
+  ]);
+});
+
 test("normalizeAjvErrors trims messages and removes duplicates", () => {
   const errors = [
     { instancePath: "/scope_in/0", message: " must be string ", keyword: "type" },

@@ -1,4 +1,5 @@
 import React from "react";
+import formatRelativeTime from "../utils/formatRelativeTime";
 
 const STRING_ARRAY_FIELDS = [
   {
@@ -59,6 +60,27 @@ const OBJECT_ARRAY_FIELDS = {
 
 const noop = () => {};
 
+function FieldMetaTags({ source, updatedAt }) {
+  if (!source && !updatedAt) return null;
+
+  const relative = typeof updatedAt === "number" ? formatRelativeTime(updatedAt) : "";
+
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+      {source ? (
+        <span className="inline-flex items-center rounded-full bg-slate-200/70 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+          {source}
+        </span>
+      ) : null}
+      {relative ? (
+        <span className="inline-flex items-center rounded-full bg-slate-200/40 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-700/40 dark:text-slate-300">
+          {relative}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function LockBadge({ locked }) {
   if (!locked) return null;
   return (
@@ -68,14 +90,20 @@ function LockBadge({ locked }) {
   );
 }
 
-function FieldHeader({ label, locked, description }) {
+function FieldHeader({ label, locked, description, meta }) {
+  const source = meta?.source;
+  const updatedAt = meta?.updatedAt;
+
   return (
-    <div className="mb-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-      <span className="font-medium text-slate-600 dark:text-slate-200">{label}</span>
-      <div className="flex items-center gap-2">
-        {description ? <span className="text-[11px] text-slate-400 dark:text-slate-500">{description}</span> : null}
-        <LockBadge locked={locked} />
+    <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-slate-600 dark:text-slate-200">{label}</span>
+        <div className="flex items-center gap-2">
+          {description ? <span className="text-[11px] text-slate-400 dark:text-slate-500">{description}</span> : null}
+          <LockBadge locked={locked} />
+        </div>
       </div>
+      <FieldMetaTags source={source} updatedAt={updatedAt} />
     </div>
   );
 }
@@ -92,6 +120,7 @@ function ScalarInput({
   multiline = false,
   disabled = false,
   description,
+  meta,
 }) {
   const baseProps = {
     value,
@@ -107,7 +136,7 @@ function ScalarInput({
 
   return (
     <label className="block">
-      <FieldHeader label={label} locked={locked} description={description} />
+      <FieldHeader label={label} locked={locked} description={description} meta={meta} />
       {multiline ? (
         <textarea rows={3} {...baseProps} />
       ) : (
@@ -127,15 +156,18 @@ function StringArrayEditor({
   onLock,
   isLocked,
   disabled,
+  meta,
+  itemMeta,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <div>
-      <FieldHeader label={label} locked={isLocked(path)} />
+      <FieldHeader label={label} locked={isLocked(path)} meta={meta} />
       <div className="space-y-2">
         {safeItems.map((item, index) => {
           const itemPath = `${path}.${index}`;
+          const currentMeta = itemMeta?.[itemPath];
           return (
             <div key={itemPath} className="flex items-start gap-2">
               <textarea
@@ -164,7 +196,10 @@ function StringArrayEditor({
               >
                 Remove
               </button>
-              <LockBadge locked={isLocked(itemPath)} />
+              <div className="flex flex-col items-end gap-1">
+                <LockBadge locked={isLocked(itemPath)} />
+                <FieldMetaTags source={currentMeta?.source} updatedAt={currentMeta?.updatedAt} />
+              </div>
             </div>
           );
         })}
@@ -194,24 +229,28 @@ function ObjectArrayEditor({
   onLock,
   isLocked,
   disabled,
+  meta,
+  fieldMeta,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <div>
-      <FieldHeader label={title} locked={isLocked(path)} />
+      <FieldHeader label={title} locked={isLocked(path)} meta={meta} />
       <div className="space-y-3">
         {safeItems.map((item, index) => {
           const basePath = `${path}.${index}`;
           const current = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+          const baseMeta = fieldMeta?.[basePath];
           return (
             <div key={basePath} className="rounded-xl border border-white/70 bg-white/80 p-3 dark:border-slate-600/60 dark:bg-slate-800/50">
               <div className="space-y-2">
                 {fields.map((field) => {
                   const fieldPath = `${basePath}.${field.key}`;
+                  const currentMeta = fieldMeta?.[fieldPath];
                   return (
                     <label key={field.key} className="block">
-                      <FieldHeader label={field.label} locked={isLocked(fieldPath)} />
+                      <FieldHeader label={field.label} locked={isLocked(fieldPath)} meta={currentMeta} />
                       <input
                         type="text"
                         value={typeof current[field.key] === "string" ? current[field.key] : ""}
@@ -235,7 +274,12 @@ function ObjectArrayEditor({
                 })}
               </div>
               <div className="mt-2 flex items-center justify-between">
-                <LockBadge locked={isLocked(basePath)} />
+                <div className="flex flex-col gap-1">
+                  <LockBadge locked={isLocked(basePath)} />
+                  {baseMeta ? (
+                    <FieldMetaTags source={baseMeta.source} updatedAt={baseMeta.updatedAt} />
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -275,12 +319,24 @@ function ObjectArrayEditor({
 export default function PreviewEditable({
   draft,
   locks = {},
+  fieldStates = {},
   onDraftChange = noop,
   onLockField = noop,
   isLoading = false,
 }) {
   const safeDraft = draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
+  const metaFor = (path) => fieldStates?.[path];
+  const metaCollectionForPrefix = (prefix) => {
+    const entries = {};
+    if (!fieldStates) return entries;
+    for (const [key, value] of Object.entries(fieldStates)) {
+      if (key === prefix || key.startsWith(`${prefix}.`)) {
+        entries[key] = value;
+      }
+    }
+    return entries;
+  };
 
   return (
     <div className="space-y-6">
@@ -295,6 +351,7 @@ export default function PreviewEditable({
           onLock={onLockField}
           locked={isLocked("project_name")}
           disabled={isLoading}
+          meta={metaFor("project_name")}
         />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ScalarInput
@@ -306,6 +363,7 @@ export default function PreviewEditable({
             onLock={onLockField}
             locked={isLocked("sponsor")}
             disabled={isLoading}
+            meta={metaFor("sponsor")}
           />
           <ScalarInput
             label="Project Lead"
@@ -316,6 +374,7 @@ export default function PreviewEditable({
             onLock={onLockField}
             locked={isLocked("project_lead")}
             disabled={isLoading}
+            meta={metaFor("project_lead")}
           />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -329,6 +388,7 @@ export default function PreviewEditable({
             onLock={onLockField}
             locked={isLocked("start_date")}
             disabled={isLoading}
+            meta={metaFor("start_date")}
           />
           <ScalarInput
             label="End Date"
@@ -340,6 +400,7 @@ export default function PreviewEditable({
             onLock={onLockField}
             locked={isLocked("end_date")}
             disabled={isLoading}
+            meta={metaFor("end_date")}
           />
         </div>
         <ScalarInput
@@ -352,6 +413,7 @@ export default function PreviewEditable({
           locked={isLocked("problem")}
           disabled={isLoading}
           multiline
+          meta={metaFor("problem")}
         />
       </section>
 
@@ -367,6 +429,7 @@ export default function PreviewEditable({
           locked={isLocked("vision")}
           disabled={isLoading}
           multiline
+          meta={metaFor("vision")}
         />
         {STRING_ARRAY_FIELDS.slice(0, 2).map((config) => (
           <StringArrayEditor
@@ -380,6 +443,8 @@ export default function PreviewEditable({
             onLock={onLockField}
             isLocked={isLocked}
             disabled={isLoading}
+            meta={metaFor(config.path)}
+            itemMeta={metaCollectionForPrefix(config.path)}
           />
         ))}
       </section>
@@ -400,6 +465,8 @@ export default function PreviewEditable({
               onLock={onLockField}
               isLocked={isLocked}
               disabled={isLoading}
+              meta={metaFor(key)}
+              fieldMeta={metaCollectionForPrefix(key)}
             />
           ))}
       </section>
@@ -418,6 +485,8 @@ export default function PreviewEditable({
             onLock={onLockField}
             isLocked={isLocked}
             disabled={isLoading}
+            meta={metaFor(config.path)}
+            itemMeta={metaCollectionForPrefix(config.path)}
           />
         ))}
         <ObjectArrayEditor
@@ -430,6 +499,8 @@ export default function PreviewEditable({
           onLock={onLockField}
           isLocked={isLocked}
           disabled={isLoading}
+          meta={metaFor("core_team")}
+          fieldMeta={metaCollectionForPrefix("core_team")}
         />
         <ScalarInput
           label="Notes"
@@ -441,6 +512,7 @@ export default function PreviewEditable({
           locked={isLocked("description")}
           disabled={isLoading}
           multiline
+          meta={metaFor("description")}
         />
       </section>
     </div>

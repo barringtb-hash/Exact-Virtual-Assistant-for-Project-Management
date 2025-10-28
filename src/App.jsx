@@ -3,6 +3,7 @@ import AssistantFeedbackTemplate from "./components/AssistantFeedbackTemplate";
 import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter from "../lib/charter/normalize.js";
+import useBackgroundExtraction from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 
@@ -141,10 +142,10 @@ export default function ExactVirtualAssistantPM() {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(() => createBlankDraft());
   const [locks, setLocks] = useState(() => ({}));
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [extractError, setExtractError] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
@@ -152,8 +153,6 @@ export default function ExactVirtualAssistantPM() {
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
-  const [autoExtract, setAutoExtract] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
@@ -178,6 +177,35 @@ export default function ExactVirtualAssistantPM() {
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+  const getCurrentDraft = useCallback(() => charterPreview, [charterPreview]);
+  const {
+    isExtracting,
+    error: extractError,
+    syncNow: syncBackgroundExtraction,
+    clearError: clearExtractionError,
+  } = useBackgroundExtraction({
+    docType: "charter",
+    messages,
+    voice: voiceTranscripts,
+    attachments,
+    seed: extractionSeed,
+    locks,
+    getDraft: getCurrentDraft,
+    setDraft: setCharterPreview,
+    normalize: normalizeCharterDraft,
+  });
+  const canSyncNow = useMemo(() => {
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;
+    const hasUserMessage = Array.isArray(messages)
+      ? messages.some((entry) => {
+          if ((entry?.role || "user") !== "user") return false;
+          const text = typeof entry?.text === "string" ? entry.text : entry?.content;
+          return Boolean(typeof text === "string" && text.trim());
+        })
+      : false;
+    return hasAttachments || hasVoice || hasUserMessage;
+  }, [attachments, voiceTranscripts, messages]);
 
   const applyCharterDraft = useCallback(
     (nextDraft, { resetLocks = false } = {}) => {
@@ -221,12 +249,6 @@ export default function ExactVirtualAssistantPM() {
       container.scrollTop = container.scrollHeight;
     }
   }, [messages, isAssistantThinking]);
-
-  useEffect(() => {
-    if (autoExtract && attachments.length) {
-      runAutoExtract(attachments);
-    }
-  }, [autoExtract]);
 
   const handleThemeModeChange = (value) => {
     if (value === "light" || value === "dark" || value === "auto") {
@@ -866,6 +888,15 @@ export default function ExactVirtualAssistantPM() {
         if (transcript) {
           const trimmedTranscript = transcript.trim();
           if (!trimmedTranscript) return;
+          setVoiceTranscripts((prev) => {
+            const entry = {
+              id: Date.now() + Math.random(),
+              text: trimmedTranscript,
+              timestamp: Date.now(),
+            };
+            const next = [...prev, entry];
+            return next.slice(-20);
+          });
           const handled = await handleCommandFromText(trimmedTranscript);
           if (!handled) {
             appendUserMessageToChat(trimmedTranscript);
@@ -1118,38 +1149,9 @@ export default function ExactVirtualAssistantPM() {
     appendAssistantMessage(reply || "");
   };
 
-  const handleSummarizeAttachments = async () => {
-    if (isSummarizing) return;
-    if (!attachments || attachments.length === 0) return;
-
-    setIsSummarizing(true);
-    try {
-      const summarizationPrompt = "Summarize the attached documents.";
-      const historyWithPrompt = [
-        ...messages,
-        { id: Date.now(), role: "user", text: summarizationPrompt },
-      ];
-      const reply = await callLLM(
-        summarizationPrompt,
-        historyWithPrompt,
-        attachments,
-      );
-      const safeReply = reply || "No summary available.";
-      setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role: "assistant", text: safeReply }]);
-    } catch (error) {
-      const message = error?.message || "Failed to summarize attachments.";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + Math.random(),
-          role: "assistant",
-          text: `Summary error: ${message}`,
-        },
-      ]);
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
+  const handleSyncNow = useCallback(() => {
+    return syncBackgroundExtraction();
+  }, [syncBackgroundExtraction]);
 
   const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
@@ -1219,15 +1221,8 @@ export default function ExactVirtualAssistantPM() {
     }
 
     if (processedAttachments.length) {
-      let mergedAttachments = null;
-      setAttachments((prev) => {
-        const merged = [...prev, ...processedAttachments];
-        mergedAttachments = merged;
-        return merged;
-      });
-      if (autoExtract && mergedAttachments?.length) {
-        runAutoExtract(mergedAttachments);
-      }
+      setAttachments((prev) => [...prev, ...processedAttachments]);
+      setExtractionSeed(Date.now());
     }
   };
 
@@ -1256,10 +1251,9 @@ export default function ExactVirtualAssistantPM() {
     if (nextAttachments) {
       if (!nextAttachments.length) {
         applyCharterDraft(createBlankDraft(), { resetLocks: true });
-        setExtractError(null);
-      } else if (autoExtract) {
-        runAutoExtract(nextAttachments);
+        clearExtractionError();
       }
+      setExtractionSeed(Date.now());
     }
   };
 
@@ -1268,57 +1262,6 @@ export default function ExactVirtualAssistantPM() {
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
-
-  async function runAutoExtract(sourceAttachments = attachments) {
-    if (!sourceAttachments || !sourceAttachments.length) return;
-    setIsExtracting(true);
-    setExtractError(null);
-    try {
-      const payload = {
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.text || "",
-          text: m.text || "",
-        })),
-        attachments: sourceAttachments,
-      };
-
-      const response = await fetch("/api/charter/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (err) {
-        console.error("Failed to parse /api/charter/extract response", err);
-        throw new Error("Invalid response from charter extractor");
-      }
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to extract charter");
-      }
-
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Charter extractor returned unexpected data");
-      }
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-
-      const normalizedDraft = normalizeCharterDraft(data);
-      applyCharterDraft(normalizedDraft, { resetLocks: true });
-    } catch (error) {
-      const message = error?.message || "Failed to extract charter";
-      console.error("runAutoExtract error", error);
-      setExtractError(message);
-    } finally {
-      setIsExtracting(false);
-    }
-  }
 
   return (
     <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
@@ -1461,15 +1404,16 @@ export default function ExactVirtualAssistantPM() {
                     )}
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={handleSummarizeAttachments}
-                        disabled={isSummarizing || !attachments.length}
+                        onClick={handleSyncNow}
+                        disabled={isExtracting || !canSyncNow}
                         className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
-                          isSummarizing || !attachments.length
+                          isExtracting || !canSyncNow
                             ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                             : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
                         }`}
+                        title="Trigger background extraction now"
                       >
-                        {isSummarizing ? "Summarizing…" : "Summarize documents"}
+                        {isExtracting ? "Syncing…" : "Sync now"}
                       </button>
                       <button
                         onClick={handleSend}
@@ -1521,10 +1465,6 @@ export default function ExactVirtualAssistantPM() {
                 <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
                   <input type="checkbox" checked={useLLM} onChange={(e)=>setUseLLM(e.target.checked)} />
                   <span>Use LLM (beta)</span>
-                </label>
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input type="checkbox" checked={autoExtract} onChange={(e)=>setAutoExtract(e.target.checked)} />
-                  <span>Auto‑extract (beta)</span>
                 </label>
               </div>
               <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">

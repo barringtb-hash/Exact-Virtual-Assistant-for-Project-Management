@@ -14,6 +14,7 @@ const stubPackages = [
   "@sparticuz/chromium",
   "ajv",
   "ajv-formats",
+  "openai",
 ];
 
 await fs.mkdir(nodeModulesRoot, { recursive: true });

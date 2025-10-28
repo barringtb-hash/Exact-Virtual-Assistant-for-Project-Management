@@ -1058,20 +1058,23 @@ export default function ExactVirtualAssistantPM() {
 
   const sendMessage = async (rawText) => {
     const text = typeof rawText === "string" ? rawText.trim() : "";
-    if (!text) return;
+    if (!text) return false;
 
     if (!useLLM) {
+      setInput("");
       const userEntry = { id: Date.now() + Math.random(), role: "user", text };
       setMessages((prev) => [...prev, userEntry]);
       const handled = await handleCommandFromText(text, { userMessageAppended: true });
       if (handled) {
-        return;
+        return true;
       }
       appendAssistantMessage(mockAssistantReply(text));
-      return;
+      return true;
     }
 
-    if (isAssistantThinking) return;
+    if (isAssistantThinking) return false;
+
+    setInput("");
 
     const userEntry = { id: Date.now() + Math.random(), role: "user", text };
     let nextHistory = null;
@@ -1086,7 +1089,7 @@ export default function ExactVirtualAssistantPM() {
 
     const handled = await handleCommandFromText(text, { userMessageAppended: true });
     if (handled) {
-      return;
+      return true;
     }
 
     const requestMessages = nextHistory.map((item) => ({
@@ -1210,7 +1213,7 @@ export default function ExactVirtualAssistantPM() {
     try {
       const result = await postChat(requestBody, { execute: autoExecute });
       if (operationIdRef.current !== opId) {
-        return;
+        return true;
       }
 
       const additions = [];
@@ -1325,7 +1328,7 @@ export default function ExactVirtualAssistantPM() {
       }
     } catch (error) {
       if (operationIdRef.current !== opId) {
-        return;
+        return true;
       }
       appendAssistantMessage(
         `Assistant error: ${error?.message || "Unable to complete the request."}`,
@@ -1336,12 +1339,13 @@ export default function ExactVirtualAssistantPM() {
         setIsAssistantThinking(false);
       }
     }
+
+    return true;
   };
 
   const handleSend = async () => {
-    const text = input.trim();
-    if (!text) return;
-    setInput("");
+    const text = input;
+    if (!text.trim()) return;
     await sendMessage(text);
   };
 

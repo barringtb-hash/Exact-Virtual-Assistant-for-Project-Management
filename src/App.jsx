@@ -1315,7 +1315,6 @@ export default function ExactVirtualAssistantPM() {
       const message = error?.message || "Failed to extract charter";
       console.error("runAutoExtract error", error);
       setExtractError(message);
-      applyCharterDraft(createBlankDraft(), { resetLocks: true });
     } finally {
       setIsExtracting(false);
     }

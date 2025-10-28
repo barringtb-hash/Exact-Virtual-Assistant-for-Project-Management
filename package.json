@@ -11,7 +11,8 @@
     "test:unit": "node --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:e2e": "playwright test",
     "validate:charter-docx": "node templates/validate-docx-template.mjs",
-    "docx:encode": "node templates/tools/encode-docx.mjs"
+    "docx:encode": "node templates/tools/encode-docx.mjs",
+    "docx:lint": "node templates/tools/lint-tokens.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

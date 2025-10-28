@@ -107,7 +107,7 @@ function resolveRequestBody(args) {
     return args.payload;
   }
   if ("charter" in args && args.charter !== undefined) {
-    return { charter: args.charter };
+    return args.charter;
   }
   return {};
 }

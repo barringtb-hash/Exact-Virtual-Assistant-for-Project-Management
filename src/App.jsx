@@ -2173,7 +2173,35 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
-  const showStructured = !isUser && Array.isArray(sections) && sections.length > 0;
+  const { structuredSections, hasStructuredContent } = useMemo(() => {
+    if (!Array.isArray(sections)) {
+      return { structuredSections: [], hasStructuredContent: false };
+    }
+
+    let containsStructuredContent = false;
+
+    const filteredSections = sections.filter((section) => {
+      if (!section) {
+        return false;
+      }
+
+      const hasHeading = typeof section.heading === "string" && section.heading.trim().length > 0;
+      const hasItems = Array.isArray(section.items) && section.items.length > 0;
+      const hasParagraphs = Array.isArray(section.paragraphs) && section.paragraphs.length > 0;
+
+      if (hasHeading || hasItems) {
+        containsStructuredContent = true;
+      }
+
+      return hasHeading || hasItems || hasParagraphs;
+    });
+
+    return { structuredSections: filteredSections, hasStructuredContent: containsStructuredContent };
+  }, [sections]);
+  const showStructured =
+    !isUser &&
+    Array.isArray(sections) &&
+    (hasStructuredContent || hideEmptySections === false);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -2186,7 +2214,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
         {isUser || !showStructured ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
         ) : (
-          <AssistantFeedbackTemplate sections={sections} />
+          <AssistantFeedbackTemplate sections={structuredSections} />
         )}
       </div>
     </div>

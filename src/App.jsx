@@ -299,6 +299,7 @@ export default function ExactVirtualAssistantPM() {
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
+  const [autoExtractEnabled, setAutoExtractEnabled] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const [charterSyncError, setCharterSyncError] = useState(null);
@@ -429,6 +430,7 @@ export default function ExactVirtualAssistantPM() {
     normalize: normalizeCharterDraft,
     isUploadingAttachments,
     onNotify: pushToast,
+    enabled: autoExtractEnabled,
   });
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -1681,7 +1683,9 @@ export default function ExactVirtualAssistantPM() {
 
       if (processedAttachments.length) {
         setAttachments((prev) => [...prev, ...processedAttachments]);
-        setExtractionSeed(Date.now());
+        if (autoExtractEnabled) {
+          setExtractionSeed(Date.now());
+        }
       }
     } finally {
       setIsUploadingAttachments(false);
@@ -1716,7 +1720,9 @@ export default function ExactVirtualAssistantPM() {
         clearExtractionError();
         setCharterSyncError(null);
       }
-      setExtractionSeed(Date.now());
+      if (autoExtractEnabled) {
+        setExtractionSeed(Date.now());
+      }
     }
   };
 
@@ -1931,8 +1937,25 @@ export default function ExactVirtualAssistantPM() {
             <Panel title="Preview">
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input type="checkbox" checked={useLLM} onChange={(e)=>setUseLLM(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={useLLM}
+                    onChange={(e) => setUseLLM(e.target.checked)}
+                  />
                   <span>Use LLM (beta)</span>
+                </label>
+                <label className="inline-flex items-start gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={autoExtractEnabled}
+                    onChange={(e) => setAutoExtractEnabled(e.target.checked)}
+                  />
+                  <span className="text-left leading-tight">
+                    <span className="block font-medium">Auto-extract</span>
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      Use /charter to sync manually.
+                    </span>
+                  </span>
                 </label>
               </div>
               <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">

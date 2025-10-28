@@ -41,13 +41,20 @@ This guide documents how to maintain the charter templates that power charter ex
 
 ## Validation
 
-Run the template validation script before committing. The validator reads from the base64 store and checks for malformed or duplicated tokens:
+Run the DOCX lint and validation scripts before committing. They read from the checked-in template and fail when the charter tokens fall out of sync with the schema or when docxtemplater detects malformed tags:
 
 ```sh
+npm run docx:lint
 npm run validate:charter-docx
 ```
 
-The script loads the template with representative data and fails if docxtemplater reports malformed, duplicated, or unresolvable tags. CI should also execute this command.
+The linter ensures every `{{token}}` in the DOCX maps to a schema field (including loop placeholders), and the validator renders the template with representative data to catch structural issues. CI should also execute both commands.
+
+If `templates/project_charter_tokens.docx` is missing, decode it from the base64 store first:
+
+```sh
+node templates/sync-charter-template.mjs decode
+```
 
 In addition to the template validator, the automated test suite exercises the charter link and download endpoints end-to-end. Run `npm test` for the unit coverage (HMAC signing, expiry handling, and template validation responses) and `npm run test:e2e` to confirm the Playwright flow can request signed downloads with the latest template changes.
 

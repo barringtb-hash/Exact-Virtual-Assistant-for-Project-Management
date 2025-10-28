@@ -8,6 +8,7 @@ import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
+const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
 
@@ -299,6 +300,8 @@ export default function ExactVirtualAssistantPM() {
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [isCharterSyncing, setIsCharterSyncing] = useState(false);
+  const [charterSyncError, setCharterSyncError] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [themeMode, setThemeMode] = useState(() => {
@@ -413,7 +416,6 @@ export default function ExactVirtualAssistantPM() {
   const {
     isExtracting,
     error: extractError,
-    syncNow: syncBackgroundExtraction,
     clearError: clearExtractionError,
   } = useBackgroundExtraction({
     docType: "charter",
@@ -440,6 +442,8 @@ export default function ExactVirtualAssistantPM() {
       : false;
     return hasAttachments || hasVoice || hasUserMessage;
   }, [attachments, voiceTranscripts, messages]);
+  const isCharterSyncInFlight = isExtracting || isCharterSyncing;
+  const activeCharterError = charterSyncError || extractError;
 
   const applyCharterDraft = useCallback(
     (nextDraft, { resetLocks = false, source = "Auto" } = {}) => {
@@ -591,25 +595,174 @@ export default function ExactVirtualAssistantPM() {
     error: "Error",
   };
 
-  const appendAssistantMessage = (text) => {
+  const appendAssistantMessage = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return;
     setMessages((prev) => [
       ...prev,
       { id: Date.now() + Math.random(), role: "assistant", text: safeText },
     ]);
-  };
+  }, []);
 
-  const appendUserMessageToChat = (text) => {
+  const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return null;
     const entry = { id: Date.now() + Math.random(), role: "user", text: safeText };
     setMessages((prev) => [...prev, entry]);
     return entry;
-  };
+  }, []);
 
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
+
+  const syncCharterFromChat = useCallback(async () => {
+    if (isExtracting || isCharterSyncing) {
+      appendAssistantMessage(
+        "I’m already refreshing the charter preview. I’ll share updates here once they’re ready."
+      );
+      return { ok: false, reason: "busy" };
+    }
+
+    if (!canSyncNow) {
+      appendAssistantMessage(
+        "Share some scope details, voice notes, or attachments first and I’ll update the charter preview."
+      );
+      return { ok: false, reason: "idle" };
+    }
+
+    setIsCharterSyncing(true);
+    setCharterSyncError(null);
+
+    const sanitizeMessages = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((entry) => {
+          const role = entry?.role === "assistant" ? "assistant" : "user";
+          const text =
+            typeof entry?.text === "string"
+              ? entry.text
+              : typeof entry?.content === "string"
+              ? entry.content
+              : "";
+          const trimmed = text.trim();
+          if (!trimmed) return null;
+          return { role, text: trimmed, content: trimmed };
+        })
+        .filter(Boolean);
+    };
+
+    const sanitizeAttachments = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((item) => {
+          const text = typeof item?.text === "string" ? item.text : "";
+          const trimmed = text.trim();
+          if (!trimmed) return null;
+          return {
+            name: typeof item?.name === "string" ? item.name : undefined,
+            mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
+            text: trimmed,
+          };
+        })
+        .filter(Boolean);
+    };
+
+    const sanitizeVoice = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((entry) => {
+          const text = typeof entry?.text === "string" ? entry.text.trim() : "";
+          if (!text) return null;
+          const timestamp = typeof entry?.timestamp === "number" ? entry.timestamp : Date.now();
+          return { id: entry?.id ?? `${timestamp}`, text, timestamp };
+        })
+        .filter(Boolean);
+    };
+
+    try {
+      const payload = {
+        docType: "charter",
+        messages: sanitizeMessages(messages),
+        attachments: sanitizeAttachments(attachments),
+        voice: sanitizeVoice(voiceTranscripts),
+      };
+
+      const seedDraft = getCurrentDraft();
+      if (seedDraft && typeof seedDraft === "object") {
+        payload.seed = seedDraft;
+      }
+
+      const response = await fetch("/api/charter/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const message =
+          typeof errorPayload?.error === "string" && errorPayload.error.trim()
+            ? errorPayload.error.trim()
+            : `Extraction failed with status ${response.status}`;
+        throw new Error(message);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error("Failed to parse extractor response.");
+      }
+
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Extractor returned unexpected payload.");
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, "result")) {
+        throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
+      }
+
+      let normalizedDraft;
+      try {
+        normalizedDraft = normalizeCharterDraft(data);
+      } catch (normalizeError) {
+        console.error("Manual charter sync normalize error", normalizeError);
+        normalizedDraft = data;
+      }
+
+      const finalDraft = await applyNormalizedDraft(normalizedDraft);
+      clearExtractionError();
+      setCharterSyncError(null);
+      appendAssistantMessage("I’ve refreshed the charter preview with the latest context.");
+      return { ok: true, draft: finalDraft };
+    } catch (error) {
+      const fallbackMessage =
+        typeof error?.message === "string" && error.message.trim()
+          ? error.message.trim()
+          : "Unable to update the charter preview. Please try again.";
+      setCharterSyncError(fallbackMessage);
+      if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
+        appendAssistantMessage(`${fallbackMessage}`);
+      } else {
+        appendAssistantMessage(`I couldn’t update the preview: ${fallbackMessage}`);
+      }
+      return { ok: false, reason: "error", error };
+    } finally {
+      setIsCharterSyncing(false);
+    }
+  }, [
+    appendAssistantMessage,
+    applyNormalizedDraft,
+    attachments,
+    canSyncNow,
+    clearExtractionError,
+    getCurrentDraft,
+    isCharterSyncing,
+    isExtracting,
+    messages,
+    setCharterSyncError,
+    voiceTranscripts,
+  ]);
 
   const formatValidationErrorsForChat = (errors = []) => {
     if (!Array.isArray(errors) || errors.length === 0) {
@@ -1332,6 +1485,23 @@ export default function ExactVirtualAssistantPM() {
     if (!trimmed) return false;
 
     const normalized = trimmed.toLowerCase();
+    const wantsCharterCommit =
+      normalized.startsWith("/charter") ||
+      normalized.includes("commit charter") ||
+      normalized.includes("commit the charter") ||
+      normalized.includes("update charter") ||
+      normalized.includes("update the charter") ||
+      normalized.includes("sync charter") ||
+      normalized.includes("sync the charter");
+
+    if (wantsCharterCommit) {
+      if (!userMessageAppended) {
+        appendUserMessageToChat(trimmed);
+      }
+      await syncCharterFromChat();
+      return true;
+    }
+
     const mentionsDocx = normalized.includes("docx") || normalized.includes("word");
     const mentionsPdf = normalized.includes("pdf");
     const mentionsBlankCharter =
@@ -1437,8 +1607,8 @@ export default function ExactVirtualAssistantPM() {
   };
 
   const handleSyncNow = useCallback(() => {
-    return syncBackgroundExtraction();
-  }, [syncBackgroundExtraction]);
+    return syncCharterFromChat();
+  }, [syncCharterFromChat]);
 
   const addPickedFiles = async (list) => {
     if (!list || !list.length) return;
@@ -1544,6 +1714,7 @@ export default function ExactVirtualAssistantPM() {
       if (!nextAttachments.length) {
         applyCharterDraft(createBlankDraft(), { resetLocks: true });
         clearExtractionError();
+        setCharterSyncError(null);
       }
       setExtractionSeed(Date.now());
     }
@@ -1702,15 +1873,15 @@ export default function ExactVirtualAssistantPM() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleSyncNow}
-                        disabled={isExtracting || !canSyncNow}
+                        disabled={isCharterSyncInFlight || !canSyncNow}
                         className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
-                          isExtracting || !canSyncNow
+                          isCharterSyncInFlight || !canSyncNow
                             ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                             : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
                         }`}
-                        title="Trigger background extraction now"
+                        title="Commit the latest updates to the preview"
                       >
-                        {isExtracting ? "Syncing…" : "Sync now"}
+                        {isCharterSyncInFlight ? "Syncing…" : "Sync now"}
                       </button>
                       <button
                         onClick={handleSend}
@@ -1769,28 +1940,41 @@ export default function ExactVirtualAssistantPM() {
                   draft={charterPreview}
                   locks={locks}
                   fieldStates={fieldStates}
-                  isLoading={isExtracting}
+                  isLoading={isCharterSyncInFlight}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
                 />
               </div>
-              {isExtracting && (
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Extracting charter insights…</div>
+              {isCharterSyncInFlight && (
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating charter preview…</div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={syncCharterFromChat}
+                  disabled={!canSyncNow || isCharterSyncInFlight || isAssistantThinking}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !canSyncNow || isCharterSyncInFlight || isAssistantThinking
+                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
+                      : "bg-sky-600 text-white hover:bg-sky-500 dark:bg-sky-500 dark:hover:bg-sky-400"
+                  }`}
+                  title="Commit the latest chat context to the preview"
+                >
+                  {isCharterSyncInFlight ? "Committing…" : "Commit to Preview"}
+                </button>
                 <button
                   type="button"
                   onClick={() => exportDocxViaChat(defaultShareBaseName)}
                   disabled={
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
@@ -1805,14 +1989,14 @@ export default function ExactVirtualAssistantPM() {
                   onClick={() => shareLinksViaChat(defaultShareBaseName)}
                   disabled={
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
@@ -1827,14 +2011,14 @@ export default function ExactVirtualAssistantPM() {
                   onClick={() => exportPdfViaChat(defaultShareBaseName)}
                   disabled={
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
                   }
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
-                    isExtracting ||
+                    isCharterSyncInFlight ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
@@ -1845,9 +2029,9 @@ export default function ExactVirtualAssistantPM() {
                   {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
                 </button>
               </div>
-              {extractError && (
+              {activeCharterError && (
                 <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
-                  {extractError}
+                  {activeCharterError}
                 </div>
               )}
 

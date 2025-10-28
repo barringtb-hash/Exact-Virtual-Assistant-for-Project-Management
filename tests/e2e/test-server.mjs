@@ -175,7 +175,6 @@ const signals = ["SIGINT", "SIGTERM", "SIGUSR2"];
 for (const signal of signals) {
   process.on(signal, async () => {
     await vite.close();
-    await once(vite.httpServer, "close");
     process.exit(0);
   });
 }

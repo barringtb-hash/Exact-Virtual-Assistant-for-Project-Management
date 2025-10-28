@@ -77,6 +77,28 @@ async function loadDocxBuffer(docxPath) {
   }
 }
 
+function decodeXmlEntities(value) {
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function extractPlainText(content) {
+  if (typeof content !== "string") {
+    return "";
+  }
+
+  const withoutTags = content.replace(/<[^>]*>/g, "");
+  return decodeXmlEntities(withoutTags);
+}
+
 async function extractTokens(buffer) {
   let PizZip;
   try {
@@ -103,12 +125,14 @@ async function extractTokens(buffer) {
       content = null;
     }
 
-    if (typeof content !== "string" || !content.includes("{{")) {
+    const plain = extractPlainText(content);
+    if (!plain.includes("{{")) {
       continue;
     }
 
+    tokenPattern.lastIndex = 0;
     let match;
-    while ((match = tokenPattern.exec(content)) !== null) {
+    while ((match = tokenPattern.exec(plain)) !== null) {
       const raw = match[1]?.trim();
       if (raw) {
         tokens.add(raw);

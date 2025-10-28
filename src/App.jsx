@@ -4,7 +4,7 @@ import AssistantFeedbackTemplate, {
 } from "./components/AssistantFeedbackTemplate";
 import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
-import normalizeCharter from "../lib/charter/normalize.js";
+import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
@@ -724,12 +724,14 @@ export default function ExactVirtualAssistantPM() {
         throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
       }
 
+      const coercedData = coerceAliasesToSchemaKeys(data);
+
       let normalizedDraft;
       try {
-        normalizedDraft = normalizeCharterDraft(data);
+        normalizedDraft = normalizeCharterDraft(coercedData);
       } catch (normalizeError) {
         console.error("Manual charter sync normalize error", normalizeError);
-        normalizedDraft = data;
+        normalizedDraft = coercedData;
       }
 
       const finalDraft = await applyNormalizedDraft(normalizedDraft);

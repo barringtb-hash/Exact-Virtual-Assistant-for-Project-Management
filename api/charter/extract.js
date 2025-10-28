@@ -7,7 +7,14 @@ const ATTACHMENT_CHAR_LIMIT = 20_000;
 function sanitizeDocType(value) {
   if (typeof value !== "string") return "charter";
   const trimmed = value.trim();
-  return trimmed || "charter";
+  if (!trimmed) return "charter";
+
+  const normalized = trimmed
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+
+  return normalized || "charter";
 }
 
 async function readFirstAvailableFile(paths) {

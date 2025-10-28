@@ -1,0 +1,345 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const DEFAULT_DEBOUNCE_MS = 1000;
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPathLocked(locks, segments) {
+  if (!locks) return false;
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return false;
+  }
+
+  let current = "";
+  for (const segment of segments) {
+    current = current ? `${current}.${segment}` : `${segment}`;
+    if (locks[current]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function mergeRecursive(currentValue, nextValue, segments, locks) {
+  if (isPathLocked(locks, segments)) {
+    return currentValue;
+  }
+
+  if (Array.isArray(nextValue)) {
+    const currentArray = Array.isArray(currentValue) ? currentValue : [];
+    const result = currentArray.slice();
+
+    for (let index = 0; index < nextValue.length; index += 1) {
+      const childSegments = [...segments, String(index)];
+      result[index] = mergeRecursive(currentArray[index], nextValue[index], childSegments, locks);
+    }
+
+    for (let index = result.length - 1; index >= nextValue.length; index -= 1) {
+      const childSegments = [...segments, String(index)];
+      if (!isPathLocked(locks, childSegments)) {
+        result.splice(index, 1);
+      }
+    }
+
+    return result;
+  }
+
+  if (isPlainObject(nextValue)) {
+    const currentObject = isPlainObject(currentValue) ? currentValue : {};
+    const result = { ...currentObject };
+
+    for (const [key, value] of Object.entries(nextValue)) {
+      const childSegments = [...segments, key];
+      result[key] = mergeRecursive(currentObject[key], value, childSegments, locks);
+    }
+
+    return result;
+  }
+
+  if (typeof nextValue === "undefined") {
+    return currentValue;
+  }
+
+  return nextValue;
+}
+
+export function mergeExtractedDraft(currentDraft, extractedDraft, locks = {}) {
+  if (!isPlainObject(extractedDraft) && !Array.isArray(extractedDraft)) {
+    return currentDraft ?? extractedDraft;
+  }
+
+  const baseDraft = isPlainObject(currentDraft) || Array.isArray(currentDraft) ? currentDraft : {};
+  const merged = mergeRecursive(baseDraft, extractedDraft, [], locks);
+  return merged;
+}
+
+function sanitizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map((entry) => {
+      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const text = typeof entry?.text === "string" ? entry.text : typeof entry?.content === "string" ? entry.content : "";
+      const trimmed = text.trim();
+      return {
+        role,
+        content: trimmed,
+        text: trimmed,
+      };
+    })
+    .filter((entry) => entry.text);
+}
+
+function sanitizeAttachments(attachments) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .map((item) => ({
+      name: typeof item?.name === "string" ? item.name : undefined,
+      mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
+      text: typeof item?.text === "string" ? item.text : "",
+    }))
+    .filter((item) => item.text);
+}
+
+function sanitizeVoiceEvents(voice) {
+  if (!Array.isArray(voice)) return [];
+  return voice
+    .map((event) => {
+      const text = typeof event?.text === "string" ? event.text.trim() : "";
+      if (!text) {
+        return null;
+      }
+      const timestamp = typeof event?.timestamp === "number" ? event.timestamp : Date.now();
+      return {
+        id: event?.id ?? `${timestamp}`,
+        text,
+        timestamp,
+      };
+    })
+    .filter(Boolean);
+}
+
+function hasUserInput(messages) {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((entry) => {
+    if ((entry?.role || "user") !== "user") {
+      return false;
+    }
+    const text = typeof entry?.text === "string" ? entry.text : typeof entry?.content === "string" ? entry.content : "";
+    return Boolean(text && text.trim());
+  });
+}
+
+export default function useBackgroundExtraction({
+  docType = "charter",
+  messages = [],
+  voice = [],
+  attachments = [],
+  seed,
+  locks = {},
+  getDraft,
+  setDraft,
+  normalize,
+  debounceMs = DEFAULT_DEBOUNCE_MS,
+} = {}) {
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const latestStateRef = useRef({
+    docType,
+    messages,
+    voice,
+    attachments,
+    seed,
+  });
+  const locksRef = useRef(locks || {});
+  const normalizeRef = useRef(typeof normalize === "function" ? normalize : (value) => value);
+  const draftGetterRef = useRef(typeof getDraft === "function" ? getDraft : () => undefined);
+  const setDraftRef = useRef(typeof setDraft === "function" ? setDraft : () => {});
+  const timerRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    latestStateRef.current = { docType, messages, voice, attachments, seed };
+  }, [docType, messages, voice, attachments, seed]);
+
+  useEffect(() => {
+    locksRef.current = locks || {};
+  }, [locks]);
+
+  useEffect(() => {
+    normalizeRef.current = typeof normalize === "function" ? normalize : (value) => value;
+  }, [normalize]);
+
+  useEffect(() => {
+    draftGetterRef.current = typeof getDraft === "function" ? getDraft : () => undefined;
+  }, [getDraft]);
+
+  useEffect(() => {
+    setDraftRef.current = typeof setDraft === "function" ? setDraft : () => {};
+  }, [setDraft]);
+
+  const clearPendingTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const clearError = useCallback(() => {
+    if (!isMountedRef.current) return;
+    setError(null);
+  }, []);
+
+  const performExtraction = useCallback(async () => {
+    const { docType: latestDocType, messages: latestMessages, voice: latestVoice, attachments: latestAttachments, seed: latestSeed } =
+      latestStateRef.current;
+
+    const formattedAttachments = sanitizeAttachments(latestAttachments);
+    const formattedVoice = sanitizeVoiceEvents(latestVoice);
+    const formattedMessages = sanitizeMessages(latestMessages);
+
+    const shouldExtract =
+      formattedAttachments.length > 0 || formattedVoice.length > 0 || hasUserInput(latestMessages);
+
+    if (!shouldExtract) {
+      if (isMountedRef.current) {
+        setIsExtracting(false);
+      }
+      return { ok: false, reason: "idle" };
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (isMountedRef.current) {
+      setIsExtracting(true);
+      setError(null);
+    }
+
+    const payload = {
+      docType: latestDocType,
+      seed: latestSeed,
+      messages: formattedMessages,
+      voice: formattedVoice,
+      attachments: formattedAttachments,
+    };
+
+    if (!payload.seed) {
+      delete payload.seed;
+    }
+
+    try {
+      const response = await fetch("/api/charter/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const message = errorPayload?.error || `Extraction failed with status ${response.status}`;
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Extractor returned unexpected payload");
+      }
+
+      const normalizeFn = normalizeRef.current;
+      let normalizedDraft;
+      try {
+        normalizedDraft = normalizeFn(data);
+      } catch (normalizeError) {
+        console.error("Background extraction normalize error", normalizeError);
+        normalizedDraft = data;
+      }
+
+      const finalDraft = mergeExtractedDraft(
+        draftGetterRef.current?.(),
+        normalizedDraft,
+        locksRef.current,
+      );
+
+      setDraftRef.current((prev) => mergeExtractedDraft(prev, normalizedDraft, locksRef.current));
+
+      if (isMountedRef.current) {
+        setIsExtracting(false);
+        setError(null);
+      }
+
+      return { ok: true, draft: finalDraft };
+    } catch (errorInstance) {
+      if (errorInstance?.name === "AbortError") {
+        return { ok: false, reason: "aborted" };
+      }
+
+      console.error("Background extraction error", errorInstance);
+      if (isMountedRef.current) {
+        setIsExtracting(false);
+        setError(errorInstance?.message || "Unable to extract charter data");
+      }
+      return { ok: false, reason: "error", error: errorInstance };
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+    }
+  }, []);
+
+  const scheduleExtraction = useCallback(() => {
+    clearPendingTimer();
+    timerRef.current = setTimeout(() => {
+      performExtraction();
+    }, Math.max(0, debounceMs || DEFAULT_DEBOUNCE_MS));
+  }, [clearPendingTimer, debounceMs, performExtraction]);
+
+  const syncNow = useCallback(() => {
+    clearPendingTimer();
+    return performExtraction();
+  }, [clearPendingTimer, performExtraction]);
+
+  useEffect(() => {
+    const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
+    const shouldExtract =
+      sanitizeAttachments(latestAttachments).length > 0 ||
+      sanitizeVoiceEvents(latestVoice).length > 0 ||
+      hasUserInput(latestMessages);
+
+    if (!shouldExtract) {
+      clearPendingTimer();
+      if (isMountedRef.current) {
+        setIsExtracting(false);
+      }
+      return undefined;
+    }
+
+    scheduleExtraction();
+    return clearPendingTimer;
+  }, [messages, voice, attachments, seed, docType, debounceMs, scheduleExtraction, clearPendingTimer]);
+
+  return { isExtracting, error, syncNow, clearError };
+}

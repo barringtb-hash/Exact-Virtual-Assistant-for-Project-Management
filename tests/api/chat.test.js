@@ -17,7 +17,10 @@ function createResponseCollector() {
   };
 }
 
-test("chat handler executes proposed actions and summarizes results", async (t) => {
+test(
+  "chat handler executes proposed actions and summarizes results",
+  { concurrency: false },
+  async (t) => {
   const originalModel = process.env.CHAT_MODEL;
   process.env.CHAT_MODEL = "gpt-3.5-turbo";
 
@@ -199,9 +202,13 @@ test("chat handler executes proposed actions and summarizes results", async (t) 
   assert.strictEqual(charterPayloads.length >= 1, true);
 
   assert.strictEqual(getMock.mock.callCount(), 3);
-});
+  }
+);
 
-test("chat handler captures execution failures", async (t) => {
+test(
+  "chat handler captures execution failures",
+  { concurrency: false },
+  async (t) => {
   const originalModel = process.env.CHAT_MODEL;
   process.env.CHAT_MODEL = "gpt-3.5-turbo";
 
@@ -295,4 +302,5 @@ test("chat handler captures execution failures", async (t) => {
   assert.deepStrictEqual(errorEntry.status, "error");
   assert.deepStrictEqual(errorEntry.ok, false);
   assert.match(errorEntry.error, /Validation failed/);
-});
+  }
+);

@@ -259,10 +259,18 @@ const fileToBase64 = (file) =>
   });
 
 // --- Seed messages ---
+// Friendly, generic starter messages to welcome users
 const seedMessages = [
-  { id: 1, role: "assistant", text: "Hi! Attach files or paste in scope details. I’ll draft a Project Charter and DDP and ask quick follow‑ups for anything missing." },
-  { id: 2, role: "assistant", text: "Who’s the Sponsor?" },
-  { id: 3, role: "assistant", text: "Does this require approvals?" },
+  {
+    id: 1,
+    role: "assistant",
+    text: "Hello! I’m your project management assistant. How can I help you today?",
+  },
+  {
+    id: 2,
+    role: "assistant",
+    text: "Feel free to share your project scope or ask any project‑related questions.",
+  },
 ];
 
 export default function ExactVirtualAssistantPM() {

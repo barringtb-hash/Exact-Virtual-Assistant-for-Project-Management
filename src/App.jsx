@@ -1242,7 +1242,7 @@ export default function ExactVirtualAssistantPM() {
           {/* Center Chat */}
           <section className="lg:col-span-8">
             <Panel
-              title="Assistant Chat"
+              title="Chat Assistant"
               right={
                 <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
                   <IconPlus className="h-4 w-4" />

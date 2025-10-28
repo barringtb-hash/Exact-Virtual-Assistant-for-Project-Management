@@ -41,27 +41,27 @@ async function loadLibraries() {
 
 function buildSampleData() {
   return {
-    project_name: 'Example Project',
+    projectName: 'Example Project',
     sponsor: 'Sample Sponsor',
-    project_lead: 'Lead Name',
-    start_date: '2024-01-01',
-    end_date: '2024-06-30',
+    projectLead: 'Lead Name',
+    startDate: '2024-01-01',
+    endDate: '2024-06-30',
     vision: 'Deliver transformative value.',
     problem: 'Current process is manual and error-prone.',
     description: 'This initiative automates the workflow.',
-    scope_in: ['Requirement discovery', 'MVP delivery'],
-    scope_out: ['Legacy system retirement'],
+    scopeIn: ['Requirement discovery', 'MVP delivery'],
+    scopeOut: ['Legacy system retirement'],
     risks: ['Resource constraints'],
     assumptions: ['Executive support is available'],
     milestones: [
       { phase: 'Discovery', deliverable: 'Process map', date: '2024-02-01' },
       { phase: 'Delivery', deliverable: 'Beta launch', date: '2024-05-15' }
     ],
-    success_metrics: [
-      { benefit: 'Cycle time reduction', metric: 'Average processing time', system_of_measurement: 'Minutes' },
-      { benefit: 'Cost savings', metric: 'Operational spend', system_of_measurement: 'USD/month' }
+    successMetrics: [
+      { benefit: 'Cycle time reduction', metric: 'Average processing time', systemOfMeasurement: 'Minutes' },
+      { benefit: 'Cost savings', metric: 'Operational spend', systemOfMeasurement: 'USD/month' }
     ],
-    core_team: [
+    coreTeam: [
       { name: 'Alex Kim', role: 'Product Manager', responsibilities: 'Roadmap ownership' },
       { name: 'Taylor Lee', role: 'Tech Lead', responsibilities: 'Architecture decisions' }
     ]

@@ -60,9 +60,12 @@ function buildSchemaMetadata(schema) {
 
   // Array-of-strings loops may legitimately use the dot token inside the section.
   allowedCanonical.add(".");
+    // Allow loops for responsibilities even though it's a string in the schema
+  loopCanonical.add("responsibilities");
 
   return { allowedCanonical, loopCanonical };
 }
+
 
 async function loadDocxBuffer(docxPath) {
   try {

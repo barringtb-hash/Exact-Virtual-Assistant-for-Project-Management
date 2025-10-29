@@ -1,6 +1,8 @@
 const pdfMakeFonts = {
   pdfMake: {
-    vfs: {},
+    vfs: {
+      "Roboto-Regular.ttf": "dummy-font-contents",
+    },
   },
 };
 

@@ -1,5 +1,5 @@
 import pdfMake from "pdfmake/build/pdfmake.js";
-import pdfFonts from "pdfmake/build/vfs_fonts.js";
+import * as pdfFonts from "pdfmake/build/vfs_fonts.js";
 import {
   createCharterValidationError,
   validateCharterPayload,
@@ -7,7 +7,22 @@ import {
 import { formatDocRenderError } from "../charter/render.js";
 import { buildPdfDefinition } from "../../templates/pdf/charter.pdfdef.mjs";
 
-pdfMake.vfs = pdfFonts.pdfMake.vfs;
+const embeddedVfs =
+  pdfFonts.pdfMake?.vfs ??
+  pdfFonts.vfs ??
+  pdfFonts.default?.pdfMake?.vfs;
+
+if (
+  !embeddedVfs ||
+  typeof embeddedVfs !== "object" ||
+  Object.keys(embeddedVfs).length === 0
+) {
+  throw new Error(
+    "pdfmake fonts vfs not loaded: vfs_fonts export shape not recognized."
+  );
+}
+
+pdfMake.vfs = embeddedVfs;
 
 export const config = {
   maxDuration: 60,

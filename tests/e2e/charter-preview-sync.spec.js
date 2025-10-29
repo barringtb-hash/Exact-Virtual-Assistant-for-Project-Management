@@ -19,7 +19,7 @@ test.describe("charter preview manual sync", () => {
 
     await expect(projectTitleField).toHaveValue("");
 
-    await composer.fill("/charter");
+    await composer.fill("/sync");
     await composer.press("Enter");
 
     await expect(projectTitleField).toHaveValue("Launch Initiative");

@@ -17,6 +17,8 @@ import {
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const DOC_CONTEXT_STORAGE_KEY = "eva-doc-context";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
+const MANUAL_SYNC_DOC_TYPE_PROMPT =
+  "Pick a document template before syncing. Choose one in the modal or run `/type <id>`.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
 const VALID_DOC_TYPES = new Set(["charter", "ddp"]);
@@ -924,17 +926,23 @@ export default function ExactVirtualAssistantPM() {
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
 
-  const syncCharterFromChat = useCallback(async () => {
+  const syncDocFromChat = useCallback(async (docTypeOverride) => {
+    const targetDocType =
+      typeof docTypeOverride === "string" && docTypeOverride.trim()
+        ? docTypeOverride.trim()
+        : requestDocType;
+    const targetConfig = buildDocTypeConfig(targetDocType);
+    const targetPreviewLabel = `${targetConfig.label} preview`;
     if (isExtracting || isCharterSyncing) {
       appendAssistantMessage(
-        `I’m already refreshing the ${docPreviewLabel}. I’ll share updates here once they’re ready.`
+        `I’m already refreshing the ${targetPreviewLabel}. I’ll share updates here once they’re ready.`
       );
       return { ok: false, reason: "busy" };
     }
 
     if (!canSyncNow) {
       appendAssistantMessage(
-        `Share some scope details, voice notes, or attachments first and I’ll update the ${docPreviewLabel}.`
+        `Share some scope details, voice notes, or attachments first and I’ll update the ${targetPreviewLabel}.`
       );
       return { ok: false, reason: "idle" };
     }
@@ -990,7 +998,7 @@ export default function ExactVirtualAssistantPM() {
 
     try {
       const payload = {
-        docType: requestDocType,
+        docType: targetDocType,
         messages: sanitizeMessages(messages),
         attachments: sanitizeAttachments(attachments),
         voice: sanitizeVoice(voiceTranscripts),
@@ -1008,20 +1016,20 @@ export default function ExactVirtualAssistantPM() {
         body: requestBody,
       };
 
-      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(requestDocType)}`;
+      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(targetDocType)}`;
       let response;
       try {
         response = await fetch(docEndpoint, requestOptions);
         if (
           response &&
           !response.ok &&
-          requestDocType === "charter" &&
+          targetDocType === "charter" &&
           (response.status === 404 || response.status === 405)
         ) {
           response = await fetch("/api/charter/extract", requestOptions);
         }
       } catch (networkError) {
-        if (requestDocType !== "charter") {
+        if (targetDocType !== "charter") {
           throw networkError;
         }
         response = await fetch("/api/charter/extract", requestOptions);
@@ -1036,7 +1044,7 @@ export default function ExactVirtualAssistantPM() {
             : typeof errorPayload?.message === "string" && errorPayload.message.trim()
             ? errorPayload.message.trim()
             : isUnsupported
-            ? `Extraction is not available for "${requestDocType}" documents.`
+            ? `Extraction is not available for "${targetDocType}" documents.`
             : `Extraction failed with status ${response.status}`;
         throw new Error(message);
       }
@@ -1057,7 +1065,7 @@ export default function ExactVirtualAssistantPM() {
       }
 
       const coercedData =
-        requestDocType === "charter" ? coerceAliasesToSchemaKeys(data) : data;
+        targetDocType === "charter" ? coerceAliasesToSchemaKeys(data) : data;
 
       let normalizedDraft;
       try {
@@ -1071,14 +1079,14 @@ export default function ExactVirtualAssistantPM() {
       clearExtractionError();
       setCharterSyncError(null);
       appendAssistantMessage(
-        `I’ve refreshed the ${docPreviewLabel} with the latest context.`
+        `I’ve refreshed the ${targetPreviewLabel} with the latest context.`
       );
       return { ok: true, draft: finalDraft };
     } catch (error) {
       const fallbackMessage =
         typeof error?.message === "string" && error.message.trim()
           ? error.message.trim()
-          : `Unable to update the ${docPreviewLabel}. Please try again.`;
+          : `Unable to update the ${targetPreviewLabel}. Please try again.`;
       setCharterSyncError(fallbackMessage);
       if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
         appendAssistantMessage(`${fallbackMessage}`);
@@ -1946,6 +1954,29 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
+  const resolveDocTypeForManualSync = useCallback(() => {
+    if (!docRouterEnabled) {
+      return requestDocType;
+    }
+
+    if (VALID_DOC_TYPES.has(docType)) {
+      return docType;
+    }
+
+    if (hasConfirmedDocType && hasSuggestedDocType) {
+      return suggestionType;
+    }
+
+    return null;
+  }, [
+    docRouterEnabled,
+    requestDocType,
+    docType,
+    hasConfirmedDocType,
+    hasSuggestedDocType,
+    suggestionType,
+  ]);
+
   const handleCommandFromText = async (
     rawText,
     { userMessageAppended = false, baseName = defaultShareBaseName } = {}
@@ -1954,7 +1985,48 @@ export default function ExactVirtualAssistantPM() {
     if (!trimmed) return false;
 
     const normalized = trimmed.toLowerCase();
-    const wantsCharterCommit =
+    const ensureUserLogged = () => {
+      if (!userMessageAppended) {
+        appendUserMessageToChat(trimmed);
+      }
+    };
+
+    if (normalized.startsWith("/type")) {
+      ensureUserLogged();
+      const typeMatch = trimmed.match(/^\s*\/type\s+([^\s]+)/i);
+      const rawType = typeMatch?.[1] || "";
+      const nextType = rawType.trim().toLowerCase();
+
+      if (!nextType) {
+        pushToast({
+          tone: "warning",
+          message: "Add a document type after `/type`. Example: `/type charter`.",
+        });
+        return true;
+      }
+
+      if (VALID_DOC_TYPES.has(nextType)) {
+        setDocType(nextType);
+        setSuggestedDocType(normalizeDocTypeSuggestion({ type: nextType, confidence: 1 }));
+        setShowDocTypeModal(false);
+        const typeLabel = buildDocTypeConfig(nextType).label;
+        pushToast({
+          tone: "success",
+          message: `Document type set to ${typeLabel}.`,
+        });
+      } else {
+        const options = Array.from(VALID_DOC_TYPES).join(", ");
+        pushToast({
+          tone: "warning",
+          message: `“${rawType.trim() || nextType}” isn’t a supported document type. Try one of: ${options}.`,
+        });
+      }
+
+      return true;
+    }
+
+    const wantsManualSync =
+      normalized.startsWith("/sync") ||
       normalized.startsWith("/charter") ||
       normalized.includes("commit charter") ||
       normalized.includes("commit the charter") ||
@@ -1963,11 +2035,17 @@ export default function ExactVirtualAssistantPM() {
       normalized.includes("sync charter") ||
       normalized.includes("sync the charter");
 
-    if (wantsCharterCommit) {
-      if (!userMessageAppended) {
-        appendUserMessageToChat(trimmed);
+    if (wantsManualSync) {
+      ensureUserLogged();
+      const manualDocType = resolveDocTypeForManualSync();
+      if (!manualDocType) {
+        if (docRouterEnabled) {
+          setShowDocTypeModal(true);
+        }
+        pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+        return true;
       }
-      await syncCharterFromChat();
+      await syncDocFromChat(manualDocType);
       return true;
     }
 
@@ -1992,12 +2070,6 @@ export default function ExactVirtualAssistantPM() {
     const wantsDocx = mentionsDocx && (mentionsDownload || normalized.includes("docx link"));
     const wantsPdf = mentionsPdf && (mentionsDownload || normalized.includes("pdf link"));
     const wantsShareLinks = mentionsShare || (mentionsDownload && normalized.includes("links"));
-
-    const ensureUserLogged = () => {
-      if (!userMessageAppended) {
-        appendUserMessageToChat(trimmed);
-      }
-    };
 
     if (wantsBothFormats || wantsShareLinks) {
       ensureUserLogged();
@@ -2076,8 +2148,22 @@ export default function ExactVirtualAssistantPM() {
   };
 
   const handleSyncNow = useCallback(() => {
-    return syncCharterFromChat();
-  }, [syncCharterFromChat]);
+    const manualDocType = resolveDocTypeForManualSync();
+    if (!manualDocType) {
+      if (docRouterEnabled) {
+        setShowDocTypeModal(true);
+      }
+      pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+      return Promise.resolve({ ok: false, reason: "docTypeRequired" });
+    }
+    return syncDocFromChat(manualDocType);
+  }, [
+    docRouterEnabled,
+    pushToast,
+    resolveDocTypeForManualSync,
+    setShowDocTypeModal,
+    syncDocFromChat,
+  ]);
 
   const processPickedFiles = useCallback(
     async (list) => {
@@ -2407,7 +2493,7 @@ export default function ExactVirtualAssistantPM() {
                   <span className="text-left leading-tight">
                     <span className="block font-medium">Auto-extract</span>
                     <span className="block text-[11px] text-slate-500 dark:text-slate-400">
-                      Use /charter to sync manually.
+                      Use /sync to refresh manually. Run \`/type &lt;id&gt;\` to switch templates.
                     </span>
                   </span>
                 </label>
@@ -2430,7 +2516,7 @@ export default function ExactVirtualAssistantPM() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={syncCharterFromChat}
+                  onClick={handleSyncNow}
                   disabled={!canSyncNow || isCharterSyncInFlight || isAssistantThinking}
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !canSyncNow || isCharterSyncInFlight || isAssistantThinking

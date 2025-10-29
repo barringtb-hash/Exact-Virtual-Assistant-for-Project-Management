@@ -16,6 +16,8 @@ export interface ComposerProps {
   onSend: () => void;
   onUploadClick: () => void;
   onMicToggle?: () => void;
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
   recording?: boolean;
   statusText?: string | null;
   onSyncNow?: () => void;
@@ -58,6 +60,8 @@ const Composer: React.FC<ComposerProps> = ({
   onSend,
   onUploadClick,
   onMicToggle,
+  onStartRecording,
+  onStopRecording,
   recording = false,
   statusText,
   onSyncNow,
@@ -115,6 +119,21 @@ const Composer: React.FC<ComposerProps> = ({
     },
     [onSend, sendDisabled]
   );
+
+  const handleMicClick = useCallback(() => {
+    if (recording) {
+      if (onStopRecording) {
+        onStopRecording();
+        return;
+      }
+    } else {
+      if (onStartRecording) {
+        onStartRecording();
+        return;
+      }
+    }
+    onMicToggle?.();
+  }, [onMicToggle, onStartRecording, onStopRecording, recording]);
 
   const resolvedSyncLabel = useMemo(() => {
     if (syncLabel) return syncLabel;
@@ -209,7 +228,7 @@ const Composer: React.FC<ComposerProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={onMicToggle}
+                onClick={handleMicClick}
                 disabled={micDisabled}
                 className={`shrink-0 rounded-xl border p-2 transition ${
                   micDisabled
@@ -254,8 +273,8 @@ const Composer: React.FC<ComposerProps> = ({
           </div>
         </div>
         {statusText ? (
-          <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">
-            <span aria-live="polite">{statusText}</span>
+          <div className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
+            {statusText}
           </div>
         ) : null}
       </div>

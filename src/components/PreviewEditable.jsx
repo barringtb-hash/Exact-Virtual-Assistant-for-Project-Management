@@ -58,6 +58,56 @@ const OBJECT_ARRAY_FIELDS = {
   },
 };
 
+function includesSchemaType(schemaType, target) {
+  if (!schemaType) return false;
+  if (Array.isArray(schemaType)) {
+    return schemaType.includes(target);
+  }
+  return schemaType === target;
+}
+
+function formatKeyLabel(key) {
+  if (typeof key !== "string") {
+    return "";
+  }
+  const withSpaces = key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!withSpaces) {
+    return "";
+  }
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+function singularizeLabel(label) {
+  if (typeof label !== "string" || label.length === 0) {
+    return label;
+  }
+  if (label.endsWith("ies")) {
+    return `${label.slice(0, -3)}y`;
+  }
+  if (label.endsWith("ses")) {
+    return label.slice(0, -2);
+  }
+  if (label.endsWith("s")) {
+    return label.slice(0, -1);
+  }
+  return label;
+}
+
+function buildArrayPlaceholder(label) {
+  if (!label) return "Add item";
+  const singular = singularizeLabel(label).toLowerCase();
+  return `Add ${singular}`;
+}
+
+function buildTextPlaceholder(label) {
+  if (!label) return "Enter value";
+  return `Enter ${label.toLowerCase()}`;
+}
+
 const noop = () => {};
 
 function FieldMetaTags({ source, updatedAt }) {
@@ -158,12 +208,13 @@ function StringArrayEditor({
   disabled,
   meta,
   itemMeta,
+  description,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <div>
-      <FieldHeader label={label} locked={isLocked(path)} meta={meta} />
+      <FieldHeader label={label} locked={isLocked(path)} meta={meta} description={description} />
       <div className="space-y-2">
         {safeItems.map((item, index) => {
           const itemPath = `${path}.${index}`;
@@ -231,12 +282,13 @@ function ObjectArrayEditor({
   disabled,
   meta,
   fieldMeta,
+  description,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <div>
-      <FieldHeader label={title} locked={isLocked(path)} meta={meta} />
+      <FieldHeader label={title} locked={isLocked(path)} meta={meta} description={description} />
       <div className="space-y-3">
         {safeItems.map((item, index) => {
           const basePath = `${path}.${index}`;
@@ -325,6 +377,7 @@ export default function PreviewEditable({
   isLoading = false,
   docType = "charter",
   docLabel,
+  schema,
 }) {
   const safeDraft = draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
@@ -340,21 +393,216 @@ export default function PreviewEditable({
     return entries;
   };
 
-  const normalizedDocType = typeof docType === "string" && docType.trim() ? docType.trim() : "charter";
+  const normalizedDocType =
+    typeof docType === "string" && docType.trim() ? docType.trim() : null;
   const displayDocLabel =
-    typeof docLabel === "string" && docLabel.trim() ? docLabel.trim() : normalizedDocType;
+    typeof docLabel === "string" && docLabel.trim()
+      ? docLabel.trim()
+      : normalizedDocType || "Document";
+
+  if (!normalizedDocType) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-dashed border-slate-300 bg-white/60 p-4 text-sm text-slate-600 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
+        <p className="font-medium">No template selected.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Pick a document type to start editing the preview.
+        </p>
+      </div>
+    );
+  }
 
   if (normalizedDocType !== "charter") {
+    const hasSchema = schema && typeof schema === "object" && !Array.isArray(schema);
+
+    if (!hasSchema) {
+      return (
+        <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
+          <p className="font-medium">Schema metadata not available for “{displayDocLabel}”.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            You can continue chatting with EVA to update the draft, or select a different template to enable inline editing.
+          </p>
+          <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
+            {JSON.stringify(safeDraft, null, 2)}
+          </pre>
+        </div>
+      );
+    }
+
+    const properties = schema?.properties && typeof schema.properties === "object" ? schema.properties : {};
+    const requiredKeys = Array.isArray(schema?.required) ? schema.required : [];
+    const propertyOrder = [];
+    const seenKeys = new Set();
+
+    for (const key of requiredKeys) {
+      if (properties[key] && !seenKeys.has(key)) {
+        propertyOrder.push(key);
+        seenKeys.add(key);
+      }
+    }
+
+    for (const key of Object.keys(properties)) {
+      if (!seenKeys.has(key)) {
+        propertyOrder.push(key);
+        seenKeys.add(key);
+      }
+    }
+
+    const scalarFields = [];
+    const stringArrayFields = [];
+    const objectArrayFields = [];
+
+    propertyOrder.forEach((key) => {
+      const definition = properties[key];
+      if (!definition || typeof definition !== "object") {
+        return;
+      }
+
+      if (includesSchemaType(definition.type, "string")) {
+        const label = definition.title || formatKeyLabel(key) || key;
+        const placeholder = definition.placeholder || buildTextPlaceholder(label);
+        const inputType = definition.format === "date" ? "date" : "text";
+        const multiline = typeof definition.maxLength === "number" && definition.maxLength > 200;
+        scalarFields.push({
+          key,
+          label,
+          placeholder,
+          type: inputType,
+          multiline,
+          description: definition.description,
+        });
+        return;
+      }
+
+      if (includesSchemaType(definition.type, "array")) {
+        const items = definition.items && typeof definition.items === "object" ? definition.items : {};
+        if (includesSchemaType(items.type, "string")) {
+          const label = definition.title || formatKeyLabel(key) || key;
+          stringArrayFields.push({
+            key,
+            label,
+            addLabel: buildArrayPlaceholder(label),
+            placeholder: definition.items?.placeholder || buildTextPlaceholder(singularizeLabel(label)),
+            description: definition.description,
+          });
+          return;
+        }
+
+        if (includesSchemaType(items.type, "object")) {
+          const itemProperties = items.properties && typeof items.properties === "object" ? items.properties : {};
+          const itemRequired = Array.isArray(items.required) ? items.required : [];
+          const entryOrder = [];
+          const seenEntries = new Set();
+
+          for (const entryKey of itemRequired) {
+            if (itemProperties[entryKey] && !seenEntries.has(entryKey)) {
+              entryOrder.push(entryKey);
+              seenEntries.add(entryKey);
+            }
+          }
+
+          for (const entryKey of Object.keys(itemProperties)) {
+            if (!seenEntries.has(entryKey)) {
+              entryOrder.push(entryKey);
+              seenEntries.add(entryKey);
+            }
+          }
+
+          const fields = entryOrder.map((entryKey) => {
+            const entryDefinition = itemProperties[entryKey];
+            const entryLabel = entryDefinition?.title || formatKeyLabel(entryKey) || entryKey;
+            const placeholder = entryDefinition?.placeholder || buildTextPlaceholder(entryLabel);
+            return {
+              key: entryKey,
+              label: entryLabel,
+              placeholder,
+            };
+          });
+
+          const label = definition.title || formatKeyLabel(key) || key;
+          objectArrayFields.push({
+            key,
+            title: label,
+            addLabel: buildArrayPlaceholder(label),
+            fields,
+            description: definition.description,
+          });
+        }
+      }
+    });
+
+    const hasEditableFields =
+      scalarFields.length > 0 || stringArrayFields.length > 0 || objectArrayFields.length > 0;
+
+    if (!hasEditableFields) {
+      return (
+        <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
+          <p className="font-medium">No editable fields detected for “{displayDocLabel}”.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Try updating the document through chat or switch to another template with inline editing support.
+          </p>
+          <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
+            {JSON.stringify(safeDraft, null, 2)}
+          </pre>
+        </div>
+      );
+    }
+
     return (
-      <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
-        <p className="font-medium">Preview editing isn’t available for “{displayDocLabel}” documents yet.</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          You can continue chatting with EVA to update the draft, and future releases will include a tailored editor for this
-          document type.
-        </p>
-        <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
-          {JSON.stringify(safeDraft, null, 2)}
-        </pre>
+      <div className="space-y-6">
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayDocLabel}</h3>
+          {scalarFields.map((field) => (
+            <ScalarInput
+              key={field.key}
+              label={field.label}
+              path={field.key}
+              value={typeof safeDraft[field.key] === "string" ? safeDraft[field.key] : ""}
+              placeholder={field.placeholder}
+              onChange={(value) => onDraftChange(field.key, value)}
+              onLock={onLockField}
+              locked={isLocked(field.key)}
+              disabled={isLoading}
+              type={field.type}
+              multiline={field.multiline}
+              description={field.description}
+              meta={metaFor(field.key)}
+            />
+          ))}
+        </section>
+        {stringArrayFields.map((field) => (
+          <StringArrayEditor
+            key={field.key}
+            label={field.label}
+            path={field.key}
+            items={safeDraft[field.key]}
+            addLabel={field.addLabel}
+            placeholder={field.placeholder}
+            onChange={onDraftChange}
+            onLock={onLockField}
+            isLocked={isLocked}
+            disabled={isLoading}
+            meta={metaFor(field.key)}
+            itemMeta={metaCollectionForPrefix(field.key)}
+            description={field.description}
+          />
+        ))}
+        {objectArrayFields.map((field) => (
+          <ObjectArrayEditor
+            key={field.key}
+            path={field.key}
+            items={safeDraft[field.key]}
+            title={field.title}
+            fields={field.fields}
+            addLabel={field.addLabel}
+            onChange={onDraftChange}
+            onLock={onLockField}
+            isLocked={isLocked}
+            disabled={isLoading}
+            meta={metaFor(field.key)}
+            fieldMeta={metaCollectionForPrefix(field.key)}
+            description={field.description}
+          />
+        ))}
       </div>
     );
   }
@@ -362,7 +610,7 @@ export default function PreviewEditable({
   return (
     <div className="space-y-6">
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Project Charter</h3>
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayDocLabel}</h3>
         <ScalarInput
           label="Project Title"
           path="project_name"
@@ -402,49 +650,33 @@ export default function PreviewEditable({
           <ScalarInput
             label="Start Date"
             path="start_date"
-            type="date"
             value={typeof safeDraft.start_date === "string" ? safeDraft.start_date : ""}
-            placeholder="Start date"
+            placeholder="YYYY-MM-DD"
             onChange={(value) => onDraftChange("start_date", value)}
             onLock={onLockField}
             locked={isLocked("start_date")}
             disabled={isLoading}
+            type="date"
             meta={metaFor("start_date")}
           />
           <ScalarInput
             label="End Date"
             path="end_date"
-            type="date"
             value={typeof safeDraft.end_date === "string" ? safeDraft.end_date : ""}
-            placeholder="End date"
+            placeholder="YYYY-MM-DD"
             onChange={(value) => onDraftChange("end_date", value)}
             onLock={onLockField}
             locked={isLocked("end_date")}
             disabled={isLoading}
+            type="date"
             meta={metaFor("end_date")}
           />
         </div>
         <ScalarInput
-          label="Problem Statement"
-          path="problem"
-          value={typeof safeDraft.problem === "string" ? safeDraft.problem : ""}
-          placeholder="What problem does this solve?"
-          onChange={(value) => onDraftChange("problem", value)}
-          onLock={onLockField}
-          locked={isLocked("problem")}
-          disabled={isLoading}
-          multiline
-          meta={metaFor("problem")}
-        />
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Design & Development Plan</h3>
-        <ScalarInput
-          label="Objectives"
+          label="Vision"
           path="vision"
           value={typeof safeDraft.vision === "string" ? safeDraft.vision : ""}
-          placeholder="What success looks like"
+          placeholder="Describe the vision"
           onChange={(value) => onDraftChange("vision", value)}
           onLock={onLockField}
           locked={isLocked("vision")}
@@ -452,82 +684,23 @@ export default function PreviewEditable({
           multiline
           meta={metaFor("vision")}
         />
-        {STRING_ARRAY_FIELDS.slice(0, 2).map((config) => (
-          <StringArrayEditor
-            key={config.path}
-            label={config.label}
-            path={config.path}
-            items={safeDraft[config.path]}
-            addLabel={config.addLabel}
-            placeholder={config.placeholder}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(config.path)}
-            itemMeta={metaCollectionForPrefix(config.path)}
-          />
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Milestones & Metrics</h3>
-        {Object.entries(OBJECT_ARRAY_FIELDS)
-          .filter(([key]) => key === "milestones" || key === "success_metrics")
-          .map(([key, config]) => (
-            <ObjectArrayEditor
-              key={key}
-              path={key}
-              items={safeDraft[key]}
-              title={config.title}
-              fields={config.fields}
-              addLabel={config.addLabel}
-              onChange={onDraftChange}
-              onLock={onLockField}
-              isLocked={isLocked}
-              disabled={isLoading}
-              meta={metaFor(key)}
-              fieldMeta={metaCollectionForPrefix(key)}
-            />
-          ))}
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">RAID Log Snapshot</h3>
-        {STRING_ARRAY_FIELDS.slice(2).map((config) => (
-          <StringArrayEditor
-            key={config.path}
-            label={config.label}
-            path={config.path}
-            items={safeDraft[config.path]}
-            addLabel={config.addLabel}
-            placeholder={config.placeholder}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(config.path)}
-            itemMeta={metaCollectionForPrefix(config.path)}
-          />
-        ))}
-        <ObjectArrayEditor
-          path="core_team"
-          items={safeDraft.core_team}
-          title={OBJECT_ARRAY_FIELDS.core_team.title}
-          fields={OBJECT_ARRAY_FIELDS.core_team.fields}
-          addLabel={OBJECT_ARRAY_FIELDS.core_team.addLabel}
-          onChange={onDraftChange}
+        <ScalarInput
+          label="Problem"
+          path="problem"
+          value={typeof safeDraft.problem === "string" ? safeDraft.problem : ""}
+          placeholder="Outline the problem"
+          onChange={(value) => onDraftChange("problem", value)}
           onLock={onLockField}
-          isLocked={isLocked}
+          locked={isLocked("problem")}
           disabled={isLoading}
-          meta={metaFor("core_team")}
-          fieldMeta={metaCollectionForPrefix("core_team")}
+          multiline
+          meta={metaFor("problem")}
         />
         <ScalarInput
-          label="Notes"
+          label="Project Description"
           path="description"
           value={typeof safeDraft.description === "string" ? safeDraft.description : ""}
-          placeholder="Additional notes"
+          placeholder="Explain the project"
           onChange={(value) => onDraftChange("description", value)}
           onLock={onLockField}
           locked={isLocked("description")}
@@ -535,6 +708,44 @@ export default function PreviewEditable({
           multiline
           meta={metaFor("description")}
         />
+      </section>
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Scope & Risks</h3>
+        {STRING_ARRAY_FIELDS.map((field) => (
+          <StringArrayEditor
+            key={field.path}
+            label={field.label}
+            path={field.path}
+            items={safeDraft[field.path]}
+            addLabel={field.addLabel}
+            placeholder={field.placeholder}
+            onChange={onDraftChange}
+            onLock={onLockField}
+            isLocked={isLocked}
+            disabled={isLoading}
+            meta={metaFor(field.path)}
+            itemMeta={metaCollectionForPrefix(field.path)}
+          />
+        ))}
+      </section>
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Milestones & Metrics</h3>
+        {Object.entries(OBJECT_ARRAY_FIELDS).map(([path, config]) => (
+          <ObjectArrayEditor
+            key={path}
+            path={path}
+            items={safeDraft[path]}
+            title={config.title}
+            fields={config.fields}
+            addLabel={config.addLabel}
+            onChange={onDraftChange}
+            onLock={onLockField}
+            isLocked={isLocked}
+            disabled={isLoading}
+            meta={metaFor(path)}
+            fieldMeta={metaCollectionForPrefix(path)}
+          />
+        ))}
       </section>
     </div>
   );

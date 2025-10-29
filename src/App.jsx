@@ -14,25 +14,24 @@ import {
   isDocTypeConfirmed,
   normalizeDocTypeSuggestion,
 } from "./utils/docTypeRouter";
+import {
+  mergeStoredDocContext,
+  readStoredDocContext,
+  useDocTypeContext,
+} from "./context/DocTypeContext.jsx";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
-const DOC_CONTEXT_STORAGE_KEY = "eva-doc-context";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 const MANUAL_SYNC_DOC_TYPE_PROMPT =
   "Pick a document template before syncing. Choose one in the modal or run `/type <id>`.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
-const VALID_DOC_TYPES = new Set(["charter", "ddp"]);
-const DOC_TYPE_LABELS = {
-  charter: "Charter",
-  ddp: "DDP",
-};
 
 const DEFAULT_DOC_TYPE = "charter";
 const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
-function buildDocTypeConfig(docType) {
+function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
   if (!hasExplicitDocType) {
     return {
@@ -49,9 +48,10 @@ function buildDocTypeConfig(docType) {
   const normalized = docType.trim();
 
   if (normalized === "charter") {
+    const label = metadataMap.get("charter")?.label || "Charter";
     return {
       type: "charter",
-      label: DOC_TYPE_LABELS.charter || "Charter",
+      label,
       normalize: normalizeCharterDraft,
       createBlank: () => normalizeCharterDraft(getBlankCharter()),
       requiredFieldsHeading: "Charter required fields",
@@ -61,7 +61,7 @@ function buildDocTypeConfig(docType) {
   }
 
   if (normalized === "ddp") {
-    const label = DOC_TYPE_LABELS.ddp || "DDP";
+    const label = metadataMap.get("ddp")?.label || "DDP";
     return {
       type: "ddp",
       label,
@@ -73,7 +73,7 @@ function buildDocTypeConfig(docType) {
     };
   }
 
-  const fallbackLabel = DOC_TYPE_LABELS[normalized] || "Document";
+  const fallbackLabel = metadataMap.get(normalized)?.label || "Document";
   return {
     type: normalized,
     label: fallbackLabel,
@@ -388,27 +388,6 @@ function restoreFilesFromStoredAttachments(attachments) {
     .filter(Boolean);
 }
 
-function readStoredContext() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(DOC_CONTEXT_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed;
-    }
-  } catch (error) {
-    console.error("Failed to load stored document context", error);
-  }
-
-  return null;
-}
-
 // --- Seed messages ---
 // Friendly, generic starter messages to welcome users
 const seedMessages = [
@@ -426,16 +405,20 @@ const seedMessages = [
 
 export default function ExactVirtualAssistantPM() {
   const initialDraftRef = useRef(null);
-  const docRouterEnabled = useMemo(() => {
-    const raw = import.meta?.env?.VITE_ENABLE_DOC_ROUTER;
-    if (raw == null) {
-      return false;
-    }
-
-    const normalized = String(raw).trim().toLowerCase();
-    return !["false", "0", "off", "no"].includes(normalized);
-  }, []);
-  const storedContextRef = useRef(readStoredContext());
+  const {
+    docRouterEnabled,
+    supportedDocTypes,
+    metadataMap,
+    selectedDocType,
+    setSelectedDocType,
+    suggestedDocType,
+    setSuggestedDocType,
+    previewDocType,
+    previewDocTypeLabel,
+    effectiveDocType,
+    defaultDocType,
+  } = useDocTypeContext();
+  const storedContextRef = useRef(readStoredDocContext());
   const [messages, setMessages] = useState(() => {
     const stored = storedContextRef.current;
     if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
@@ -475,54 +458,33 @@ export default function ExactVirtualAssistantPM() {
     }
     return [];
   });
-  const [docType, setDocType] = useState(() => {
-    if (!docRouterEnabled) {
-      return "charter";
-    }
-    const stored = storedContextRef.current;
-    const candidate = stored?.docType;
-    if (VALID_DOC_TYPES.has(candidate)) {
-      return candidate;
-    }
-    return null;
-  });
-  const [suggestedDocType, setSuggestedDocType] = useState(null);
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const pendingFilesRef = useRef([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
-  const normalizedSuggestedDocType = useMemo(
-    () => normalizeDocTypeSuggestion(suggestedDocType),
-    [suggestedDocType]
-  );
-  const suggestionType = normalizedSuggestedDocType?.type;
-  const hasSuggestedDocType = suggestionType && VALID_DOC_TYPES.has(suggestionType);
-  const previewDocType = useMemo(() => {
-    if (!docRouterEnabled) {
-      return DEFAULT_DOC_TYPE;
-    }
-    if (VALID_DOC_TYPES.has(docType)) {
-      return docType;
-    }
-    if (hasSuggestedDocType) {
-      return suggestionType;
-    }
-    return null;
-  }, [docRouterEnabled, docType, hasSuggestedDocType, suggestionType]);
+  const suggestionType = suggestedDocType?.type;
+  const hasSuggestedDocType =
+    suggestionType && supportedDocTypes.has(suggestionType);
   const hasConfirmedDocType = useMemo(() => {
     if (!docRouterEnabled) {
       return true;
     }
     return isDocTypeConfirmed({
-      selectedDocType: VALID_DOC_TYPES.has(docType) ? docType : null,
-      suggestion: normalizedSuggestedDocType,
+      selectedDocType: supportedDocTypes.has(selectedDocType)
+        ? selectedDocType
+        : null,
+      suggestion: suggestedDocType,
       threshold: 0.7,
-      allowedTypes: VALID_DOC_TYPES,
+      allowedTypes: supportedDocTypes,
     });
-  }, [docRouterEnabled, docType, normalizedSuggestedDocType]);
-  const effectiveDocType = previewDocType ?? DEFAULT_DOC_TYPE;
+  }, [
+    docRouterEnabled,
+    selectedDocType,
+    suggestedDocType,
+    supportedDocTypes,
+  ]);
   const docTypeConfig = useMemo(
-    () => buildDocTypeConfig(previewDocType),
-    [previewDocType]
+    () => buildDocTypeConfig(previewDocType, metadataMap),
+    [metadataMap, previewDocType]
   );
   const docTypeDisplayLabel = docTypeConfig.label;
   const docPreviewLabel = previewDocType
@@ -550,7 +512,7 @@ export default function ExactVirtualAssistantPM() {
     (draft) => (previewDocType ? docTypeConfig.normalize(draft) : GENERIC_DOC_NORMALIZER(draft)),
     [docTypeConfig, previewDocType]
   );
-  const requestDocType = previewDocType || DEFAULT_DOC_TYPE;
+  const requestDocType = previewDocType || defaultDocType || DEFAULT_DOC_TYPE;
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
@@ -691,32 +653,26 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     if (!docRouterEnabled) {
       setShowDocTypeModal(false);
-      if (!VALID_DOC_TYPES.has(docType)) {
-        setDocType("charter");
-      }
       if (suggestedDocType) {
         setSuggestedDocType(null);
       }
+      if (!selectedDocType || !supportedDocTypes.has(selectedDocType)) {
+        setSelectedDocType(defaultDocType);
+      }
     }
-  }, [docRouterEnabled, docType, suggestedDocType]);
+  }, [
+    defaultDocType,
+    docRouterEnabled,
+    selectedDocType,
+    setSelectedDocType,
+    setSuggestedDocType,
+    suggestedDocType,
+    supportedDocTypes,
+  ]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const payload = {
-      docType: previewDocType,
-      attachments,
-      messages,
-    };
-
-    try {
-      window.localStorage.setItem(DOC_CONTEXT_STORAGE_KEY, JSON.stringify(payload));
-    } catch (error) {
-      console.error("Failed to persist document context", error);
-    }
-  }, [attachments, messages, previewDocType]);
+    mergeStoredDocContext({ attachments, messages });
+  }, [attachments, messages]);
 
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
 
@@ -795,8 +751,10 @@ export default function ExactVirtualAssistantPM() {
     suggestedDocType: inferredDocTypeSuggestion,
   } = useBackgroundExtraction({
     docType: effectiveDocType,
-    selectedDocType: VALID_DOC_TYPES.has(docType) ? docType : null,
-    suggestedDocType: normalizedSuggestedDocType,
+    selectedDocType: supportedDocTypes.has(selectedDocType)
+      ? selectedDocType
+      : null,
+    suggestedDocType,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -2080,8 +2038,8 @@ export default function ExactVirtualAssistantPM() {
       return requestDocType;
     }
 
-    if (VALID_DOC_TYPES.has(docType)) {
-      return docType;
+    if (supportedDocTypes.has(selectedDocType)) {
+      return selectedDocType;
     }
 
     if (hasConfirmedDocType && hasSuggestedDocType) {
@@ -2092,10 +2050,11 @@ export default function ExactVirtualAssistantPM() {
   }, [
     docRouterEnabled,
     requestDocType,
-    docType,
+    selectedDocType,
     hasConfirmedDocType,
     hasSuggestedDocType,
     suggestionType,
+    supportedDocTypes,
   ]);
 
   const handleCommandFromText = async (
@@ -2126,17 +2085,17 @@ export default function ExactVirtualAssistantPM() {
         return true;
       }
 
-      if (VALID_DOC_TYPES.has(nextType)) {
-        setDocType(nextType);
+      if (supportedDocTypes.has(nextType)) {
+        setSelectedDocType(nextType);
         setSuggestedDocType(normalizeDocTypeSuggestion({ type: nextType, confidence: 1 }));
         setShowDocTypeModal(false);
-        const typeLabel = buildDocTypeConfig(nextType).label;
+        const typeLabel = buildDocTypeConfig(nextType, metadataMap).label;
         pushToast({
           tone: "success",
           message: `Document type set to ${typeLabel}.`,
         });
       } else {
-        const options = Array.from(VALID_DOC_TYPES).join(", ");
+        const options = Array.from(supportedDocTypes).join(", ");
         pushToast({
           tone: "warning",
           message: `“${rawType.trim() || nextType}” isn’t a supported document type. Try one of: ${options}.`,
@@ -2392,8 +2351,10 @@ export default function ExactVirtualAssistantPM() {
   );
   const handleDocTypeConfirm = useCallback(
     async (nextValue) => {
-      const normalized = VALID_DOC_TYPES.has(nextValue) ? nextValue : "charter";
-      setDocType(normalized);
+      const normalized = supportedDocTypes.has(nextValue)
+        ? nextValue
+        : defaultDocType;
+      setSelectedDocType(normalized);
       setSuggestedDocType(normalizeDocTypeSuggestion({ type: normalized, confidence: 1 }));
       setShowDocTypeModal(false);
       const pending = pendingFilesRef.current;
@@ -2402,7 +2363,13 @@ export default function ExactVirtualAssistantPM() {
         await processPickedFiles(pending);
       }
     },
-    [processPickedFiles]
+    [
+      defaultDocType,
+      processPickedFiles,
+      setSelectedDocType,
+      setSuggestedDocType,
+      supportedDocTypes,
+    ]
   );
   const handleDocTypeCancel = useCallback(() => {
     pendingFilesRef.current = [];
@@ -2625,8 +2592,6 @@ export default function ExactVirtualAssistantPM() {
                   isLoading={isCharterSyncInFlight}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
-                  docType={previewDocType}
-                  docLabel={docTypeDisplayLabel}
                   schema={activeDocSchema}
                 />
               </div>
@@ -2744,7 +2709,6 @@ export default function ExactVirtualAssistantPM() {
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <DocTypeModal
         open={docRouterEnabled && showDocTypeModal}
-        value={docType ?? suggestionType ?? ""}
         onConfirm={handleDocTypeConfirm}
         onCancel={handleDocTypeCancel}
       />

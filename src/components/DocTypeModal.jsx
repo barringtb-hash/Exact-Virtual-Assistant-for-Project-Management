@@ -1,37 +1,61 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-const OPTIONS = [
-  {
-    value: "charter",
-    label: "Project Charter",
-    description: "Summarize project scope, objectives, and stakeholders.",
-  },
-  {
-    value: "ddp",
-    label: "Design & Development Plan",
-    description: "Track requirements, design details, and implementation plans.",
-  },
-];
+import { useDocTypeContext } from "../context/DocTypeContext.jsx";
 
-export default function DocTypeModal({ open, value, onConfirm, onCancel }) {
-  const [selected, setSelected] = useState(value || "charter");
+const DESCRIPTIONS = {
+  charter: "Summarize project scope, objectives, and stakeholders.",
+  ddp: "Track requirements, design details, and implementation plans.",
+};
+
+export default function DocTypeModal({ open, onConfirm, onCancel }) {
+  const {
+    metadataList,
+    selectedDocType,
+    suggestedDocType,
+    suggestionConfidence,
+    defaultDocType,
+  } = useDocTypeContext();
+
+  const recommendedType = suggestedDocType?.type;
+  const effectiveDefault = useMemo(() => {
+    if (recommendedType) {
+      return recommendedType;
+    }
+    if (selectedDocType) {
+      return selectedDocType;
+    }
+    return defaultDocType;
+  }, [defaultDocType, recommendedType, selectedDocType]);
+
+  const [selected, setSelected] = useState(effectiveDefault);
 
   useEffect(() => {
     if (open) {
-      setSelected(value || "charter");
+      setSelected(effectiveDefault);
     }
-  }, [open, value]);
+  }, [effectiveDefault, open]);
 
   if (!open) {
     return null;
   }
 
   const handleConfirm = () => {
-    const nextValue = selected || "charter";
+    const nextValue = selected || defaultDocType;
     if (typeof onConfirm === "function") {
       onConfirm(nextValue);
     }
   };
+
+  const options = useMemo(() => {
+    if (!Array.isArray(metadataList) || metadataList.length === 0) {
+      return [];
+    }
+    return metadataList.map((entry) => ({
+      value: entry.type,
+      label: entry.label || entry.type,
+      description: DESCRIPTIONS[entry.type] || "",
+    }));
+  }, [metadataList]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
@@ -43,17 +67,18 @@ export default function DocTypeModal({ open, value, onConfirm, onCancel }) {
           Choose a template so I can tailor extraction and previews.
         </p>
         <div className="mt-4 space-y-3">
-          {OPTIONS.map((option) => {
+          {options.map((option) => {
             const isActive = selected === option.value;
+            const isRecommended = option.value === recommendedType;
             return (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => setSelected(option.value)}
                 className={`w-full rounded-xl border px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                  isActive
-                    ? "border-indigo-500 bg-indigo-50/80 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-200"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-indigo-400 dark:hover:bg-indigo-500/10"
+                    isActive
+                      ? "border-indigo-500 bg-indigo-50/80 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-200"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-indigo-400 dark:hover:bg-indigo-500/10"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -62,6 +87,14 @@ export default function DocTypeModal({ open, value, onConfirm, onCancel }) {
                     <div className="mt-1 text-xs text-slate-500 dark:text-slate-300">
                       {option.description}
                     </div>
+                    {isRecommended ? (
+                      <div className="mt-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
+                        Recommended
+                        {suggestionConfidence > 0
+                          ? ` (${Math.round(suggestionConfidence * 100)}% confidence)`
+                          : ""}
+                      </div>
+                    ) : null}
                   </div>
                   <span
                     className={`ml-3 inline-flex h-5 w-5 items-center justify-center rounded-full border ${

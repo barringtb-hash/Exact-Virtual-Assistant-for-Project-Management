@@ -8,6 +8,7 @@ import DocTypeModal from "./components/DocTypeModal";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
+import { loadDocTypeSchema } from "./utils/loadDocTypeSchema";
 import {
   areDocTypeSuggestionsEqual,
   isDocTypeConfirmed,
@@ -32,8 +33,20 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 function buildDocTypeConfig(docType) {
-  const normalized =
-    typeof docType === "string" && docType.trim() ? docType.trim() : DEFAULT_DOC_TYPE;
+  const hasExplicitDocType = typeof docType === "string" && docType.trim();
+  if (!hasExplicitDocType) {
+    return {
+      type: null,
+      label: "Document",
+      normalize: GENERIC_DOC_NORMALIZER,
+      createBlank: () => ({}),
+      requiredFieldsHeading: "Document required fields",
+      defaultBaseName: "Project_Document_v1.0",
+      previewKind: "generic",
+    };
+  }
+
+  const normalized = docType.trim();
 
   if (normalized === "charter") {
     return {
@@ -483,6 +496,18 @@ export default function ExactVirtualAssistantPM() {
   );
   const suggestionType = normalizedSuggestedDocType?.type;
   const hasSuggestedDocType = suggestionType && VALID_DOC_TYPES.has(suggestionType);
+  const previewDocType = useMemo(() => {
+    if (!docRouterEnabled) {
+      return DEFAULT_DOC_TYPE;
+    }
+    if (VALID_DOC_TYPES.has(docType)) {
+      return docType;
+    }
+    if (hasSuggestedDocType) {
+      return suggestionType;
+    }
+    return null;
+  }, [docRouterEnabled, docType, hasSuggestedDocType, suggestionType]);
   const hasConfirmedDocType = useMemo(() => {
     if (!docRouterEnabled) {
       return true;
@@ -494,32 +519,38 @@ export default function ExactVirtualAssistantPM() {
       allowedTypes: VALID_DOC_TYPES,
     });
   }, [docRouterEnabled, docType, normalizedSuggestedDocType]);
-  const effectiveDocType = useMemo(() => {
-    if (!docRouterEnabled) {
-      return DEFAULT_DOC_TYPE;
-    }
-    if (VALID_DOC_TYPES.has(docType)) {
-      return docType;
-    }
-    if (hasConfirmedDocType && hasSuggestedDocType) {
-      return suggestionType;
-    }
-    return DEFAULT_DOC_TYPE;
-  }, [docRouterEnabled, docType, hasConfirmedDocType, hasSuggestedDocType, suggestionType]);
+  const effectiveDocType = previewDocType ?? DEFAULT_DOC_TYPE;
   const docTypeConfig = useMemo(
-    () => buildDocTypeConfig(effectiveDocType),
-    [effectiveDocType]
+    () => buildDocTypeConfig(previewDocType),
+    [previewDocType]
   );
   const docTypeDisplayLabel = docTypeConfig.label;
-  const docPreviewLabel = `${docTypeDisplayLabel} preview`;
+  const docPreviewLabel = previewDocType
+    ? `${docTypeDisplayLabel} preview`
+    : "Document preview";
+  const previewPanelTitle = previewDocType ? docPreviewLabel : "Document preview";
+  const autoExtractTitle = previewDocType
+    ? `Auto-extract ${docTypeDisplayLabel}`
+    : "Auto-extract";
+  const autoExtractHint = previewDocType
+    ? `Use /sync to refresh the ${docTypeDisplayLabel.toLowerCase()} manually.`
+    : "Use /sync to run manually.";
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
-  const createBlankDraft = useCallback(() => docTypeConfig.createBlank(), [docTypeConfig]);
-  if (initialDraftRef.current === null) {
+  const createBlankDraft = useCallback(() => {
+    if (!previewDocType) {
+      return {};
+    }
+    return docTypeConfig.createBlank();
+  }, [docTypeConfig, previewDocType]);
+  if (initialDraftRef.current === null && previewDocType) {
     initialDraftRef.current = createBlankDraft();
   }
-  const normalizeDraft = useCallback((draft) => docTypeConfig.normalize(draft), [docTypeConfig]);
-  const requestDocType = docTypeConfig.type || DEFAULT_DOC_TYPE;
+  const normalizeDraft = useCallback(
+    (draft) => (previewDocType ? docTypeConfig.normalize(draft) : GENERIC_DOC_NORMALIZER(draft)),
+    [docTypeConfig, previewDocType]
+  );
+  const requestDocType = previewDocType || DEFAULT_DOC_TYPE;
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
@@ -530,6 +561,8 @@ export default function ExactVirtualAssistantPM() {
     const now = Date.now();
     return synchronizeFieldStates(draft, {}, { touchedPaths: paths, source: "Auto", timestamp: now, locks: {} });
   });
+  const docSchemaCacheRef = useRef(new Map());
+  const [activeDocSchema, setActiveDocSchema] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
@@ -587,6 +620,75 @@ export default function ExactVirtualAssistantPM() {
   }, [locks]);
 
   useEffect(() => {
+    if (!previewDocType || previewDocType === "charter") {
+      setActiveDocSchema(null);
+      return;
+    }
+
+    const cache = docSchemaCacheRef.current;
+    if (cache.has(previewDocType)) {
+      setActiveDocSchema(cache.get(previewDocType));
+      return;
+    }
+
+    let cancelled = false;
+    loadDocTypeSchema(previewDocType)
+      .then((schema) => {
+        const normalized = schema && typeof schema === "object" ? schema : null;
+        cache.set(previewDocType, normalized);
+        if (!cancelled) {
+          setActiveDocSchema(normalized);
+        }
+      })
+      .catch(() => {
+        cache.set(previewDocType, null);
+        if (!cancelled) {
+          setActiveDocSchema(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewDocType]);
+
+  useEffect(() => {
+    if (!previewDocType) {
+      initialDraftRef.current = null;
+      charterDraftRef.current = null;
+      if (charterPreview !== null) {
+        setCharterPreview(null);
+      }
+      if (locksRef.current && Object.keys(locksRef.current).length > 0) {
+        locksRef.current = {};
+        setLocks({});
+      }
+      setFieldStates((prev) => (prev && Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+
+    if (initialDraftRef.current === null) {
+      initialDraftRef.current = createBlankDraft();
+    }
+
+    if (charterPreview === null) {
+      const baseDraft = initialDraftRef.current ?? createBlankDraft();
+      charterDraftRef.current = baseDraft;
+      setCharterPreview(baseDraft);
+      const touchedPaths = expandPathsWithAncestors(collectPaths(baseDraft));
+      const now = Date.now();
+      setFieldStates((prev) =>
+        synchronizeFieldStates(baseDraft, prev || {}, {
+          touchedPaths,
+          source: "Auto",
+          timestamp: now,
+          locks: locksRef.current || {},
+        })
+      );
+    }
+  }, [previewDocType, charterPreview, createBlankDraft]);
+
+  useEffect(() => {
     if (!docRouterEnabled) {
       setShowDocTypeModal(false);
       if (!VALID_DOC_TYPES.has(docType)) {
@@ -604,7 +706,7 @@ export default function ExactVirtualAssistantPM() {
     }
 
     const payload = {
-      docType: requestDocType,
+      docType: previewDocType,
       attachments,
       messages,
     };
@@ -614,7 +716,7 @@ export default function ExactVirtualAssistantPM() {
     } catch (error) {
       console.error("Failed to persist document context", error);
     }
-  }, [attachments, messages, requestDocType]);
+  }, [attachments, messages, previewDocType]);
 
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
 
@@ -653,6 +755,9 @@ export default function ExactVirtualAssistantPM() {
   );
   const applyNormalizedDraft = useCallback(
     (normalizedDraft) => {
+      if (!previewDocType) {
+        return charterDraftRef.current ?? initialDraftRef.current ?? {};
+      }
       if (!normalizedDraft || typeof normalizedDraft !== "object") {
         return charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
       }
@@ -680,7 +785,7 @@ export default function ExactVirtualAssistantPM() {
 
       return finalDraft;
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
 
   const {
@@ -746,6 +851,9 @@ export default function ExactVirtualAssistantPM() {
 
   const applyCharterDraft = useCallback(
     (nextDraft, { resetLocks = false, source = "Auto" } = {}) => {
+      if (!previewDocType) {
+        return null;
+      }
       const draft =
         nextDraft && typeof nextDraft === "object" && !Array.isArray(nextDraft)
           ? nextDraft
@@ -771,11 +879,16 @@ export default function ExactVirtualAssistantPM() {
           locks: locksSnapshot,
         })
       );
+      return draft;
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
 
   useEffect(() => {
+    if (!previewDocType) {
+      lastDocTypeRef.current = requestDocType;
+      return;
+    }
     if (lastDocTypeRef.current === requestDocType) {
       return;
     }
@@ -785,10 +898,17 @@ export default function ExactVirtualAssistantPM() {
     if (!hasDraftContent(charterPreview)) {
       applyCharterDraft(blankDraft, { resetLocks: true });
     }
-  }, [applyCharterDraft, charterPreview, createBlankDraft, requestDocType]);
+  }, [
+    applyCharterDraft,
+    charterPreview,
+    createBlankDraft,
+    previewDocType,
+    requestDocType,
+  ]);
 
   const handleDraftChange = useCallback(
     (path, value) => {
+      if (!previewDocType) return;
       if (!path) return;
       const segments = path.split(".").filter(Boolean);
       if (segments.length === 0) return;
@@ -816,11 +936,12 @@ export default function ExactVirtualAssistantPM() {
         return next;
       });
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
 
   const handleLockField = useCallback((path) => {
     if (!path) return;
+    if (!previewDocType) return;
     setLocks((prev) => {
       if (prev[path]) {
         return prev;
@@ -841,7 +962,7 @@ export default function ExactVirtualAssistantPM() {
       });
       return nextLocks;
     });
-  }, []);
+  }, [previewDocType]);
 
   const draftHasContent = useMemo(() => hasDraftContent(charterPreview), [charterPreview]);
 
@@ -2474,7 +2595,7 @@ export default function ExactVirtualAssistantPM() {
 
           {/* Right Preview */}
           <aside className="lg:col-span-4">
-            <Panel title={`${docTypeDisplayLabel} preview`}>
+            <Panel title={previewPanelTitle}>
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
                   <input
@@ -2491,10 +2612,8 @@ export default function ExactVirtualAssistantPM() {
                     onChange={(e) => setAutoExtractEnabled(e.target.checked)}
                   />
                   <span className="text-left leading-tight">
-                    <span className="block font-medium">Auto-extract</span>
-                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">
-                      Use /sync to refresh manually. Run \`/type &lt;id&gt;\` to switch templates.
-                    </span>
+                    <span className="block font-medium">{autoExtractTitle}</span>
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">{autoExtractHint}</span>
                   </span>
                 </label>
               </div>
@@ -2506,8 +2625,9 @@ export default function ExactVirtualAssistantPM() {
                   isLoading={isCharterSyncInFlight}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
-                  docType={requestDocType}
+                  docType={previewDocType}
                   docLabel={docTypeDisplayLabel}
+                  schema={activeDocSchema}
                 />
               </div>
               {isCharterSyncInFlight && (

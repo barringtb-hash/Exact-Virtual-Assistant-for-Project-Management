@@ -8,6 +8,11 @@ import DocTypeModal from "./components/DocTypeModal";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
+import {
+  areDocTypeSuggestionsEqual,
+  isDocTypeConfirmed,
+  normalizeDocTypeSuggestion,
+} from "./utils/docTypeRouter";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const DOC_CONTEXT_STORAGE_KEY = "eva-doc-context";
@@ -466,15 +471,39 @@ export default function ExactVirtualAssistantPM() {
     }
     return null;
   });
+  const [suggestedDocType, setSuggestedDocType] = useState(null);
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const pendingFilesRef = useRef([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const normalizedSuggestedDocType = useMemo(
+    () => normalizeDocTypeSuggestion(suggestedDocType),
+    [suggestedDocType]
+  );
+  const suggestionType = normalizedSuggestedDocType?.type;
+  const hasSuggestedDocType = suggestionType && VALID_DOC_TYPES.has(suggestionType);
+  const hasConfirmedDocType = useMemo(() => {
+    if (!docRouterEnabled) {
+      return true;
+    }
+    return isDocTypeConfirmed({
+      selectedDocType: VALID_DOC_TYPES.has(docType) ? docType : null,
+      suggestion: normalizedSuggestedDocType,
+      threshold: 0.7,
+      allowedTypes: VALID_DOC_TYPES,
+    });
+  }, [docRouterEnabled, docType, normalizedSuggestedDocType]);
   const effectiveDocType = useMemo(() => {
     if (!docRouterEnabled) {
       return DEFAULT_DOC_TYPE;
     }
-    return VALID_DOC_TYPES.has(docType) ? docType : DEFAULT_DOC_TYPE;
-  }, [docRouterEnabled, docType]);
+    if (VALID_DOC_TYPES.has(docType)) {
+      return docType;
+    }
+    if (hasConfirmedDocType && hasSuggestedDocType) {
+      return suggestionType;
+    }
+    return DEFAULT_DOC_TYPE;
+  }, [docRouterEnabled, docType, hasConfirmedDocType, hasSuggestedDocType, suggestionType]);
   const docTypeConfig = useMemo(
     () => buildDocTypeConfig(effectiveDocType),
     [effectiveDocType]
@@ -561,8 +590,11 @@ export default function ExactVirtualAssistantPM() {
       if (!VALID_DOC_TYPES.has(docType)) {
         setDocType("charter");
       }
+      if (suggestedDocType) {
+        setSuggestedDocType(null);
+      }
     }
-  }, [docRouterEnabled, docType]);
+  }, [docRouterEnabled, docType, suggestedDocType]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -653,8 +685,11 @@ export default function ExactVirtualAssistantPM() {
     isExtracting,
     error: extractError,
     clearError: clearExtractionError,
+    suggestedDocType: inferredDocTypeSuggestion,
   } = useBackgroundExtraction({
     docType: effectiveDocType,
+    selectedDocType: VALID_DOC_TYPES.has(docType) ? docType : null,
+    suggestedDocType: normalizedSuggestedDocType,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -665,8 +700,18 @@ export default function ExactVirtualAssistantPM() {
     normalize: normalizeDraft,
     isUploadingAttachments,
     onNotify: pushToast,
-    enabled: autoExtractEnabled,
+    enabled: autoExtractEnabled && hasConfirmedDocType,
+    docTypeRoutingEnabled: docRouterEnabled,
   });
+  useEffect(() => {
+    const normalized = normalizeDocTypeSuggestion(inferredDocTypeSuggestion);
+    setSuggestedDocType((prev) => {
+      if (areDocTypeSuggestionsEqual(prev, normalized)) {
+        return prev;
+      }
+      return normalized;
+    });
+  }, [inferredDocTypeSuggestion]);
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;
@@ -679,6 +724,21 @@ export default function ExactVirtualAssistantPM() {
       : false;
     return hasAttachments || hasVoice || hasUserMessage;
   }, [attachments, voiceTranscripts, messages]);
+  useEffect(() => {
+    if (!docRouterEnabled) {
+      return;
+    }
+    if (hasConfirmedDocType) {
+      return;
+    }
+    if (!autoExtractEnabled) {
+      return;
+    }
+    if (!canSyncNow) {
+      return;
+    }
+    setShowDocTypeModal(true);
+  }, [docRouterEnabled, hasConfirmedDocType, autoExtractEnabled, canSyncNow]);
   const isCharterSyncInFlight = isExtracting || isCharterSyncing;
   const activeCharterError = charterSyncError || extractError;
 
@@ -2113,7 +2173,7 @@ export default function ExactVirtualAssistantPM() {
         return;
       }
 
-      if (docRouterEnabled && !VALID_DOC_TYPES.has(docType)) {
+      if (docRouterEnabled && !hasConfirmedDocType) {
         pendingFilesRef.current = Array.from(list);
         setShowDocTypeModal(true);
         return;
@@ -2121,12 +2181,13 @@ export default function ExactVirtualAssistantPM() {
 
       await processPickedFiles(list);
     },
-    [docRouterEnabled, docType, processPickedFiles]
+    [docRouterEnabled, hasConfirmedDocType, processPickedFiles]
   );
   const handleDocTypeConfirm = useCallback(
     async (nextValue) => {
       const normalized = VALID_DOC_TYPES.has(nextValue) ? nextValue : "charter";
       setDocType(normalized);
+      setSuggestedDocType(normalizeDocTypeSuggestion({ type: normalized, confidence: 1 }));
       setShowDocTypeModal(false);
       const pending = pendingFilesRef.current;
       pendingFilesRef.current = [];
@@ -2477,7 +2538,7 @@ export default function ExactVirtualAssistantPM() {
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <DocTypeModal
         open={docRouterEnabled && showDocTypeModal}
-        value={docType}
+        value={docType ?? suggestionType ?? ""}
         onConfirm={handleDocTypeConfirm}
         onCancel={handleDocTypeCancel}
       />

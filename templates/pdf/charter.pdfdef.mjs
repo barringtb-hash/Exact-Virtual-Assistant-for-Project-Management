@@ -90,9 +90,6 @@ export function buildPdfDefinition(charter) {
     pageMargins: [40, 52, 40, 52],
     content,
     styles,
-    defaultStyle: {
-      font: "Helvetica",
-    },
   };
 }
 

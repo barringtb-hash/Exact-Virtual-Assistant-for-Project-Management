@@ -4,14 +4,21 @@ import AssistantFeedbackTemplate, {
 } from "./components/AssistantFeedbackTemplate";
 import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
+import DocTypeModal from "./components/DocTypeModal";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
+const DOC_CONTEXT_STORAGE_KEY = "eva-doc-context";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
+const VALID_DOC_TYPES = new Set(["charter", "ddp"]);
+const DOC_TYPE_LABELS = {
+  charter: "Charter",
+  ddp: "DDP",
+};
 
 const NUMERIC_SEGMENT_PATTERN = /^\d+$/;
 
@@ -259,6 +266,84 @@ const fileToBase64 = (file) =>
     reader.readAsDataURL(file);
   });
 
+const prettyBytes = (num) => {
+  if (!Number.isFinite(num) || num < 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = num;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = value < 10 && unitIndex > 0 ? 1 : 0;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+};
+
+function restoreFilesFromStoredAttachments(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return [];
+  }
+
+  const baseTimestamp = Date.now();
+  return attachments
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const name = typeof item.name === "string" ? item.name : "";
+      if (!name) {
+        return null;
+      }
+
+      const text = typeof item.text === "string" ? item.text : "";
+      let sizeLabel = "";
+      if (text) {
+        try {
+          const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+          const bytes = encoder ? encoder.encode(text).length : text.length;
+          sizeLabel = prettyBytes(bytes);
+        } catch (error) {
+          sizeLabel = `${text.length} chars`;
+        }
+      }
+
+      return {
+        id: `${baseTimestamp}-restored-${index}`,
+        name,
+        size: sizeLabel || undefined,
+        file: null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function readStoredContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DOC_CONTEXT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+  } catch (error) {
+    console.error("Failed to load stored document context", error);
+  }
+
+  return null;
+}
+
 // --- Seed messages ---
 // Friendly, generic starter messages to welcome users
 const seedMessages = [
@@ -280,7 +365,23 @@ export default function ExactVirtualAssistantPM() {
   if (initialDraftRef.current === null) {
     initialDraftRef.current = createBlankDraft();
   }
-  const [messages, setMessages] = useState(seedMessages);
+  const docRouterEnabled = useMemo(() => {
+    const raw = import.meta?.env?.VITE_ENABLE_DOC_ROUTER;
+    if (raw == null) {
+      return false;
+    }
+
+    const normalized = String(raw).trim().toLowerCase();
+    return !["false", "0", "off", "no"].includes(normalized);
+  }, []);
+  const storedContextRef = useRef(readStoredContext());
+  const [messages, setMessages] = useState(() => {
+    const stored = storedContextRef.current;
+    if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
+      return stored.messages;
+    }
+    return seedMessages;
+  });
   const visibleMessages = useMemo(() => {
     if (!Array.isArray(messages)) {
       return [];
@@ -289,9 +390,54 @@ export default function ExactVirtualAssistantPM() {
     return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
   }, [messages]);
   const [input, setInput] = useState("");
-  const [files, setFiles] = useState([]);
-  const [attachments, setAttachments] = useState([]);
+  const [files, setFiles] = useState(() => {
+    const stored = storedContextRef.current;
+    return restoreFilesFromStoredAttachments(stored?.attachments);
+  });
+  const [attachments, setAttachments] = useState(() => {
+    const stored = storedContextRef.current;
+    if (stored && Array.isArray(stored.attachments) && stored.attachments.length > 0) {
+      return stored.attachments
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const name = typeof item.name === "string" ? item.name : "";
+          const text = typeof item.text === "string" ? item.text : "";
+          if (!name || !text) {
+            return null;
+          }
+          const mimeType = typeof item.mimeType === "string" ? item.mimeType : undefined;
+          return { name, mimeType, text };
+        })
+        .filter(Boolean);
+    }
+    return [];
+  });
+  const [docType, setDocType] = useState(() => {
+    if (!docRouterEnabled) {
+      return "charter";
+    }
+    const stored = storedContextRef.current;
+    const candidate = stored?.docType;
+    if (VALID_DOC_TYPES.has(candidate)) {
+      return candidate;
+    }
+    return null;
+  });
+  const [showDocTypeModal, setShowDocTypeModal] = useState(false);
+  const pendingFilesRef = useRef([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const effectiveDocType = useMemo(() => {
+    if (!docRouterEnabled) {
+      return "charter";
+    }
+    return VALID_DOC_TYPES.has(docType) ? docType : "charter";
+  }, [docRouterEnabled, docType]);
+  const docTypeDisplayLabel = useMemo(
+    () => DOC_TYPE_LABELS[effectiveDocType] || "Charter",
+    [effectiveDocType]
+  );
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
   const [locks, setLocks] = useState(() => ({}));
@@ -356,6 +502,33 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     locksRef.current = locks;
   }, [locks]);
+
+  useEffect(() => {
+    if (!docRouterEnabled) {
+      setShowDocTypeModal(false);
+      if (!VALID_DOC_TYPES.has(docType)) {
+        setDocType("charter");
+      }
+    }
+  }, [docRouterEnabled, docType]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const payload = {
+      docType: docRouterEnabled ? effectiveDocType : "charter",
+      attachments,
+      messages,
+    };
+
+    try {
+      window.localStorage.setItem(DOC_CONTEXT_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error("Failed to persist document context", error);
+    }
+  }, [attachments, messages, docRouterEnabled, effectiveDocType]);
 
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
 
@@ -429,7 +602,7 @@ export default function ExactVirtualAssistantPM() {
     error: extractError,
     clearError: clearExtractionError,
   } = useBackgroundExtraction({
-    docType: "charter",
+    docType: effectiveDocType,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -693,7 +866,7 @@ export default function ExactVirtualAssistantPM() {
 
     try {
       const payload = {
-        docType: "charter",
+        docType: effectiveDocType,
         messages: sanitizeMessages(messages),
         attachments: sanitizeAttachments(attachments),
         voice: sanitizeVoice(voiceTranscripts),
@@ -1628,12 +1801,13 @@ export default function ExactVirtualAssistantPM() {
     return syncCharterFromChat();
   }, [syncCharterFromChat]);
 
-  const addPickedFiles = async (list) => {
-    if (!list || !list.length) return;
-    setIsUploadingAttachments(true);
-    try {
-      const pickedFiles = Array.from(list);
-      const baseTimestamp = Date.now();
+  const processPickedFiles = useCallback(
+    async (list) => {
+      if (!list || !list.length) return;
+      setIsUploadingAttachments(true);
+      try {
+        const pickedFiles = Array.from(list);
+        const baseTimestamp = Date.now();
       const newFiles = pickedFiles.map((f, index) => ({
         id: `${baseTimestamp}-${index}`,
         name: f.name,
@@ -1685,7 +1859,7 @@ export default function ExactVirtualAssistantPM() {
           });
         } catch (error) {
           const message = error?.message || "Unknown error";
-          console.error("addPickedFiles error", error);
+          console.error("processPickedFiles error", error);
           setMessages((prev) => [
             ...prev,
             {
@@ -1706,14 +1880,58 @@ export default function ExactVirtualAssistantPM() {
     } finally {
       setIsUploadingAttachments(false);
     }
-  };
+    },
+    [
+      autoExtractEnabled,
+      clearExtractionError,
+      createBlankDraft,
+      setCharterSyncError,
+      applyCharterDraft,
+    ]
+  );
+  const queuePickedFiles = useCallback(
+    async (list) => {
+      if (!list || !list.length) {
+        return;
+      }
+
+      if (docRouterEnabled && !VALID_DOC_TYPES.has(docType)) {
+        pendingFilesRef.current = Array.from(list);
+        setShowDocTypeModal(true);
+        return;
+      }
+
+      await processPickedFiles(list);
+    },
+    [docRouterEnabled, docType, processPickedFiles]
+  );
+  const handleDocTypeConfirm = useCallback(
+    async (nextValue) => {
+      const normalized = VALID_DOC_TYPES.has(nextValue) ? nextValue : "charter";
+      setDocType(normalized);
+      setShowDocTypeModal(false);
+      const pending = pendingFilesRef.current;
+      pendingFilesRef.current = [];
+      if (pending.length) {
+        await processPickedFiles(pending);
+      }
+    },
+    [processPickedFiles]
+  );
+  const handleDocTypeCancel = useCallback(() => {
+    pendingFilesRef.current = [];
+    setShowDocTypeModal(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, []);
 
   const handleFilePick = async (e) => {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];
-    if (fileList.length) {
-      await addPickedFiles(fileList);
-    }
     if (e.target) e.target.value = "";
+    if (fileList.length) {
+      await queuePickedFiles(fileList);
+    }
   };
 
   const handleRemoveFile = (id) => {
@@ -1740,12 +1958,6 @@ export default function ExactVirtualAssistantPM() {
         setExtractionSeed(Date.now());
       }
     }
-  };
-
-  const prettyBytes = (num) => {
-    const units = ["B", "KB", "MB", "GB"]; let i = 0; let n = num;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
   const composerStatus = useMemo(() => {
@@ -1780,7 +1992,7 @@ export default function ExactVirtualAssistantPM() {
       ? Array.from(event.dataTransfer.files)
       : [];
     if (droppedFiles.length) {
-      await addPickedFiles(droppedFiles);
+      await queuePickedFiles(droppedFiles);
     }
   };
 
@@ -1897,7 +2109,7 @@ export default function ExactVirtualAssistantPM() {
 
           {/* Right Preview */}
           <aside className="lg:col-span-4">
-            <Panel title="Preview">
+            <Panel title={`${docTypeDisplayLabel} preview`}>
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
                   <input
@@ -2037,6 +2249,12 @@ export default function ExactVirtualAssistantPM() {
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <DocTypeModal
+        open={docRouterEnabled && showDocTypeModal}
+        value={docType}
+        onConfirm={handleDocTypeConfirm}
+        onCancel={handleDocTypeCancel}
+      />
     </div>
   );
 }

@@ -17,17 +17,17 @@ This guide documents how to maintain the charter templates that power charter ex
    - Overview details (Project Name, Sponsor, Project Lead, Start Date, Target Completion)
    - Vision, Problem Statement, and Description paragraphs
    - Scope In, Scope Out, Risks, Assumptions, Milestones, Success Metrics, Core Team, Generated On
-4. Insert the docxtemplater tokens exactly as defined below. Use camelCase names for single values and wrap repeating sections in loops:
-   - Single values: `{{projectName}}`, `{{sponsor}}`, `{{projectLead}}`, `{{startDate}}`, `{{endDate}}`, `{{vision}}`, `{{problem}}`, `{{description}}`, `{{generatedOn}}`
+4. Insert the docxtemplater tokens exactly as defined below. Use snake_case names for single values and wrap repeating sections in loops:
+   - Single values: `{{project_name}}`, `{{sponsor}}`, `{{project_lead}}`, `{{start_date}}`, `{{end_date}}`, `{{vision}}`, `{{problem}}`, `{{description}}`
    - Array loops:
-     - `{{#scopeIn}}…{{/scopeIn}}`
-     - `{{#scopeOut}}…{{/scopeOut}}`
+     - `{{#scope_in}}…{{/scope_in}}`
+     - `{{#scope_out}}…{{/scope_out}}`
      - `{{#risks}}…{{/risks}}`
      - `{{#assumptions}}…{{/assumptions}}`
      - `{{#milestones}}…{{/milestones}}` with fields `{{phase}}`, `{{deliverable}}`, `{{date}}`
-     - `{{#successMetrics}}…{{/successMetrics}}` with fields `{{benefit}}`, `{{metric}}`, `{{systemOfMeasurement}}`
-     - `{{#coreTeam}}…{{/coreTeam}}` with fields `{{name}}`, `{{role}}`, and optional `{{responsibilities}}`
-5. For lists, place the loop and token on the same line (for example, `{{#scopeIn}}• {{.}}{{/scopeIn}}`) so each item expands into its own bullet.
+     - `{{#success_metrics}}…{{/success_metrics}}` with fields `{{benefit}}`, `{{metric}}`, `{{system_of_measurement}}`
+     - `{{#core_team}}…{{/core_team}}` with fields `{{name}}`, `{{role}}`, and optional `{{responsibilities}}`
+5. For lists, place the loop and token on the same line (for example, `{{#scope_in}}- {{.}}{{/scope_in}}`) so each item expands into its own bullet.
 6. Save the document as `project_charter_tokens.docx` in `templates/` (or the path you chose in step 1).
 7. Re-encode the DOCX back into the repository’s base64 file so that Git tracks a text diff:
 

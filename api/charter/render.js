@@ -109,6 +109,10 @@ export async function renderDocxBuffer(charter) {
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
+    syntax: {
+      allowUnclosedTag: true,
+      allowUnopenedTag: true,
+    },
   });
 
   doc.setData(normalized);

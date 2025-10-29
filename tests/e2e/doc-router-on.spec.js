@@ -94,4 +94,40 @@ test.describe("document router enabled flows", () => {
     const renderResponse = await renderPromise;
     expect(renderResponse.status()).toBe(200);
   });
+
+  test("manual sync prompts for a document type and honors /type overrides", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+
+    const composer = page.getByPlaceholder("Type here… (paste scope or attach files)");
+    await composer.fill("We need a roadmap covering milestones and timelines.");
+    await composer.press("Enter");
+
+    await composer.fill("/sync");
+    await composer.press("Enter");
+
+    await page.getByRole("heading", { name: "What document are you creating?" }).waitFor();
+    await expect(
+      page.getByText("Pick a document template before syncing", { exact: false })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    await composer.fill("/type ddp");
+    await composer.press("Enter");
+
+    await expect(page.getByText("Document type set to DDP.", { exact: true })).toBeVisible();
+
+    const manualExtract = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/doc/extract") &&
+        response.request().method() === "POST"
+    );
+
+    await composer.fill("/sync");
+    await composer.press("Enter");
+
+    const extractResponse = await manualExtract;
+    expect(extractResponse.ok()).toBeTruthy();
+  });
 });

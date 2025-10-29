@@ -20,6 +20,51 @@ const DOC_TYPE_LABELS = {
   ddp: "DDP",
 };
 
+const DEFAULT_DOC_TYPE = "charter";
+const GENERIC_DOC_NORMALIZER = (draft) =>
+  draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+
+function buildDocTypeConfig(docType) {
+  const normalized =
+    typeof docType === "string" && docType.trim() ? docType.trim() : DEFAULT_DOC_TYPE;
+
+  if (normalized === "charter") {
+    return {
+      type: "charter",
+      label: DOC_TYPE_LABELS.charter || "Charter",
+      normalize: normalizeCharterDraft,
+      createBlank: () => normalizeCharterDraft(getBlankCharter()),
+      requiredFieldsHeading: "Charter required fields",
+      defaultBaseName: "Project_Charter_v1.0",
+      previewKind: "charter",
+    };
+  }
+
+  if (normalized === "ddp") {
+    const label = DOC_TYPE_LABELS.ddp || "DDP";
+    return {
+      type: "ddp",
+      label,
+      normalize: GENERIC_DOC_NORMALIZER,
+      createBlank: () => ({}),
+      requiredFieldsHeading: `${label} required fields`,
+      defaultBaseName: `Project_${label.replace(/\s+/g, "_")}_v1.0`,
+      previewKind: "generic",
+    };
+  }
+
+  const fallbackLabel = DOC_TYPE_LABELS[normalized] || "Document";
+  return {
+    type: normalized,
+    label: fallbackLabel,
+    normalize: GENERIC_DOC_NORMALIZER,
+    createBlank: () => ({}),
+    requiredFieldsHeading: `${fallbackLabel} required fields`,
+    defaultBaseName: `Project_${fallbackLabel.replace(/\s+/g, "_")}_v1.0`,
+    previewKind: "generic",
+  };
+}
+
 const NUMERIC_SEGMENT_PATTERN = /^\d+$/;
 
 function setNestedValue(source, segments, value) {
@@ -360,11 +405,7 @@ const seedMessages = [
 ];
 
 export default function ExactVirtualAssistantPM() {
-  const createBlankDraft = useCallback(() => normalizeCharterDraft(getBlankCharter()), []);
   const initialDraftRef = useRef(null);
-  if (initialDraftRef.current === null) {
-    initialDraftRef.current = createBlankDraft();
-  }
   const docRouterEnabled = useMemo(() => {
     const raw = import.meta?.env?.VITE_ENABLE_DOC_ROUTER;
     if (raw == null) {
@@ -430,14 +471,25 @@ export default function ExactVirtualAssistantPM() {
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const effectiveDocType = useMemo(() => {
     if (!docRouterEnabled) {
-      return "charter";
+      return DEFAULT_DOC_TYPE;
     }
-    return VALID_DOC_TYPES.has(docType) ? docType : "charter";
+    return VALID_DOC_TYPES.has(docType) ? docType : DEFAULT_DOC_TYPE;
   }, [docRouterEnabled, docType]);
-  const docTypeDisplayLabel = useMemo(
-    () => DOC_TYPE_LABELS[effectiveDocType] || "Charter",
+  const docTypeConfig = useMemo(
+    () => buildDocTypeConfig(effectiveDocType),
     [effectiveDocType]
   );
+  const docTypeDisplayLabel = docTypeConfig.label;
+  const docPreviewLabel = `${docTypeDisplayLabel} preview`;
+  const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
+  const defaultShareBaseName = docTypeConfig.defaultBaseName;
+  const createBlankDraft = useCallback(() => docTypeConfig.createBlank(), [docTypeConfig]);
+  if (initialDraftRef.current === null) {
+    initialDraftRef.current = createBlankDraft();
+  }
+  const normalizeDraft = useCallback((draft) => docTypeConfig.normalize(draft), [docTypeConfig]);
+  const requestDocType = docTypeConfig.type || DEFAULT_DOC_TYPE;
+  const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
   const [locks, setLocks] = useState(() => ({}));
@@ -518,7 +570,7 @@ export default function ExactVirtualAssistantPM() {
     }
 
     const payload = {
-      docType: docRouterEnabled ? effectiveDocType : "charter",
+      docType: requestDocType,
       attachments,
       messages,
     };
@@ -528,7 +580,7 @@ export default function ExactVirtualAssistantPM() {
     } catch (error) {
       console.error("Failed to persist document context", error);
     }
-  }, [attachments, messages, docRouterEnabled, effectiveDocType]);
+  }, [attachments, messages, requestDocType]);
 
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
 
@@ -610,7 +662,7 @@ export default function ExactVirtualAssistantPM() {
     locks,
     getDraft: getCurrentDraft,
     setDraft: applyNormalizedDraft,
-    normalize: normalizeCharterDraft,
+    normalize: normalizeDraft,
     isUploadingAttachments,
     onNotify: pushToast,
     enabled: autoExtractEnabled,
@@ -660,6 +712,18 @@ export default function ExactVirtualAssistantPM() {
     },
     [createBlankDraft]
   );
+
+  useEffect(() => {
+    if (lastDocTypeRef.current === requestDocType) {
+      return;
+    }
+    lastDocTypeRef.current = requestDocType;
+    const blankDraft = createBlankDraft();
+    initialDraftRef.current = blankDraft;
+    if (!hasDraftContent(charterPreview)) {
+      applyCharterDraft(blankDraft, { resetLocks: true });
+    }
+  }, [applyCharterDraft, charterPreview, createBlankDraft, requestDocType]);
 
   const handleDraftChange = useCallback(
     (path, value) => {
@@ -803,14 +867,14 @@ export default function ExactVirtualAssistantPM() {
   const syncCharterFromChat = useCallback(async () => {
     if (isExtracting || isCharterSyncing) {
       appendAssistantMessage(
-        "I’m already refreshing the charter preview. I’ll share updates here once they’re ready."
+        `I’m already refreshing the ${docPreviewLabel}. I’ll share updates here once they’re ready.`
       );
       return { ok: false, reason: "busy" };
     }
 
     if (!canSyncNow) {
       appendAssistantMessage(
-        "Share some scope details, voice notes, or attachments first and I’ll update the charter preview."
+        `Share some scope details, voice notes, or attachments first and I’ll update the ${docPreviewLabel}.`
       );
       return { ok: false, reason: "idle" };
     }
@@ -866,7 +930,7 @@ export default function ExactVirtualAssistantPM() {
 
     try {
       const payload = {
-        docType: effectiveDocType,
+        docType: requestDocType,
         messages: sanitizeMessages(messages),
         attachments: sanitizeAttachments(attachments),
         voice: sanitizeVoice(voiceTranscripts),
@@ -877,17 +941,42 @@ export default function ExactVirtualAssistantPM() {
         payload.seed = seedDraft;
       }
 
-      const response = await fetch("/api/charter/extract", {
+      const requestBody = JSON.stringify(payload);
+      const requestOptions = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        body: requestBody,
+      };
+
+      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(requestDocType)}`;
+      let response;
+      try {
+        response = await fetch(docEndpoint, requestOptions);
+        if (
+          response &&
+          !response.ok &&
+          requestDocType === "charter" &&
+          (response.status === 404 || response.status === 405)
+        ) {
+          response = await fetch("/api/charter/extract", requestOptions);
+        }
+      } catch (networkError) {
+        if (requestDocType !== "charter") {
+          throw networkError;
+        }
+        response = await fetch("/api/charter/extract", requestOptions);
+      }
 
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => ({}));
+        const isUnsupported = response.status === 400;
         const message =
           typeof errorPayload?.error === "string" && errorPayload.error.trim()
             ? errorPayload.error.trim()
+            : typeof errorPayload?.message === "string" && errorPayload.message.trim()
+            ? errorPayload.message.trim()
+            : isUnsupported
+            ? `Extraction is not available for "${requestDocType}" documents.`
             : `Extraction failed with status ${response.status}`;
         throw new Error(message);
       }
@@ -907,26 +996,29 @@ export default function ExactVirtualAssistantPM() {
         throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
       }
 
-      const coercedData = coerceAliasesToSchemaKeys(data);
+      const coercedData =
+        requestDocType === "charter" ? coerceAliasesToSchemaKeys(data) : data;
 
       let normalizedDraft;
       try {
-        normalizedDraft = normalizeCharterDraft(coercedData);
+        normalizedDraft = normalizeDraft(coercedData);
       } catch (normalizeError) {
-        console.error("Manual charter sync normalize error", normalizeError);
+        console.error("Manual document sync normalize error", normalizeError);
         normalizedDraft = coercedData;
       }
 
       const finalDraft = await applyNormalizedDraft(normalizedDraft);
       clearExtractionError();
       setCharterSyncError(null);
-      appendAssistantMessage("I’ve refreshed the charter preview with the latest context.");
+      appendAssistantMessage(
+        `I’ve refreshed the ${docPreviewLabel} with the latest context.`
+      );
       return { ok: true, draft: finalDraft };
     } catch (error) {
       const fallbackMessage =
         typeof error?.message === "string" && error.message.trim()
           ? error.message.trim()
-          : "Unable to update the charter preview. Please try again.";
+          : `Unable to update the ${docPreviewLabel}. Please try again.`;
       setCharterSyncError(fallbackMessage);
       if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
         appendAssistantMessage(`${fallbackMessage}`);
@@ -940,10 +1032,13 @@ export default function ExactVirtualAssistantPM() {
   }, [
     appendAssistantMessage,
     applyNormalizedDraft,
+    docPreviewLabel,
     attachments,
     canSyncNow,
     clearExtractionError,
     getCurrentDraft,
+    normalizeDraft,
+    requestDocType,
     isCharterSyncing,
     isExtracting,
     messages,
@@ -954,7 +1049,7 @@ export default function ExactVirtualAssistantPM() {
   const formatValidationErrorsForChat = (errors = []) => {
     if (!Array.isArray(errors) || errors.length === 0) {
       return [
-        "I couldn’t validate the project charter. Please review the required fields in the Design & Development Plan.",
+        `I couldn’t validate the ${docTypeDisplayLabel} document. Please review ${requiredFieldsHeading}.`,
       ];
     }
 
@@ -1029,7 +1124,7 @@ export default function ExactVirtualAssistantPM() {
     const bulletLines = formatValidationErrorsForChat(errors);
     const intro =
       heading ||
-      "I couldn’t validate the project charter. Please review the following:";
+      `I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`;
     const message = [intro, ...bulletLines.map((line) => `- ${line}`)].join("\n");
     appendAssistantMessage(message);
   };
@@ -1039,26 +1134,76 @@ export default function ExactVirtualAssistantPM() {
       return {
         ok: false,
         errors: [
-          { message: "No charter data available. Generate a draft before exporting." },
+          { message: `No ${docTypeDisplayLabel} data available. Generate a draft before exporting.` },
         ],
       };
     }
 
+    const docValidateUrl = `/api/doc/validate?docType=${encodeURIComponent(requestDocType)}`;
+    const docRequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        docType: requestDocType,
+        document: draft,
+        charter: requestDocType === "charter" ? draft : undefined,
+      }),
+    };
+
     let response;
+    let usedDocEndpoint = true;
+
     try {
-      response = await fetch("/api/charter/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      });
+      response = await fetch(docValidateUrl, docRequestInit);
+      if (
+        response &&
+        requestDocType === "charter" &&
+        (response.status === 404 || response.status === 405)
+      ) {
+        usedDocEndpoint = false;
+        response = await fetch("/api/charter/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        });
+      }
     } catch (error) {
-      console.error("Unable to reach /api/charter/validate", error);
+      console.error("Unable to reach /api/doc/validate", error);
+      if (requestDocType !== "charter") {
+        return {
+          ok: false,
+          errors: [
+            { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
+          ],
+          cause: error,
+        };
+      }
+
+      usedDocEndpoint = false;
+      try {
+        response = await fetch("/api/charter/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        });
+      } catch (legacyError) {
+        console.error("Unable to reach /api/charter/validate", legacyError);
+        return {
+          ok: false,
+          errors: [
+            { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
+          ],
+          cause: legacyError,
+        };
+      }
+    }
+
+    if (!response) {
       return {
         ok: false,
         errors: [
-          { message: "Unable to validate the charter. Please try again." },
+          { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
         ],
-        cause: error,
       };
     }
 
@@ -1066,7 +1211,12 @@ export default function ExactVirtualAssistantPM() {
     try {
       payload = await response.json();
     } catch (parseError) {
-      console.error("Failed to parse /api/charter/validate response", parseError);
+      console.error(
+        usedDocEndpoint
+          ? "Failed to parse /api/doc/validate response"
+          : "Failed to parse /api/charter/validate response",
+        parseError
+      );
     }
 
     if (!response.ok || payload?.ok !== true) {
@@ -1077,7 +1227,7 @@ export default function ExactVirtualAssistantPM() {
           message:
             payload?.error ||
             payload?.message ||
-            "Charter validation failed. Please review the Required Fields in the Design & Development Plan.",
+            `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
         });
       }
 
@@ -1130,23 +1280,83 @@ export default function ExactVirtualAssistantPM() {
     return result;
   };
 
+  const postDocRender = async ({ document, baseName, formats = [] }) => {
+    const docRenderUrl = `/api/doc/render?docType=${encodeURIComponent(requestDocType)}`;
+    const docPayload = {
+      docType: requestDocType,
+      document,
+      baseName,
+    };
+    if (Array.isArray(formats) && formats.length > 0) {
+      docPayload.formats = formats;
+    }
+    if (requestDocType === "charter") {
+      docPayload.charter = document;
+    }
+
+    const docInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(docPayload),
+    };
+
+    const legacyPayload = {
+      charter: document,
+      baseName,
+    };
+    if (Array.isArray(formats) && formats.length > 0) {
+      legacyPayload.formats = formats;
+    }
+    const legacyInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(legacyPayload),
+    };
+
+    let response;
+    let usedDocEndpoint = true;
+    try {
+      response = await fetch(docRenderUrl, docInit);
+      if (
+        response &&
+        requestDocType === "charter" &&
+        (response.status === 404 || response.status === 405)
+      ) {
+        usedDocEndpoint = false;
+        response = await fetch("/api/charter/make-link", legacyInit);
+      }
+    } catch (networkError) {
+      if (requestDocType !== "charter") {
+        networkError.endpoint = "/api/doc/render";
+        throw networkError;
+      }
+      usedDocEndpoint = false;
+      try {
+        response = await fetch("/api/charter/make-link", legacyInit);
+      } catch (legacyError) {
+        legacyError.endpoint = "/api/charter/make-link";
+        throw legacyError;
+      }
+    }
+
+    return { response, usedDocEndpoint };
+  };
+
   const makeShareLinksAndReply = async ({
-    baseName = "Project_Charter",
+    baseName = defaultShareBaseName,
     includeDocx = true,
     includePdf = true,
     introText,
   } = {}) => {
     const hasCharterDraft =
       charterPreview && typeof charterPreview === "object" && !Array.isArray(charterPreview);
-    const normalizedCharter = hasCharterDraft
-      ? normalizeCharterDraft(charterPreview)
-      : null;
+    const normalizedDocument = hasCharterDraft ? normalizeDraft(charterPreview) : null;
 
     if (hasCharterDraft) {
-      applyCharterDraft(normalizedCharter);
+      applyCharterDraft(normalizedDocument);
     }
 
-    const validation = await validateCharter(normalizedCharter);
+    const validation = await validateCharter(normalizedDocument);
     if (!validation.ok) {
       postValidationErrorsToChat(validation.errors);
       return { ok: false, reason: "validation" };
@@ -1161,19 +1371,18 @@ export default function ExactVirtualAssistantPM() {
     }
 
     let response;
+    let usedDocEndpoint = true;
     try {
-      const requestBody = { charter: normalizedCharter, baseName };
-      if (requestedFormats.length > 0) {
-        requestBody.formats = requestedFormats;
-      }
-
-      response = await fetch("/api/charter/make-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+      const result = await postDocRender({
+        document: normalizedDocument,
+        baseName,
+        formats: requestedFormats,
       });
+      response = result.response;
+      usedDocEndpoint = result.usedDocEndpoint;
     } catch (networkError) {
-      console.error("/api/charter/make-link network error", networkError);
+      const endpointLabel = networkError?.endpoint || "/api/doc/render";
+      console.error(`${endpointLabel} network error`, networkError);
       appendAssistantMessage(
         "Export link error: Unable to create export links right now. Please try again shortly."
       );
@@ -1185,7 +1394,12 @@ export default function ExactVirtualAssistantPM() {
     try {
       payload = await response.json();
     } catch (parseError) {
-      console.error("Failed to parse /api/charter/make-link response", parseError);
+      console.error(
+        usedDocEndpoint
+          ? "Failed to parse /api/doc/render response"
+          : "Failed to parse /api/charter/make-link response",
+        parseError
+      );
     }
 
     if (!response.ok) {
@@ -1193,7 +1407,7 @@ export default function ExactVirtualAssistantPM() {
       if (validationErrors.length > 0) {
         postValidationErrorsToChat(validationErrors, {
           heading:
-            "Export link error: I couldn’t validate the project charter. Please review the following:",
+            `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
         });
         await checkShareLinksConfigured();
 
@@ -1209,7 +1423,7 @@ export default function ExactVirtualAssistantPM() {
       const fallbackMessage =
         payload?.error?.message ||
         payload?.message ||
-        "Unable to create export links right now.";
+        `Unable to create ${docTypeDisplayLabel} export links right now.`;
 
       appendAssistantMessage(`Export link error: ${fallbackMessage}`);
       await checkShareLinksConfigured();
@@ -1252,7 +1466,7 @@ export default function ExactVirtualAssistantPM() {
       return { ok: false, reason: "no-formats" };
     }
 
-    const safeBaseName = baseName || "Project_Charter";
+    const safeBaseName = baseName || defaultShareBaseName;
     const heading = introText || `Here are your export links for ${safeBaseName}:`;
     const message = `${heading}\n${lines.join("\n")}`;
     appendAssistantMessage(message);
@@ -1268,22 +1482,21 @@ export default function ExactVirtualAssistantPM() {
     setIsGeneratingExportLinks(true);
     try {
       let response;
+      let usedDocEndpoint = true;
       try {
-        const blankCharter = normalizeCharterDraft(getBlankCharter());
-
-        response = await fetch("/api/charter/make-link", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            charter: blankCharter,
-            baseName,
-            formats: ["docx", "pdf"],
-          }),
+        const blankDocument = normalizeDraft(createBlankDraft());
+        const result = await postDocRender({
+          document: blankDocument,
+          baseName,
+          formats: ["docx", "pdf"],
         });
+        response = result.response;
+        usedDocEndpoint = result.usedDocEndpoint;
       } catch (networkError) {
-        console.error("/api/charter/make-link network error (blank charter)", networkError);
+        const endpointLabel = networkError?.endpoint || "/api/doc/render";
+        console.error(`${endpointLabel} network error (blank document)`, networkError);
         appendAssistantMessage(
-          "Blank charter error: Unable to create download links right now. Please try again shortly."
+          `Blank ${docTypeDisplayLabel} error: Unable to create download links right now. Please try again shortly.`
         );
         await checkShareLinksConfigured();
         return { ok: false, reason: "network", error: networkError };
@@ -1293,7 +1506,12 @@ export default function ExactVirtualAssistantPM() {
       try {
         payload = await response.json();
       } catch (parseError) {
-        console.error("Failed to parse /api/charter/make-link response (blank charter)", parseError);
+        console.error(
+          usedDocEndpoint
+            ? "Failed to parse /api/doc/render response (blank document)"
+            : "Failed to parse /api/charter/make-link response (blank document)",
+          parseError
+        );
       }
 
       if (!response.ok) {
@@ -1301,7 +1519,7 @@ export default function ExactVirtualAssistantPM() {
         if (validationErrors.length > 0) {
           postValidationErrorsToChat(validationErrors, {
             heading:
-              "Blank charter error: I couldn’t validate the project charter. Please review the following:",
+              `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
           });
           await checkShareLinksConfigured();
           return {
@@ -1314,8 +1532,10 @@ export default function ExactVirtualAssistantPM() {
         }
 
         const fallbackMessage =
-          payload?.error?.message || payload?.message || "Unable to create download links right now.";
-        appendAssistantMessage(`Blank charter error: ${fallbackMessage}`);
+          payload?.error?.message ||
+          payload?.message ||
+          `Unable to create blank ${docTypeDisplayLabel} download links right now.`;
+        appendAssistantMessage(`Blank ${docTypeDisplayLabel} error: ${fallbackMessage}`);
         await checkShareLinksConfigured();
         return { ok: false, reason: "http", status: response.status, payload };
       }
@@ -1342,7 +1562,7 @@ export default function ExactVirtualAssistantPM() {
         if (!link) {
           const label = format.toUpperCase();
           appendAssistantMessage(
-            `Blank charter error: The ${label} link was missing from the response.`
+            `Blank ${docTypeDisplayLabel} error: The ${label} link was missing from the response.`
           );
           await checkShareLinksConfigured();
           return { ok: false, reason: `missing-${format}` };
@@ -1352,8 +1572,8 @@ export default function ExactVirtualAssistantPM() {
         resolvedLinks[format] = link;
       }
 
-      const safeBaseName = baseName || "Project_Charter";
-      const message = `Here’s a blank charter for ${safeBaseName}:\n${lines.join("\n")}`;
+      const safeBaseName = baseName || defaultShareBaseName;
+      const message = `Here’s a blank ${docTypeDisplayLabel} for ${safeBaseName}:\n${lines.join("\n")}`;
       appendAssistantMessage(message);
 
       return { ok: true, links: resolvedLinks };
@@ -1362,7 +1582,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const exportDocxViaChat = async (baseName = "Project_Charter") => {
+  const exportDocxViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
       return { ok: false, reason: "busy" };
     }
@@ -1380,7 +1600,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const exportPdfViaChat = async (baseName = "Project_Charter") => {
+  const exportPdfViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingPdf || isGeneratingExportLinks || isExportingDocx) {
       return { ok: false, reason: "busy" };
     }
@@ -1398,7 +1618,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const shareLinksViaChat = async (baseName = "Project_Charter") => {
+  const shareLinksViaChat = async (baseName = defaultShareBaseName) => {
     if (isGeneratingExportLinks || isExportingDocx || isExportingPdf) {
       return { ok: false, reason: "busy" };
     }
@@ -1665,8 +1885,6 @@ export default function ExactVirtualAssistantPM() {
       setListening(false);
     }
   };
-
-  const defaultShareBaseName = "Project_Charter_v1.0";
 
   const handleCommandFromText = async (
     rawText,
@@ -1974,7 +2192,7 @@ export default function ExactVirtualAssistantPM() {
       return "Assistant is responding…";
     }
     if (isCharterSyncInFlight) {
-      return "Syncing charter preview…";
+      return `Syncing ${docPreviewLabel}…`;
     }
     return "Idle";
   }, [
@@ -2141,10 +2359,12 @@ export default function ExactVirtualAssistantPM() {
                   isLoading={isCharterSyncInFlight}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
+                  docType={requestDocType}
+                  docLabel={docTypeDisplayLabel}
                 />
               </div>
               {isCharterSyncInFlight && (
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating charter preview…</div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating {docPreviewLabel}…</div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -2234,12 +2454,18 @@ export default function ExactVirtualAssistantPM() {
               )}
 
               <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Required Fields</div>
-                <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
-                  <li className="flex items-center gap-2"><span className="text-amber-600 dark:text-amber-300"><IconAlert className="h-4 w-4" /></span> Milestones</li>
-                </ul>
+                <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">{requiredFieldsHeading}</div>
+                {docTypeConfig.type === "charter" ? (
+                  <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                    <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
+                    <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
+                    <li className="flex items-center gap-2"><span className="text-amber-600 dark:text-amber-300"><IconAlert className="h-4 w-4" /></span> Milestones</li>
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-700 dark:text-slate-200">
+                    Required field guidance isn’t available for this document type yet.
+                  </p>
+                )}
               </div>
             </Panel>
           </aside>

@@ -13,6 +13,16 @@ export const templateRegistry = {
     },
     outputFilename: 'project_charter.docx',
   },
+  ddp: {
+    schemaPath: path.join(templatesDir, 'ddp', 'ddp.schema.json'),
+    fieldRulesPath: path.join(templatesDir, 'ddp', 'field_rules.json'),
+    extractPromptPath: path.join(templatesDir, 'ddp', 'extract_prompt.txt'),
+    docxPath: path.join(templatesDir, 'ddp', 'ddp_tokens.docx'),
+    metadata: {
+      encodedDocxPath: path.join(templatesDir, 'ddp', 'ddp_tokens.docx.b64'),
+    },
+    outputFilename: 'design_development_plan.docx',
+  },
 };
 
 export function getTemplateConfig(docType) {

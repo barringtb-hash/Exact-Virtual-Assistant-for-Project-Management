@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exact.pm/schemas/ddp.schema.json",
+  "title": "DesignDevelopmentPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "document_title",
+    "product_name",
+    "version",
+    "revision_date",
+    "purpose",
+    "design_inputs",
+    "intended_use",
+    "user_needs",
+    "risks",
+    "milestones",
+    "approvals"
+  ],
+  "properties": {
+    "document_title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "product_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "revision_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "prepared_by": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "organization": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      }
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "background": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "design_inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "requirement"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "requirement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "design_constraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "intended_use": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500
+    },
+    "user_needs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "design_outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliverable"],
+        "properties": {
+          "deliverable": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "linked_input": {
+            "type": "string",
+            "maxLength": 160
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hazard",
+          "harm",
+          "mitigation"
+        ],
+        "properties": {
+          "hazard": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "harm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "cause": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "Negligible",
+              "Minor",
+              "Serious",
+              "Critical",
+              "Catastrophic"
+            ]
+          },
+          "probability": {
+            "type": "string",
+            "enum": [
+              "Remote",
+              "Occasional",
+              "Probable",
+              "Frequent"
+            ]
+          },
+          "mitigation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "residual_risk": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "verification_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item"],
+        "properties": {
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "method": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Planned",
+              "In Progress",
+              "Complete",
+              "Blocked"
+            ]
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "validation_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item"],
+        "properties": {
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "method": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Planned",
+              "In Progress",
+              "Complete",
+              "Blocked"
+            ]
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "planned_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "actual_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Planned",
+              "In Progress",
+              "Complete",
+              "Deferred",
+              "Cancelled"
+            ]
+          }
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "organization": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "approval_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "signature": {
+            "type": "string",
+            "maxLength": 120
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  }
+}

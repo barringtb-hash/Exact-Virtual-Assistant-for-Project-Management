@@ -205,6 +205,10 @@ export const config = {
   memory: 1024,
 };
 
+export function __clearDocTemplateCache() {
+  templateCache.clear();
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });

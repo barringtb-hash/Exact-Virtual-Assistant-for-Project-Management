@@ -248,6 +248,13 @@ export default async function handler(req, res) {
       }
 
       if (isDocRenderValidationError(renderError)) {
+        if (typeof renderError.docType !== "string") {
+          renderError.docType = docType;
+        }
+        if (typeof renderError.docLabel !== "string") {
+          renderError.docLabel = docLabel;
+        }
+
         const payload = formatDocRenderError(renderError);
         console.error("doc render validation failed", renderError);
         return res.status(renderError.statusCode || 400).json(payload);

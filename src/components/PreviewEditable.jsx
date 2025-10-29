@@ -1,63 +1,8 @@
 import React from "react";
-import formatRelativeTime from "../utils/formatRelativeTime";
+import formatRelativeTime from "../utils/formatRelativeTime.js";
 import { useDocTypeContext } from "../context/DocTypeContext.jsx";
 
-const STRING_ARRAY_FIELDS = [
-  {
-    path: "scope_in",
-    label: "Scope In",
-    addLabel: "Add scope in item",
-    placeholder: "Items that are included in scope",
-  },
-  {
-    path: "scope_out",
-    label: "Scope Out",
-    addLabel: "Add scope out item",
-    placeholder: "Items that are excluded from scope",
-  },
-  {
-    path: "risks",
-    label: "Risks",
-    addLabel: "Add risk",
-    placeholder: "Describe a risk",
-  },
-  {
-    path: "assumptions",
-    label: "Assumptions",
-    addLabel: "Add assumption",
-    placeholder: "Describe an assumption",
-  },
-];
-
-const OBJECT_ARRAY_FIELDS = {
-  milestones: {
-    title: "Milestones",
-    addLabel: "Add milestone",
-    fields: [
-      { key: "phase", label: "Phase", placeholder: "Phase" },
-      { key: "deliverable", label: "Deliverable", placeholder: "Key deliverable" },
-      { key: "date", label: "Target Date", placeholder: "YYYY-MM-DD" },
-    ],
-  },
-  success_metrics: {
-    title: "Success Metrics",
-    addLabel: "Add success metric",
-    fields: [
-      { key: "benefit", label: "Benefit", placeholder: "What improves?" },
-      { key: "metric", label: "Metric", placeholder: "Measurement" },
-      { key: "system_of_measurement", label: "Measurement System", placeholder: "How it's measured" },
-    ],
-  },
-  core_team: {
-    title: "Core Team",
-    addLabel: "Add team member",
-    fields: [
-      { key: "name", label: "Name", placeholder: "Full name" },
-      { key: "role", label: "Role", placeholder: "Role or title" },
-      { key: "responsibilities", label: "Responsibilities", placeholder: "Responsibilities" },
-    ],
-  },
-};
+const CUSTOM_EDITORS = {};
 
 function includesSchemaType(schemaType, target) {
   if (!schemaType) return false;
@@ -107,6 +52,167 @@ function buildArrayPlaceholder(label) {
 function buildTextPlaceholder(label) {
   if (!label) return "Enter value";
   return `Enter ${label.toLowerCase()}`;
+}
+
+function deriveSchemaFieldConfigs(schema) {
+  const hasSchema = schema && typeof schema === "object" && !Array.isArray(schema);
+  if (!hasSchema) {
+    return null;
+  }
+
+  const properties =
+    schema?.properties && typeof schema.properties === "object"
+      ? schema.properties
+      : {};
+  const requiredKeys = Array.isArray(schema?.required) ? schema.required : [];
+  const propertyOrder = [];
+  const seenKeys = new Set();
+
+  for (const key of requiredKeys) {
+    if (properties[key] && !seenKeys.has(key)) {
+      propertyOrder.push(key);
+      seenKeys.add(key);
+    }
+  }
+
+  for (const key of Object.keys(properties)) {
+    if (!seenKeys.has(key)) {
+      propertyOrder.push(key);
+      seenKeys.add(key);
+    }
+  }
+
+  const scalarFields = [];
+  const stringArrayFields = [];
+  const objectArrayFields = [];
+
+  propertyOrder.forEach((key) => {
+    const definition = properties[key];
+    if (!definition || typeof definition !== "object") {
+      return;
+    }
+
+    if (includesSchemaType(definition.type, "string")) {
+      const label = definition.title || formatKeyLabel(key) || key;
+      const placeholder = definition.placeholder || buildTextPlaceholder(label);
+      const inputType = definition.format === "date" ? "date" : "text";
+      const multiline =
+        typeof definition.maxLength === "number" && definition.maxLength > 200;
+      scalarFields.push({
+        key,
+        label,
+        placeholder,
+        type: inputType,
+        multiline,
+        description: definition.description,
+      });
+      return;
+    }
+
+    if (includesSchemaType(definition.type, "array")) {
+      const items =
+        definition.items && typeof definition.items === "object"
+          ? definition.items
+          : {};
+
+      if (includesSchemaType(items.type, "string")) {
+        const label = definition.title || formatKeyLabel(key) || key;
+        stringArrayFields.push({
+          key,
+          label,
+          addLabel: definition.addLabel || buildArrayPlaceholder(label),
+          placeholder:
+            items.placeholder || buildTextPlaceholder(singularizeLabel(label)),
+          description: definition.description,
+        });
+        return;
+      }
+
+      if (includesSchemaType(items.type, "object")) {
+        const itemProperties =
+          items.properties && typeof items.properties === "object"
+            ? items.properties
+            : {};
+        const itemRequired = Array.isArray(items.required)
+          ? items.required
+          : [];
+        const entryOrder = [];
+        const seenEntries = new Set();
+
+        for (const entryKey of itemRequired) {
+          if (itemProperties[entryKey] && !seenEntries.has(entryKey)) {
+            entryOrder.push(entryKey);
+            seenEntries.add(entryKey);
+          }
+        }
+
+        for (const entryKey of Object.keys(itemProperties)) {
+          if (!seenEntries.has(entryKey)) {
+            entryOrder.push(entryKey);
+            seenEntries.add(entryKey);
+          }
+        }
+
+        const fields = entryOrder.map((entryKey) => {
+          const entryDefinition = itemProperties[entryKey];
+          const entryLabel =
+            entryDefinition?.title || formatKeyLabel(entryKey) || entryKey;
+          const placeholder =
+            entryDefinition?.placeholder || buildTextPlaceholder(entryLabel);
+          return {
+            key: entryKey,
+            label: entryLabel,
+            placeholder,
+          };
+        });
+
+        const label = definition.title || formatKeyLabel(key) || key;
+        objectArrayFields.push({
+          key,
+          title: label,
+          addLabel: definition.addLabel || buildArrayPlaceholder(label),
+          fields,
+          description: definition.description,
+        });
+      }
+    }
+  });
+
+  const hasEditableFields =
+    scalarFields.length > 0 ||
+    stringArrayFields.length > 0 ||
+    objectArrayFields.length > 0;
+
+  if (!hasEditableFields) {
+    return null;
+  }
+
+  return {
+    scalarFields,
+    stringArrayFields,
+    objectArrayFields,
+  };
+}
+
+function manifestItemRequiresSchema(item) {
+  if (!item || typeof item !== "object") {
+    return false;
+  }
+
+  if (item.component === "schema") {
+    return true;
+  }
+
+  if (item.component === "row") {
+    const columns = Array.isArray(item.columns) ? item.columns : [];
+    return columns.some((column) => manifestItemRequiresSchema(column));
+  }
+
+  if (Array.isArray(item.items)) {
+    return item.items.some((entry) => manifestItemRequiresSchema(entry));
+  }
+
+  return false;
 }
 
 const noop = () => {};
@@ -377,9 +483,11 @@ export default function PreviewEditable({
   onLockField = noop,
   isLoading = false,
   schema,
+  manifest,
 }) {
   const { previewDocType, previewDocTypeLabel } = useDocTypeContext();
-  const safeDraft = draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+  const safeDraft =
+    draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
   const metaFor = (path) => fieldStates?.[path];
   const metaCollectionForPrefix = (prefix) => {
@@ -397,7 +505,31 @@ export default function PreviewEditable({
     typeof previewDocType === "string" && previewDocType.trim()
       ? previewDocType.trim()
       : null;
-  const displayDocLabel = previewDocTypeLabel || normalizedDocType || "Document";
+
+  const manifestConfig =
+    manifest && typeof manifest === "object" && !Array.isArray(manifest)
+      ? manifest
+      : null;
+  const previewManifest =
+    manifestConfig && typeof manifestConfig.preview === "object"
+      ? manifestConfig.preview
+      : null;
+  const manifestMode =
+    previewManifest?.mode ||
+    (Array.isArray(previewManifest?.sections) ? "sections" : null);
+  const manifestSections = Array.isArray(previewManifest?.sections)
+    ? previewManifest.sections
+    : [];
+
+  const schemaConfigs = deriveSchemaFieldConfigs(schema);
+  const hasSchemaConfigs = Boolean(schemaConfigs);
+
+  const displayDocLabel =
+    previewManifest?.displayLabel ||
+    manifestConfig?.label ||
+    previewDocTypeLabel ||
+    normalizedDocType ||
+    "Document";
 
   if (!normalizedDocType) {
     return (
@@ -410,342 +542,456 @@ export default function PreviewEditable({
     );
   }
 
-  if (normalizedDocType !== "charter") {
-    const hasSchema = schema && typeof schema === "object" && !Array.isArray(schema);
+  const manifestRequiresSchema =
+    manifestMode === "sections" &&
+    manifestSections.some(
+      (section) =>
+        Array.isArray(section?.items) &&
+        section.items.some((item) => manifestItemRequiresSchema(item))
+    );
 
-    if (!hasSchema) {
-      return (
-        <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
-          <p className="font-medium">Schema metadata not available for “{displayDocLabel}”.</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            You can continue chatting with EVA to update the draft, or select a different template to enable inline editing.
-          </p>
-          <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
-            {JSON.stringify(safeDraft, null, 2)}
-          </pre>
-        </div>
+  const renderScalarField = (field, keyPrefix, overrides = {}) => {
+    const path =
+      typeof field?.key === "string" && field.key.trim()
+        ? field.key.trim()
+        : null;
+    if (!path) {
+      return null;
+    }
+    const label =
+      field?.label ||
+      formatKeyLabel(path) ||
+      path ||
+      "";
+    const placeholder =
+      field?.placeholder || buildTextPlaceholder(label);
+    const type =
+      field?.type === "date" ? "date" : field?.type || "text";
+    const multiline = Boolean(field?.multiline);
+    const disabledFlag = Boolean(
+      overrides.disabled ?? field?.disabled
+    );
+
+    return (
+      <ScalarInput
+        key={keyPrefix || path}
+        label={label}
+        path={path}
+        value={typeof safeDraft[path] === "string" ? safeDraft[path] : ""}
+        placeholder={placeholder}
+        onChange={(value) => onDraftChange(path, value)}
+        onLock={onLockField}
+        locked={isLocked(path)}
+        disabled={isLoading || disabledFlag}
+        type={type}
+        multiline={multiline}
+        description={field?.description}
+        meta={metaFor(path)}
+      />
+    );
+  };
+
+  const renderStringArrayField = (field, keyPrefix, overrides = {}) => {
+    const path =
+      typeof field?.key === "string" && field.key.trim()
+        ? field.key.trim()
+        : null;
+    if (!path) {
+      return null;
+    }
+    const label =
+      field?.label ||
+      formatKeyLabel(path) ||
+      path ||
+      "";
+    const addLabel =
+      field?.addLabel || buildArrayPlaceholder(label);
+    const placeholder =
+      field?.placeholder ||
+      buildTextPlaceholder(singularizeLabel(label));
+    const disabledFlag = Boolean(
+      overrides.disabled ?? field?.disabled
+    );
+
+    return (
+      <StringArrayEditor
+        key={keyPrefix || path}
+        label={label}
+        path={path}
+        items={safeDraft[path]}
+        addLabel={addLabel}
+        placeholder={placeholder}
+        onChange={onDraftChange}
+        onLock={onLockField}
+        isLocked={isLocked}
+        disabled={isLoading || disabledFlag}
+        meta={metaFor(path)}
+        itemMeta={metaCollectionForPrefix(path)}
+        description={field?.description}
+      />
+    );
+  };
+
+  const renderObjectArrayField = (field, keyPrefix, overrides = {}) => {
+    const path =
+      typeof field?.key === "string" && field.key.trim()
+        ? field.key.trim()
+        : null;
+    if (!path) {
+      return null;
+    }
+    const title =
+      field?.title || formatKeyLabel(path) || path || "";
+    const addLabel =
+      field?.addLabel || buildArrayPlaceholder(title);
+    const normalizedFields = Array.isArray(field?.fields)
+      ? field.fields.map((entry) => {
+          const entryKey =
+            typeof entry?.key === "string" && entry.key.trim()
+              ? entry.key.trim()
+              : "";
+          const entryLabel =
+            entry?.label ||
+            (entryKey ? formatKeyLabel(entryKey) : "") ||
+            entryKey ||
+            "";
+          return {
+            key: entryKey,
+            label: entryLabel,
+            placeholder:
+              entry?.placeholder ||
+              buildTextPlaceholder(entryLabel || entryKey || "Item"),
+          };
+        })
+      : [];
+    const disabledFlag = Boolean(
+      overrides.disabled ?? field?.disabled
+    );
+
+    return (
+      <ObjectArrayEditor
+        key={keyPrefix || path}
+        path={path}
+        items={safeDraft[path]}
+        title={title}
+        fields={normalizedFields}
+        addLabel={addLabel}
+        onChange={onDraftChange}
+        onLock={onLockField}
+        isLocked={isLocked}
+        disabled={isLoading || disabledFlag}
+        meta={metaFor(path)}
+        fieldMeta={metaCollectionForPrefix(path)}
+        description={field?.description}
+      />
+    );
+  };
+
+  const renderCustomEditor = (item, key) => {
+    const name =
+      typeof item?.name === "string" && item.name
+        ? item.name
+        : typeof item?.component === "string" && item.component !== "custom"
+        ? item.component
+        : null;
+    const CustomComponent = name ? CUSTOM_EDITORS[name] : null;
+    if (!CustomComponent) {
+      return null;
+    }
+    return (
+      <CustomComponent
+        key={key}
+        draft={safeDraft}
+        locks={locks}
+        fieldStates={fieldStates}
+        onDraftChange={onDraftChange}
+        onLockField={onLockField}
+        isLocked={isLocked}
+        isLoading={isLoading}
+        manifestItem={item}
+        manifest={manifestConfig}
+        metaFor={metaFor}
+        metaCollectionForPrefix={metaCollectionForPrefix}
+      />
+    );
+  };
+
+  const renderSchemaNodes = (includeList, keyPrefix) => {
+    if (!schemaConfigs) {
+      return [];
+    }
+    const normalizedInclude =
+      Array.isArray(includeList) && includeList.length > 0
+        ? includeList
+        : ["scalar", "string-array", "object-array"];
+    const includeSet = new Set(
+      normalizedInclude.map((entry) => String(entry).toLowerCase())
+    );
+    const nodes = [];
+    if (includeSet.has("scalar") || includeSet.has("scalars")) {
+      nodes.push(
+        ...schemaConfigs.scalarFields.map((field) =>
+          renderScalarField(field, `${keyPrefix}-scalar-${field.key}`)
+        )
       );
     }
-
-    const properties = schema?.properties && typeof schema.properties === "object" ? schema.properties : {};
-    const requiredKeys = Array.isArray(schema?.required) ? schema.required : [];
-    const propertyOrder = [];
-    const seenKeys = new Set();
-
-    for (const key of requiredKeys) {
-      if (properties[key] && !seenKeys.has(key)) {
-        propertyOrder.push(key);
-        seenKeys.add(key);
-      }
+    if (
+      includeSet.has("string-array") ||
+      includeSet.has("string_arrays") ||
+      includeSet.has("stringarray")
+    ) {
+      nodes.push(
+        ...schemaConfigs.stringArrayFields.map((field) =>
+          renderStringArrayField(field, `${keyPrefix}-string-${field.key}`)
+        )
+      );
     }
-
-    for (const key of Object.keys(properties)) {
-      if (!seenKeys.has(key)) {
-        propertyOrder.push(key);
-        seenKeys.add(key);
-      }
+    if (
+      includeSet.has("object-array") ||
+      includeSet.has("object_arrays") ||
+      includeSet.has("objectarray")
+    ) {
+      nodes.push(
+        ...schemaConfigs.objectArrayFields.map((field) =>
+          renderObjectArrayField(field, `${keyPrefix}-object-${field.key}`)
+        )
+      );
     }
+    return nodes;
+  };
 
-    const scalarFields = [];
-    const stringArrayFields = [];
-    const objectArrayFields = [];
-
-    propertyOrder.forEach((key) => {
-      const definition = properties[key];
-      if (!definition || typeof definition !== "object") {
-        return;
-      }
-
-      if (includesSchemaType(definition.type, "string")) {
-        const label = definition.title || formatKeyLabel(key) || key;
-        const placeholder = definition.placeholder || buildTextPlaceholder(label);
-        const inputType = definition.format === "date" ? "date" : "text";
-        const multiline = typeof definition.maxLength === "number" && definition.maxLength > 200;
-        scalarFields.push({
-          key,
+  const renderManifestItem = (item, keyPrefix) => {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+    switch (item.component) {
+      case "scalar": {
+        const path = item.path;
+        const label =
+          item.label ||
+          (typeof path === "string" ? formatKeyLabel(path) : "") ||
+          path;
+        const placeholder =
+          item.placeholder ||
+          buildTextPlaceholder(label || path || "");
+        const fieldConfig = {
+          key: typeof path === "string" ? path : null,
           label,
           placeholder,
-          type: inputType,
-          multiline,
-          description: definition.description,
+          type: item.type,
+          multiline: item.multiline,
+          description: item.description,
+          disabled: item.disabled,
+        };
+        return renderScalarField(fieldConfig, keyPrefix || fieldConfig.key);
+      }
+      case "string-array": {
+        const path = item.path;
+        const label =
+          item.label ||
+          (typeof path === "string" ? formatKeyLabel(path) : "") ||
+          path;
+        const fieldConfig = {
+          key: typeof path === "string" ? path : null,
+          label,
+          addLabel:
+            item.addLabel ||
+            buildArrayPlaceholder(label || path || ""),
+          placeholder:
+            item.placeholder ||
+            buildTextPlaceholder(
+              singularizeLabel(label || path || "")
+            ),
+          description: item.description,
+          disabled: item.disabled,
+        };
+        return renderStringArrayField(fieldConfig, keyPrefix || fieldConfig.key);
+      }
+      case "object-array": {
+        const path = item.path;
+        const title =
+          item.title ||
+          (typeof path === "string" ? formatKeyLabel(path) : "") ||
+          path;
+        const fieldConfig = {
+          key: typeof path === "string" ? path : null,
+          title,
+          addLabel:
+            item.addLabel ||
+            buildArrayPlaceholder(title || path || ""),
+          fields: item.fields,
+          description: item.description,
+          disabled: item.disabled,
+        };
+        return renderObjectArrayField(fieldConfig, keyPrefix || fieldConfig.key);
+      }
+      case "row": {
+        const columns = Array.isArray(item.columns) ? item.columns : [];
+        if (columns.length === 0) {
+          return null;
+        }
+        const columnElements = columns
+          .map((column, columnIndex) =>
+            renderManifestItem(
+              column,
+              `${keyPrefix || "row"}-col${columnIndex}`
+            )
+          )
+          .flat()
+          .filter(Boolean);
+        if (columnElements.length === 0) {
+          return null;
+        }
+        const columnCount = columns.length;
+        const responsiveClass =
+          columnCount >= 3
+            ? "sm:grid-cols-3"
+            : columnCount === 2
+            ? "sm:grid-cols-2"
+            : "sm:grid-cols-1";
+        return (
+          <div
+            key={keyPrefix || `row-${columnCount}`}
+            className={`grid grid-cols-1 gap-3 ${responsiveClass}`}
+          >
+            {columnElements}
+          </div>
+        );
+      }
+      case "schema": {
+        return renderSchemaNodes(item.include, keyPrefix || "schema");
+      }
+      case "custom": {
+        return renderCustomEditor(item, keyPrefix || item.name || "custom");
+      }
+      default: {
+        if (
+          typeof item.component === "string" &&
+          CUSTOM_EDITORS[item.component]
+        ) {
+          return renderCustomEditor(
+            { ...item, name: item.component, component: item.component },
+            keyPrefix || item.component
+          );
+        }
+        return null;
+      }
+    }
+  };
+
+  const renderManifestSections = () => {
+    const sectionElements = manifestSections
+      .map((section, sectionIndex) => {
+        if (!section || typeof section !== "object") {
+          return null;
+        }
+        const sectionItems = Array.isArray(section.items)
+          ? section.items
+          : [];
+        const children = [];
+        sectionItems.forEach((item, itemIndex) => {
+          const result = renderManifestItem(
+            item,
+            `${section.id || sectionIndex}-${itemIndex}`
+          );
+          if (Array.isArray(result)) {
+            result.forEach((node) => {
+              if (node) {
+                children.push(node);
+              }
+            });
+          } else if (result) {
+            children.push(result);
+          }
         });
-        return;
-      }
-
-      if (includesSchemaType(definition.type, "array")) {
-        const items = definition.items && typeof definition.items === "object" ? definition.items : {};
-        if (includesSchemaType(items.type, "string")) {
-          const label = definition.title || formatKeyLabel(key) || key;
-          stringArrayFields.push({
-            key,
-            label,
-            addLabel: buildArrayPlaceholder(label),
-            placeholder: definition.items?.placeholder || buildTextPlaceholder(singularizeLabel(label)),
-            description: definition.description,
-          });
-          return;
+        if (children.length === 0) {
+          return null;
         }
+        const key = section.id || `${sectionIndex}`;
+        const heading =
+          section.title ??
+          (sectionIndex === 0 ? displayDocLabel : null);
+        return (
+          <section key={key} className="space-y-3">
+            {heading ? (
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+                {heading}
+              </h3>
+            ) : null}
+            {section.description ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {section.description}
+              </p>
+            ) : null}
+            {children}
+          </section>
+        );
+      })
+      .filter(Boolean);
 
-        if (includesSchemaType(items.type, "object")) {
-          const itemProperties = items.properties && typeof items.properties === "object" ? items.properties : {};
-          const itemRequired = Array.isArray(items.required) ? items.required : [];
-          const entryOrder = [];
-          const seenEntries = new Set();
-
-          for (const entryKey of itemRequired) {
-            if (itemProperties[entryKey] && !seenEntries.has(entryKey)) {
-              entryOrder.push(entryKey);
-              seenEntries.add(entryKey);
-            }
-          }
-
-          for (const entryKey of Object.keys(itemProperties)) {
-            if (!seenEntries.has(entryKey)) {
-              entryOrder.push(entryKey);
-              seenEntries.add(entryKey);
-            }
-          }
-
-          const fields = entryOrder.map((entryKey) => {
-            const entryDefinition = itemProperties[entryKey];
-            const entryLabel = entryDefinition?.title || formatKeyLabel(entryKey) || entryKey;
-            const placeholder = entryDefinition?.placeholder || buildTextPlaceholder(entryLabel);
-            return {
-              key: entryKey,
-              label: entryLabel,
-              placeholder,
-            };
-          });
-
-          const label = definition.title || formatKeyLabel(key) || key;
-          objectArrayFields.push({
-            key,
-            title: label,
-            addLabel: buildArrayPlaceholder(label),
-            fields,
-            description: definition.description,
-          });
-        }
-      }
-    });
-
-    const hasEditableFields =
-      scalarFields.length > 0 || stringArrayFields.length > 0 || objectArrayFields.length > 0;
-
-    if (!hasEditableFields) {
-      return (
-        <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
-          <p className="font-medium">No editable fields detected for “{displayDocLabel}”.</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Try updating the document through chat or switch to another template with inline editing support.
-          </p>
-          <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
-            {JSON.stringify(safeDraft, null, 2)}
-          </pre>
-        </div>
-      );
+    if (sectionElements.length === 0) {
+      return null;
     }
 
+    return <div className="space-y-6">{sectionElements}</div>;
+  };
+
+  const renderStructuredPreviewUnavailable = (headline) => (
+    <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
+      <p className="font-medium">{headline}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        You can continue chatting with EVA to update the draft, or select a different template to enable inline editing.
+      </p>
+      <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
+        {JSON.stringify(safeDraft, null, 2)}
+      </pre>
+    </div>
+  );
+
+  if (
+    manifestMode === "sections" &&
+    manifestSections.length > 0 &&
+    (!manifestRequiresSchema || hasSchemaConfigs)
+  ) {
+    const rendered = renderManifestSections();
+    if (rendered) {
+      return rendered;
+    }
+  }
+
+  if ((manifestMode === "schema" || manifestRequiresSchema) && !hasSchemaConfigs) {
+    return renderStructuredPreviewUnavailable(
+      `Schema metadata not available for “${displayDocLabel}”.`
+    );
+  }
+
+  const shouldUseSchemaFallback =
+    hasSchemaConfigs &&
+    (manifestMode === "schema" ||
+      (!manifestMode && normalizedDocType !== "charter"));
+
+  if (shouldUseSchemaFallback) {
     return (
       <div className="space-y-6">
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayDocLabel}</h3>
-          {scalarFields.map((field) => (
-            <ScalarInput
-              key={field.key}
-              label={field.label}
-              path={field.key}
-              value={typeof safeDraft[field.key] === "string" ? safeDraft[field.key] : ""}
-              placeholder={field.placeholder}
-              onChange={(value) => onDraftChange(field.key, value)}
-              onLock={onLockField}
-              locked={isLocked(field.key)}
-              disabled={isLoading}
-              type={field.type}
-              multiline={field.multiline}
-              description={field.description}
-              meta={metaFor(field.key)}
-            />
-          ))}
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+            {displayDocLabel}
+          </h3>
+          {schemaConfigs.scalarFields.map((field) =>
+            renderScalarField(field, `schema-scalar-${field.key}`)
+          )}
         </section>
-        {stringArrayFields.map((field) => (
-          <StringArrayEditor
-            key={field.key}
-            label={field.label}
-            path={field.key}
-            items={safeDraft[field.key]}
-            addLabel={field.addLabel}
-            placeholder={field.placeholder}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(field.key)}
-            itemMeta={metaCollectionForPrefix(field.key)}
-            description={field.description}
-          />
-        ))}
-        {objectArrayFields.map((field) => (
-          <ObjectArrayEditor
-            key={field.key}
-            path={field.key}
-            items={safeDraft[field.key]}
-            title={field.title}
-            fields={field.fields}
-            addLabel={field.addLabel}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(field.key)}
-            fieldMeta={metaCollectionForPrefix(field.key)}
-            description={field.description}
-          />
-        ))}
+        {schemaConfigs.stringArrayFields.map((field) =>
+          renderStringArrayField(field, `schema-string-${field.key}`)
+        )}
+        {schemaConfigs.objectArrayFields.map((field) =>
+          renderObjectArrayField(field, `schema-object-${field.key}`)
+        )}
       </div>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayDocLabel}</h3>
-        <ScalarInput
-          label="Project Title"
-          path="project_name"
-          value={typeof safeDraft.project_name === "string" ? safeDraft.project_name : ""}
-          placeholder="Enter project title"
-          onChange={(value) => onDraftChange("project_name", value)}
-          onLock={onLockField}
-          locked={isLocked("project_name")}
-          disabled={isLoading}
-          meta={metaFor("project_name")}
-        />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ScalarInput
-            label="Sponsor"
-            path="sponsor"
-            value={typeof safeDraft.sponsor === "string" ? safeDraft.sponsor : ""}
-            placeholder="Primary sponsor"
-            onChange={(value) => onDraftChange("sponsor", value)}
-            onLock={onLockField}
-            locked={isLocked("sponsor")}
-            disabled={isLoading}
-            meta={metaFor("sponsor")}
-          />
-          <ScalarInput
-            label="Project Lead"
-            path="project_lead"
-            value={typeof safeDraft.project_lead === "string" ? safeDraft.project_lead : ""}
-            placeholder="Project lead"
-            onChange={(value) => onDraftChange("project_lead", value)}
-            onLock={onLockField}
-            locked={isLocked("project_lead")}
-            disabled={isLoading}
-            meta={metaFor("project_lead")}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ScalarInput
-            label="Start Date"
-            path="start_date"
-            value={typeof safeDraft.start_date === "string" ? safeDraft.start_date : ""}
-            placeholder="YYYY-MM-DD"
-            onChange={(value) => onDraftChange("start_date", value)}
-            onLock={onLockField}
-            locked={isLocked("start_date")}
-            disabled={isLoading}
-            type="date"
-            meta={metaFor("start_date")}
-          />
-          <ScalarInput
-            label="End Date"
-            path="end_date"
-            value={typeof safeDraft.end_date === "string" ? safeDraft.end_date : ""}
-            placeholder="YYYY-MM-DD"
-            onChange={(value) => onDraftChange("end_date", value)}
-            onLock={onLockField}
-            locked={isLocked("end_date")}
-            disabled={isLoading}
-            type="date"
-            meta={metaFor("end_date")}
-          />
-        </div>
-        <ScalarInput
-          label="Vision"
-          path="vision"
-          value={typeof safeDraft.vision === "string" ? safeDraft.vision : ""}
-          placeholder="Describe the vision"
-          onChange={(value) => onDraftChange("vision", value)}
-          onLock={onLockField}
-          locked={isLocked("vision")}
-          disabled={isLoading}
-          multiline
-          meta={metaFor("vision")}
-        />
-        <ScalarInput
-          label="Problem"
-          path="problem"
-          value={typeof safeDraft.problem === "string" ? safeDraft.problem : ""}
-          placeholder="Outline the problem"
-          onChange={(value) => onDraftChange("problem", value)}
-          onLock={onLockField}
-          locked={isLocked("problem")}
-          disabled={isLoading}
-          multiline
-          meta={metaFor("problem")}
-        />
-        <ScalarInput
-          label="Project Description"
-          path="description"
-          value={typeof safeDraft.description === "string" ? safeDraft.description : ""}
-          placeholder="Explain the project"
-          onChange={(value) => onDraftChange("description", value)}
-          onLock={onLockField}
-          locked={isLocked("description")}
-          disabled={isLoading}
-          multiline
-          meta={metaFor("description")}
-        />
-      </section>
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Scope & Risks</h3>
-        {STRING_ARRAY_FIELDS.map((field) => (
-          <StringArrayEditor
-            key={field.path}
-            label={field.label}
-            path={field.path}
-            items={safeDraft[field.path]}
-            addLabel={field.addLabel}
-            placeholder={field.placeholder}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(field.path)}
-            itemMeta={metaCollectionForPrefix(field.path)}
-          />
-        ))}
-      </section>
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Milestones & Metrics</h3>
-        {Object.entries(OBJECT_ARRAY_FIELDS).map(([path, config]) => (
-          <ObjectArrayEditor
-            key={path}
-            path={path}
-            items={safeDraft[path]}
-            title={config.title}
-            fields={config.fields}
-            addLabel={config.addLabel}
-            onChange={onDraftChange}
-            onLock={onLockField}
-            isLocked={isLocked}
-            disabled={isLoading}
-            meta={metaFor(path)}
-            fieldMeta={metaCollectionForPrefix(path)}
-          />
-        ))}
-      </section>
-    </div>
+  return renderStructuredPreviewUnavailable(
+    `Structured preview not available for “${displayDocLabel}”.`
   );
 }

@@ -1,0 +1,20 @@
+{
+  "type": "ddp",
+  "label": "Design & Development Plan",
+  "preview": {
+    "mode": "sections",
+    "displayLabel": "Design & Development Plan",
+    "sections": [
+      {
+        "id": "ddp-overview",
+        "title": "Design & Development Plan",
+        "items": [
+          {
+            "component": "schema",
+            "include": ["scalar", "string-array", "object-array"]
+          }
+        ]
+      }
+    ]
+  }
+}

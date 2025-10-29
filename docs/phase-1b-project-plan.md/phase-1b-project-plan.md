@@ -9,7 +9,7 @@
 - **Task**: Implement real-time synchronization logic so that changes made in the chat (via voice or text) are instantly reflected in the document preview panel.
 
 ## 3. Structured Field-by-Field Guidance from the LLM
-- **Goal**: When the LLM walks the PM through filling out a document, it should guide them from the topmost field to the bottom in a logical order.
+- **Goal**: When the LLM walks the PM through filling out a document (like a project charter), it should guide them from the topmost field to the bottom in a logical order.
 - **Task**: Adjust the LLM prompt flow so it requests and fills each field sequentially from top to bottom, ensuring a more natural workflow.
 
 ## 4. Seamless Switching Between Voice and Text
@@ -27,3 +27,7 @@
 ## 7. Making the Preview Panel the Main Panel When Active
 - **Goal**: When the preview panel is active, it should take center stage, with the chat minimized but still accessible.
 - **Task**: Adjust the UI so that when document creation is in progress, the preview panel becomes the main focus and the chat field moves to a smaller area in the bottom right corner for easier reading and editing.
+
+## 8. Improve the Export Template for Professional Appearance
+- **Goal**: Ensure that the final exported DOCX and PDF documents use a professional-looking template.
+- **Task**: Update the DOCX and PDF templates to match the professional standard we want, ensuring that the output documents look polished and presentable.

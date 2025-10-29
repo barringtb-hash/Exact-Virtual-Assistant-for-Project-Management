@@ -170,6 +170,39 @@ test("download returns the requested charter format when signature is valid", as
   assert.strictEqual(renderCalls, 1);
 });
 
+test("download streams the PDF export when the link is valid", async () => {
+  const linkResponse = createResponseCollector();
+  await makeLinkHandler(
+    {
+      method: "POST",
+      headers: { host: "pdf-download.test" },
+      body: {
+        charter: VALID_CHARTER,
+        baseName: "AI Launch",
+        formats: ["pdf"],
+      },
+    },
+    linkResponse
+  );
+
+  const downloadUrl = new URL(linkResponse.body.links.pdf);
+  const req = {
+    method: "GET",
+    headers: { host: "pdf-download.test" },
+    query: Object.fromEntries(downloadUrl.searchParams.entries()),
+  };
+  const res = createResponseCollector();
+
+  await downloadHandler(req, res);
+
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.sentAs, "buffer");
+  assert.ok(Buffer.isBuffer(res.body));
+  assert.ok(res.body.length > 0, "PDF response should contain data");
+  assert.match(res.headers["content-type"], /application\/pdf/);
+  assert.match(res.headers["content-disposition"], /AI_Launch.*\.pdf"?$/);
+});
+
 test("download rejects expired tokens", async () => {
   const secret = process.env.FILES_LINK_SECRET;
   const expiredPayload = {

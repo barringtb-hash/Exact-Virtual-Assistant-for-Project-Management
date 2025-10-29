@@ -4,6 +4,7 @@
 - `src/` – React single-page client rendered by Vite + Tailwind.
 - `api/` – Vercel-style serverless functions that power chat, speech, realtime voice, charter automation, PDF rendering, and attachment text extraction.
 - `lib/` – Shared utilities (token counting/chunking and charter normalization) consumed by both the frontend and serverless handlers.
+- `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/doc/*` handler.
 - `templates/` – Prompts, schema, charter templates, and renderer helpers used by the charter export pipeline.
 - `public/` – Static assets served verbatim by Vite (currently minimal placeholder content).
 
@@ -35,13 +36,19 @@
 - `api/voice/sdp.js`
   - Exchanges browser SDP offers with OpenAI Realtime, forwarding environment-selected model/voice and returning the SDP answer payload.
 - `api/charter/extract.js`
-  - Loads `templates/extract_prompt.txt`, builds an OpenAI chat completion request with the conversation transcript, and returns structured charter JSON.
+  - Legacy entry point that now forwards to the document router so existing clients continue to work without configuration changes.
+- `api/doc/extract.js`
+  - Resolves the requested doc type (defaults to charter), loads doc-type-specific prompts/metadata from `lib/doc/registry.js`, and returns structured JSON produced by OpenAI.
 - `api/charter/render.js`
-  - Reads `templates/project_charter_tokens.docx.b64`, decodes it to DOCX, merges provided charter data with Docxtemplater, and streams the generated DOCX file.
+  - Delegates to the document router while preserving the legacy `/api/charter/render` signature.
+- `api/doc/render.js`
+  - Streams DOCX exports using the doc-type configuration (charter uses `templates/project_charter_tokens.docx.b64`, DDP loads `templates/doc-types/ddp/template.docx.b64`).
 - `api/export/pdf.js`
   - Validates charter payloads, builds a pdfmake document definition from `templates/pdf/charter.pdfdef.mjs`, and streams the generated PDF buffer without spawning Chromium so the endpoint contract stays the same without the browser dependency.
 - `api/charter/validate.js`
-  - Uses Ajv + `templates/charter.schema.json` to validate charter payloads, returning `{ ok: true }` or detailed validation errors.
+  - Backwards-compatible alias that forwards charter payloads into the shared validator.
+- `api/doc/validate.js`
+  - Compiles the schema + field rules for the requested doc type and returns `{ ok: true }` or detailed Ajv errors.
 - `api/charter/make-link.js`
   - Generates short-lived, fully-qualified DOCX/PDF download URLs by signing payloads with `FILES_LINK_SECRET` and encoding an expiry timestamp alongside the charter metadata.
 - `api/charter/download.js`
@@ -59,6 +66,8 @@
 - `charter-validate.mjs` – CLI helper to validate charter JSON offline against the shared schema.
 - `validate-docx-template.mjs`, `sync-charter-template.mjs` – Utilities for decoding, editing, and linting the DOCX template prior to encoding.
 - `pdf/charter.html` – Legacy HTML reference used to design the PDF export layout.
+- `doc-types/ddp/` – Runtime assets (schema, field rules, prompts, encoded DOCX) that allow the document router to serve the Design & Development Plan.
+- `ddp/` – Editor-focused copies of the DDP template, schema, and the `ddp-validate.mjs` CLI so template authors can lint payloads and sync the DOCX outside the runtime folder.
 
 ## Public assets (`public/`)
 - `favicon.svg`, `robots.txt`, and other static assets Vite serves without processing. Extend this folder with brand imagery or downloadable resources.
@@ -81,13 +90,13 @@
 3. `api/voice/sdp.js` forwards the offer to OpenAI Realtime and returns the SDP answer.
 4. Frontend applies the answer, enabling bidirectional audio streaming between the user and OpenAI; fallback to transcription occurs if errors arise.
 
-### Charter extraction, validation, and rendering
-1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls `POST /api/charter/extract` with the latest transcript, upload metadata, and the current draft as a seed value.
+### Document extraction, validation, and rendering
+1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls the generalized `POST /api/doc/extract` (or the charter alias) with the latest transcript, upload metadata, and the current draft as a seed value.
 2. The hook normalizes the response and merges fields that are not locked by manual edits. The Summarize/"Sync now" button triggers the same extractor immediately when project managers want an on-demand refresh.
-3. `api/charter/extract.js` synthesizes structured charter data using the doc-type-specific prompt and returns normalized JSON when parsing succeeds (falling back to `{ result: ... }` otherwise).
-4. Before exporting, the client can POST the draft to `POST /api/charter/validate` to ensure schema compliance.
-5. Validated data is sent to `POST /api/charter/render`, which merges values into the DOCX template and responds with the downloadable charter document.
-6. `/api/export/pdf` converts the same charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
+3. `api/doc/extract.js` synthesizes structured data using the doc-type-specific prompt and returns normalized JSON when parsing succeeds (falling back to `{ result: ... }` otherwise).
+4. Before exporting, the client can POST the draft to `POST /api/doc/validate` (or `/api/charter/validate`) to ensure schema compliance.
+5. Validated data is sent to `POST /api/doc/render` (or `/api/charter/render`), which merges values into the DOCX template defined by the active document type and responds with the downloadable file.
+6. `/api/export/pdf` converts the charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
 
 ### Attachment text normalization
 1. File uploads are routed through `POST /api/files/text` to extract text from PDFs, DOCX, JSON, or plain text while respecting size limits.
@@ -96,4 +105,4 @@
 
 ## Companion references
 - [API endpoints](./API.md) – Request/response schemas, environment variables, and notable behaviors for every serverless route.
-- [Charter workflow](./charter-workflow.md) – Detailed guidance on customizing prompts, templates, and validation assets.
+- [Document workflows](./charter-workflow.md) – Detailed guidance on customizing prompts, templates, and validation assets for each supported doc type.

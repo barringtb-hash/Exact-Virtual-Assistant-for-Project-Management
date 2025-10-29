@@ -11,6 +11,11 @@ A React + Tailwind single-page assistant that drafts project charters, validates
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
 
+## Document router & doc types
+- **Doc router overview** – the generalized document router powers `/api/doc/extract`, `/api/doc/validate`, and `/api/doc/render`. Each handler looks up metadata in [`lib/doc/registry.js`](lib/doc/registry.js) so shared logic (prompt loading, schema validation, DOCX rendering) can adapt to any registered document without duplicating code.
+- **Supported document types** – the registry currently exposes `charter` and `ddp` (Design & Development Plan). Charter assets continue to live beside the legacy flow (`templates/extract_prompt.txt`, `templates/charter.schema.json`, `templates/project_charter_tokens.docx.b64`). DDP-specific prompts, schema, and encodings live under [`templates/doc-types/ddp/`](templates/doc-types/ddp/) for the runtime plus [`templates/ddp/`](templates/ddp/) when you need the standalone validation CLI or raw assets.
+- **Client toggle** – set `VITE_ENABLE_DOC_ROUTER=true` in `.env.local` to surface the document switcher inside the Vite client. When enabled, `useBackgroundExtraction` and the chat command router target the generalized `/api/doc/*` endpoints, while the legacy `/api/charter/*` routes remain as aliases for backwards compatibility and automated tests.
+
 ## Serverless API Reference (`/api`)
 All routes are implemented as Vercel serverless functions. They rely on the environment variables summarised below.
 
@@ -94,13 +99,16 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 ## Charter automation workflow
 1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter.schema.json`](templates/charter.schema.json). Customize these files to change tone, required sections, or value formats.
 2. **Extraction** – `/api/charter/extract` (or a direct OpenAI call with the same prompt) produces draft charter JSON keyed to the schema. Downstream processes should assume optional sections may be empty and rely on schema validation before render.
-3. **Validation** – Use `/api/charter/validate` inside the app or run the CLI helper for offline workflows:
+3. **Validation** – Use `/api/charter/validate` (or `/api/doc/validate?docType=charter`) inside the app or run the CLI helper for offline workflows:
    ```bash
    node templates/charter-validate.mjs ./path/to/charter.json
    ```
    The script prints success/failure along with human-readable Ajv errors. Because it loads the schema locally, no API access is required.
+   For the Design & Development Plan flow, run `node templates/ddp/ddp-validate.mjs ./path/to/ddp.json` to lint payloads against [`templates/ddp/ddp.schema.json`](templates/ddp/ddp.schema.json) before rendering.
 4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX.
 5. **Export/share** – Call `/api/export/pdf` for the styled PDF, or `/api/charter/make-link` to generate signed download URLs for DOCX/PDF/JSON (XLSX placeholder). `/api/charter/download` verifies signatures and streams the requested format on demand.
+
+> **DDP workflow:** the document router mirrors the same extract → validate → render steps for the DDP template. Assets live under [`templates/doc-types/ddp/`](templates/doc-types/ddp/) for runtime prompts/schema plus [`templates/ddp/`](templates/ddp/) when editing the DOCX and running the standalone validator.
 
 ## Local development (Vite)
 Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.

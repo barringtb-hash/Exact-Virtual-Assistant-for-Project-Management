@@ -22,7 +22,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Decode DOCX template
         run: node templates/sync-charter-template.mjs decode

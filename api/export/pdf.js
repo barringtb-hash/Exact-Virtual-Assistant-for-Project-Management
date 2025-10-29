@@ -7,16 +7,27 @@ import {
 import { formatDocRenderError } from "../charter/render.js";
 import { buildPdfDefinition } from "../../templates/pdf/charter.pdfdef.mjs";
 
-const embeddedVfs =
-  pdfFonts.pdfMake?.vfs ??
-  pdfFonts.vfs ??
-  pdfFonts.default?.pdfMake?.vfs;
+function looksLikeVfsMap(candidate) {
+  return (
+    candidate &&
+    typeof candidate === "object" &&
+    !Array.isArray(candidate) &&
+    Object.keys(candidate).length > 0 &&
+    !("pdfMake" in candidate) &&
+    !("vfs" in candidate)
+  );
+}
 
-if (
-  !embeddedVfs ||
-  typeof embeddedVfs !== "object" ||
-  Object.keys(embeddedVfs).length === 0
-) {
+const embeddedVfs =
+  pdfFonts?.pdfMake?.vfs ??
+  pdfFonts?.vfs ??
+  pdfFonts?.default?.pdfMake?.vfs ??
+  pdfFonts?.default?.vfs ??
+  (looksLikeVfsMap(pdfFonts?.default) ? pdfFonts.default : undefined) ??
+  (looksLikeVfsMap(pdfFonts) ? pdfFonts : undefined) ??
+  {};
+
+if (!embeddedVfs || Object.keys(embeddedVfs).length === 0) {
   throw new Error(
     "pdfmake fonts vfs not loaded: vfs_fonts export shape not recognized."
   );

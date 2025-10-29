@@ -11,5 +11,5 @@ const pdfMakeFonts = {
   vfs,
 };
 
-export default pdfMakeFonts;
+export default vfs;
 export { pdfMakeFonts, vfs };

@@ -1,0 +1,152 @@
+{
+  "type": "charter",
+  "label": "Charter",
+  "preview": {
+    "mode": "sections",
+    "displayLabel": "Project Charter",
+    "sections": [
+      {
+        "id": "overview",
+        "title": "Project Charter",
+        "items": [
+          {
+            "component": "scalar",
+            "path": "project_name",
+            "label": "Project Title",
+            "placeholder": "Enter project title"
+          },
+          {
+            "component": "row",
+            "columns": [
+              {
+                "component": "scalar",
+                "path": "sponsor",
+                "label": "Sponsor",
+                "placeholder": "Primary sponsor"
+              },
+              {
+                "component": "scalar",
+                "path": "project_lead",
+                "label": "Project Lead",
+                "placeholder": "Project lead"
+              }
+            ]
+          },
+          {
+            "component": "row",
+            "columns": [
+              {
+                "component": "scalar",
+                "path": "start_date",
+                "label": "Start Date",
+                "placeholder": "YYYY-MM-DD",
+                "type": "date"
+              },
+              {
+                "component": "scalar",
+                "path": "end_date",
+                "label": "End Date",
+                "placeholder": "YYYY-MM-DD",
+                "type": "date"
+              }
+            ]
+          },
+          {
+            "component": "scalar",
+            "path": "vision",
+            "label": "Vision",
+            "placeholder": "Describe the vision",
+            "multiline": true
+          },
+          {
+            "component": "scalar",
+            "path": "problem",
+            "label": "Problem",
+            "placeholder": "Outline the problem",
+            "multiline": true
+          },
+          {
+            "component": "scalar",
+            "path": "description",
+            "label": "Project Description",
+            "placeholder": "Explain the project",
+            "multiline": true
+          }
+        ]
+      },
+      {
+        "id": "scope",
+        "title": "Scope & Risks",
+        "items": [
+          {
+            "component": "string-array",
+            "path": "scope_in",
+            "label": "Scope In",
+            "addLabel": "Add scope in item",
+            "placeholder": "Items that are included in scope"
+          },
+          {
+            "component": "string-array",
+            "path": "scope_out",
+            "label": "Scope Out",
+            "addLabel": "Add scope out item",
+            "placeholder": "Items that are excluded from scope"
+          },
+          {
+            "component": "string-array",
+            "path": "risks",
+            "label": "Risks",
+            "addLabel": "Add risk",
+            "placeholder": "Describe a risk"
+          },
+          {
+            "component": "string-array",
+            "path": "assumptions",
+            "label": "Assumptions",
+            "addLabel": "Add assumption",
+            "placeholder": "Describe an assumption"
+          }
+        ]
+      },
+      {
+        "id": "milestones",
+        "title": "Milestones & Metrics",
+        "items": [
+          {
+            "component": "object-array",
+            "path": "milestones",
+            "title": "Milestones",
+            "addLabel": "Add milestone",
+            "fields": [
+              { "key": "phase", "label": "Phase", "placeholder": "Phase" },
+              { "key": "deliverable", "label": "Deliverable", "placeholder": "Key deliverable" },
+              { "key": "date", "label": "Target Date", "placeholder": "YYYY-MM-DD" }
+            ]
+          },
+          {
+            "component": "object-array",
+            "path": "success_metrics",
+            "title": "Success Metrics",
+            "addLabel": "Add success metric",
+            "fields": [
+              { "key": "benefit", "label": "Benefit", "placeholder": "What improves?" },
+              { "key": "metric", "label": "Metric", "placeholder": "Measurement" },
+              { "key": "system_of_measurement", "label": "Measurement System", "placeholder": "How it's measured" }
+            ]
+          },
+          {
+            "component": "object-array",
+            "path": "core_team",
+            "title": "Core Team",
+            "addLabel": "Add team member",
+            "fields": [
+              { "key": "name", "label": "Name", "placeholder": "Full name" },
+              { "key": "role", "label": "Role", "placeholder": "Role or title" },
+              { "key": "responsibilities", "label": "Responsibilities", "placeholder": "Responsibilities" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

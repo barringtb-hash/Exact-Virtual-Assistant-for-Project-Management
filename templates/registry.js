@@ -12,6 +12,7 @@ export const templateRegistry = {
       encodedDocxPath: path.join(templatesDir, 'project_charter_tokens.docx.b64'),
     },
     outputFilename: 'project_charter.docx',
+    manifestPath: path.join(templatesDir, 'charter', 'manifest.json'),
   },
   ddp: {
     schemaPath: path.join(templatesDir, 'doc-types', 'ddp', 'schema.json'),
@@ -22,6 +23,7 @@ export const templateRegistry = {
       encodedDocxPath: path.join(templatesDir, 'doc-types', 'ddp', 'template.docx.b64'),
     },
     outputFilename: 'design_development_plan.docx',
+    manifestPath: path.join(templatesDir, 'ddp', 'manifest.json'),
   },
 };
 

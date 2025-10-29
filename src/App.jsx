@@ -9,6 +9,7 @@ import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
 import { loadDocTypeSchema } from "./utils/loadDocTypeSchema";
+import { loadDocTypeManifest } from "./utils/loadDocTypeManifest";
 import {
   areDocTypeSuggestionsEqual,
   isDocTypeConfirmed,
@@ -523,7 +524,9 @@ export default function ExactVirtualAssistantPM() {
     const now = Date.now();
     return synchronizeFieldStates(draft, {}, { touchedPaths: paths, source: "Auto", timestamp: now, locks: {} });
   });
+  const docManifestCacheRef = useRef(new Map());
   const docSchemaCacheRef = useRef(new Map());
+  const [activeDocManifest, setActiveDocManifest] = useState(null);
   const [activeDocSchema, setActiveDocSchema] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -582,6 +585,41 @@ export default function ExactVirtualAssistantPM() {
   }, [locks]);
 
   useEffect(() => {
+    if (!previewDocType) {
+      setActiveDocManifest(null);
+      return;
+    }
+
+    const cache = docManifestCacheRef.current;
+    if (cache.has(previewDocType)) {
+      setActiveDocManifest(cache.get(previewDocType));
+      return;
+    }
+
+    setActiveDocManifest(null);
+
+    let cancelled = false;
+    loadDocTypeManifest(previewDocType)
+      .then((manifest) => {
+        const normalized = manifest && typeof manifest === "object" ? manifest : null;
+        cache.set(previewDocType, normalized);
+        if (!cancelled) {
+          setActiveDocManifest(normalized);
+        }
+      })
+      .catch(() => {
+        cache.set(previewDocType, null);
+        if (!cancelled) {
+          setActiveDocManifest(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewDocType]);
+
+  useEffect(() => {
     if (!previewDocType || previewDocType === "charter") {
       setActiveDocSchema(null);
       return;
@@ -626,6 +664,7 @@ export default function ExactVirtualAssistantPM() {
         setLocks({});
       }
       setFieldStates((prev) => (prev && Object.keys(prev).length === 0 ? prev : {}));
+      setActiveDocManifest(null);
       return;
     }
 
@@ -2592,6 +2631,7 @@ export default function ExactVirtualAssistantPM() {
                   isLoading={isCharterSyncInFlight}
                   onDraftChange={handleDraftChange}
                   onLockField={handleLockField}
+                  manifest={activeDocManifest}
                   schema={activeDocSchema}
                 />
               </div>

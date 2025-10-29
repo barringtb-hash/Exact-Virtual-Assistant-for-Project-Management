@@ -72,13 +72,16 @@ In addition to the template validator, the automated test suite exercises the ch
 
 ## Updating the PDF Layout
 
-The PDF export reuses the same normalized charter payload but renders it with Mustache before printing to PDF via headless Chromium.
+`/api/export/pdf` renders the same normalized charter payload with pdfmake instead of a browser. The serverless handler loads `templates/pdf/charter.pdfdef.mjs`, calls `buildPdfDefinition(charter)`, and streams the result directly from `pdfmake` without requiring Chromium.
 
-1. Edit `templates/pdf/charter.pdfdef.mjs` using the pdfmake document-definition API. Keep styling self-contained within the definition—external assets are not loaded in the serverless runtime.
-2. Place tokens like `{{projectName}}`, `{{#scopeIn}}`, and `{{#milestones}}` where values should appear. These mirror the normalized keys produced by `lib/charter/normalize.js` (camelCase conversion happens inside the renderer).
-3. Use conditional sections (e.g., `{{#scopeIn}}`) to hide empty lists and apply `{{^scopeIn}}` blocks for fallbacks if needed.
-4. After updating the template, run `npm run validate:charter-docx` and `npm test` to ensure both the DOCX validator and PDF charter download tests still pass.
-5. Deployments that cannot run the default Chromium binary should supply `CHROME_EXECUTABLE_PATH` or `PUPPETEER_EXECUTABLE_PATH` so `/api/export/pdf` can launch the browser.
+1. Update layout, colors, or typography inside `templates/pdf/charter.pdfdef.mjs`. The file exports helper functions plus `buildPdfDefinition`, which assembles the pdfmake document definition (`content`, `styles`, `pageMargins`, etc.). Keep all assets inline—pdfmake cannot fetch external styles or images in this environment.
+2. When adding or renaming charter fields, edit `buildTemplateData(charter)` in the same file. This helper maps the snake_case schema (`project_name`, `scope_in`, `success_metrics`, etc.) into the friendlier structure consumed by the layout helpers:
+   - Overview cards read `projectName`, `sponsor`, `projectLead`, `startDate`, and `endDate`.
+   - Narrative sections (`vision`, `problem`, `description`) become paragraph cards with fallback text of "Not provided".
+   - List-based sections (`scopeIn`, `scopeOut`, `risks`, `assumptions`) call `normalizeStringList` so blank entries are removed and empty lists fall back to muted copy.
+   - `successMetrics`, `milestones`, and `coreTeam` map to arrays of objects with explicit keys (`benefit`, `metric`, `system_of_measurement`, `phase`, `deliverable`, `dateDisplay`, `name`, `role`, `responsibilities`). The builder functions (`buildSuccessMetricSection`, `buildMilestoneSection`, `buildCoreTeamSection`) format these arrays into card grids.
+3. Extend or adjust helper functions (for example, `createCardRows`, `createCardFromSections`, or the shared `styles` map) to apply new design patterns. Each helper returns pdfmake-friendly nodes, so keeping changes inside these utilities ensures consistent spacing and fallbacks throughout the document.
+4. Save the file and run your preferred smoke test (for example, invoking `/api/export/pdf` locally with `samples/charter.smoke.json`). Because rendering no longer shells out to Chromium, no additional environment variables are required.
 
 ## JSON & XLSX Renderers
 

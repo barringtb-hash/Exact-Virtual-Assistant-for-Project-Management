@@ -39,7 +39,7 @@
 - `api/charter/render.js`
   - Reads `templates/project_charter_tokens.docx.b64`, decodes it to DOCX, merges provided charter data with Docxtemplater, and streams the generated DOCX file.
 - `api/export/pdf.js`
-  - Validates charter payloads, builds a pdfmake definition from `templates/pdf/charter.pdfdef.mjs`, and streams the generated PDF buffer without spawning Chromium.
+  - Validates charter payloads, builds a pdfmake document definition from `templates/pdf/charter.pdfdef.mjs`, and streams the generated PDF buffer without spawning Chromium so the endpoint contract stays the same without the browser dependency.
 - `api/charter/validate.js`
   - Uses Ajv + `templates/charter.schema.json` to validate charter payloads, returning `{ ok: true }` or detailed validation errors.
 - `api/charter/make-link.js`

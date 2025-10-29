@@ -154,9 +154,10 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 ## Charter PDF export – `POST /api/export/pdf`
 - **Body** – Charter JSON matching the schema consumed by `/api/charter/render`.
 - **Response** – Binary PDF buffer streamed with `Content-Disposition: attachment; filename=project_charter.pdf`.
+- **Note** – The request/response contract is unchanged, but rendering now uses pdfmake with [`templates/pdf/charter.pdfdef.mjs`](../templates/pdf/charter.pdfdef.mjs) so the runtime no longer depends on Chromium.
 - **Notes**
   - Uses `validateCharterPayload` (Ajv) before rendering; invalid payloads return `400` with structured error data identical to the DOCX handler.
-    - Builds a pdfmake document definition from `templates/pdf/charter.pdfdef.mjs` and resolves the buffer using `pdfmake`'s runtime renderer (no headless browser required).
+  - Builds the pdfmake document definition from [`templates/pdf/charter.pdfdef.mjs`](../templates/pdf/charter.pdfdef.mjs) and renders entirely in-memory with `pdfmake`.
 
 ## Charter share links – `POST /api/charter/make-link`
 - **Body**
@@ -195,7 +196,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Rejects requests when the signature fails (`403`) or when the embedded `exp` is earlier than the current epoch second (`410` with `{ error: "Download link expired" }`).
   - Returns `400` for unsupported formats and surfaces template validation errors with structured details so the UI can highlight the field failures.
   - Exposes consistent filenames that mirror the sanitized `baseName` supplied during link creation.
-  - Format handlers cover DOCX (Docxtemplater), PDF (Chromium render), and JSON (plain buffer). XLSX responses delegate to `templates/renderers.js`, which currently throws a `FormatNotImplementedError` (`501`).
+  - Format handlers cover DOCX (Docxtemplater), PDF (pdfmake), and JSON (plain buffer). XLSX responses delegate to `templates/renderers.js`, which currently throws a `FormatNotImplementedError` (`501`).
 
 ## Charter link health – `GET /api/charter/health`
 - **Response**

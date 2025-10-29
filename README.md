@@ -31,7 +31,8 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download`, `/api/charter/health` | Required secret used to sign and verify temporary charter download links (and detected by the health probe). Generate a 64-character hex string with `openssl rand -hex 32` or an equivalent secrets manager. |
 | `FILE_TEXT_SIZE_LIMIT` | `/api/files/text` | Optional override for the file text extractor body size (defaults to `10mb`). |
 | `CHAT_PROMPT_TOKEN_LIMIT` | `/api/chat` | Optional hard cap on combined prompt tokens before early rejection (defaults to unlimited). |
-| `CHROME_EXECUTABLE_PATH`, `PUPPETEER_EXECUTABLE_PATH` | `/api/export/pdf`, `/api/charter/download` | Optional custom Chromium paths when the default bundled binary is unavailable in your runtime. |
+
+> **Note:** `/api/export/pdf` now renders charter PDFs with pdfmake (`templates/pdf/charter.pdfdef.mjs`). The request/response contract is unchanged, but the serverless runtime no longer requires Chromium.
 
 ### `POST /api/chat`
 - **Payload** – `{ messages: [{ role: "system" | "user" | "assistant", content: string }], attachments?: [{ name: string, text: string }] }`. The frontend sends the running transcript without the system prompt, optionally pairing it with pre-parsed attachment excerpts.
@@ -69,7 +70,7 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 #### `POST /api/export/pdf`
 - **Payload** – Same charter JSON shape accepted by the DOCX renderer.
 - **Response** – Streams a polished PDF (`application/pdf`) with a generated-on timestamp and structured sections.
-- **Behavior** – Validates input with Ajv, builds a pdfmake document definition with [`templates/pdf/charter.pdfdef.mjs`](templates/pdf/charter.pdfdef.mjs), and resolves the buffer through `pdfmake`'s in-memory renderer—no headless browser required.
+- **Behavior** – Validates input with Ajv, builds a pdfmake document definition with [`templates/pdf/charter.pdfdef.mjs`](templates/pdf/charter.pdfdef.mjs), and resolves the buffer entirely in-memory via `pdfmake`. The endpoint contract remains unchanged, but the runtime no longer depends on Chromium.
 
 #### `POST /api/charter/validate`
 - **Payload** – Structured charter JSON object to validate.

@@ -68,8 +68,8 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 
 #### `POST /api/export/pdf`
 - **Payload** – Same charter JSON shape accepted by the DOCX renderer.
-- **Response** – Streams a polished, headless-Chromium PDF (`application/pdf`) with a generated-on timestamp and structured sections.
-- **Behavior** – Validates input with Ajv, renders `templates/charter-export.html.mustache` via Mustache, then prints to PDF using `@sparticuz/chromium` + `puppeteer-core`. Honor `CHROME_EXECUTABLE_PATH`/`PUPPETEER_EXECUTABLE_PATH` when deploying to environments without the default executable.
+- **Response** – Streams a polished PDF (`application/pdf`) with a generated-on timestamp and structured sections.
+- **Behavior** – Validates input with Ajv, builds a pdfmake document definition with [`templates/pdf/charter.pdfdef.mjs`](templates/pdf/charter.pdfdef.mjs), and resolves the buffer through `pdfmake`'s in-memory renderer—no headless browser required.
 
 #### `POST /api/charter/validate`
 - **Payload** – Structured charter JSON object to validate.

@@ -7,12 +7,15 @@ export class FormatNotImplementedError extends Error {
   }
 }
 
-export async function renderXlsxBuffer() {
+export async function renderXlsxBuffer(docType, document) {
   throw new FormatNotImplementedError("xlsx");
 }
 
-export async function renderJsonBuffer(charter) {
-  const sanitized = charter && typeof charter === "object" ? charter : {};
+export async function renderJsonBuffer(docType, document) {
+  const sanitized =
+    document && typeof document === "object" && !Array.isArray(document)
+      ? document
+      : {};
   const json = JSON.stringify(sanitized, null, 2);
   return Buffer.from(json, "utf8");
 }

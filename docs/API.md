@@ -156,8 +156,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 - **Response** – Binary PDF buffer streamed with `Content-Disposition: attachment; filename=project_charter.pdf`.
 - **Notes**
   - Uses `validateCharterPayload` (Ajv) before rendering; invalid payloads return `400` with structured error data identical to the DOCX handler.
-  - Renders the HTML template in `templates/charter-export.html.mustache` and prints to PDF using `@sparticuz/chromium` + `puppeteer-core`.
-  - Provide `CHROME_EXECUTABLE_PATH` or `PUPPETEER_EXECUTABLE_PATH` when deploying to a runtime without the default Chromium binary.
+    - Builds a pdfmake document definition from `templates/pdf/charter.pdfdef.mjs` and resolves the buffer using `pdfmake`'s runtime renderer (no headless browser required).
 
 ## Charter share links – `POST /api/charter/make-link`
 - **Body**

@@ -1,6 +1,6 @@
 # Project Charter Template Workflow
 
-This guide documents how to maintain the charter templates that power charter exports. The repository stores the DOCX source as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors, and renders the PDF layout from `templates/charter-export.html.mustache`.
+This guide documents how to maintain the charter templates that power charter exports. The repository stores the DOCX source as a base64 text file (`project_charter_tokens.docx.b64`) so pull requests remain text-only and avoid "binary files are not supported" errors, and renders the PDF layout from the pdfmake definition in `templates/pdf/charter.pdfdef.mjs`.
 
 ## Rebuilding the DOCX Template
 
@@ -74,7 +74,7 @@ In addition to the template validator, the automated test suite exercises the ch
 
 The PDF export reuses the same normalized charter payload but renders it with Mustache before printing to PDF via headless Chromium.
 
-1. Edit `templates/charter-export.html.mustache` using standard HTML/CSS. Keep inline styles self-contained—external assets are not loaded in the serverless runtime.
+1. Edit `templates/pdf/charter.pdfdef.mjs` using the pdfmake document-definition API. Keep styling self-contained within the definition—external assets are not loaded in the serverless runtime.
 2. Place tokens like `{{projectName}}`, `{{#scopeIn}}`, and `{{#milestones}}` where values should appear. These mirror the normalized keys produced by `lib/charter/normalize.js` (camelCase conversion happens inside the renderer).
 3. Use conditional sections (e.g., `{{#scopeIn}}`) to hide empty lists and apply `{{^scopeIn}}` blocks for fallbacks if needed.
 4. After updating the template, run `npm run validate:charter-docx` and `npm test` to ensure both the DOCX validator and PDF charter download tests still pass.

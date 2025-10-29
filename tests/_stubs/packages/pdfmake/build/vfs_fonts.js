@@ -1,10 +1,15 @@
+const vfs = {};
+
+Object.assign(vfs, {
+  "Roboto-Regular.ttf": "dummy-font-contents",
+});
+
 const pdfMakeFonts = {
   pdfMake: {
-    vfs: {
-      "Roboto-Regular.ttf": "dummy-font-contents",
-    },
+    vfs,
   },
+  vfs,
 };
 
 export default pdfMakeFonts;
-export { pdfMakeFonts };
+export { pdfMakeFonts, vfs };

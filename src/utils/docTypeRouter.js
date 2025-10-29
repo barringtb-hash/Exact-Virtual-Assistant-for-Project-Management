@@ -1,4 +1,4 @@
-import { getDocTypeRegistry } from "../../lib/doc/registry.js";
+import { listDocTypeMetadata } from "../../lib/doc/typesMetadata.js";
 
 const DEFAULT_DOC_TYPE = "charter";
 const MIN_CONFIDENCE = 0;
@@ -98,8 +98,7 @@ function normalizeKeyword(keyword) {
 }
 
 function buildKeywordMap() {
-  const registry = getDocTypeRegistry();
-  const entries = Array.from(registry.values());
+  const entries = listDocTypeMetadata();
 
   return entries.map((config) => {
     const type = config?.type || "";
@@ -115,6 +114,15 @@ function buildKeywordMap() {
       if (normalizedLabel) {
         keywords.add(normalizedLabel.toLowerCase());
         keywords.add(normalizeKeyword(normalizedLabel));
+      }
+    }
+
+    if (Array.isArray(config?.keywords)) {
+      for (const keyword of config.keywords) {
+        const normalizedKeyword = normalizeKeyword(keyword);
+        if (normalizedKeyword) {
+          keywords.add(normalizedKeyword);
+        }
       }
     }
 

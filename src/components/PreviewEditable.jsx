@@ -1,5 +1,6 @@
 import React from "react";
 import formatRelativeTime from "../utils/formatRelativeTime";
+import { useDocTypeContext } from "../context/DocTypeContext.jsx";
 
 const STRING_ARRAY_FIELDS = [
   {
@@ -375,10 +376,9 @@ export default function PreviewEditable({
   onDraftChange = noop,
   onLockField = noop,
   isLoading = false,
-  docType = "charter",
-  docLabel,
   schema,
 }) {
+  const { previewDocType, previewDocTypeLabel } = useDocTypeContext();
   const safeDraft = draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
   const metaFor = (path) => fieldStates?.[path];
@@ -394,11 +394,10 @@ export default function PreviewEditable({
   };
 
   const normalizedDocType =
-    typeof docType === "string" && docType.trim() ? docType.trim() : null;
-  const displayDocLabel =
-    typeof docLabel === "string" && docLabel.trim()
-      ? docLabel.trim()
-      : normalizedDocType || "Document";
+    typeof previewDocType === "string" && previewDocType.trim()
+      ? previewDocType.trim()
+      : null;
+  const displayDocLabel = previewDocTypeLabel || normalizedDocType || "Document";
 
   if (!normalizedDocType) {
     return (

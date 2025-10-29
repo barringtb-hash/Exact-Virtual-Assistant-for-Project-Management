@@ -6,6 +6,8 @@ import React, {
   useRef,
 } from "react";
 
+import { useDocTypeContext } from "../context/DocTypeContext.jsx";
+
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
 type RtcState = "idle" | "connecting" | "live" | "error";
@@ -88,6 +90,7 @@ const Composer: React.FC<ComposerProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaId = useId();
+  const { previewDocTypeLabel } = useDocTypeContext();
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
@@ -137,8 +140,18 @@ const Composer: React.FC<ComposerProps> = ({
 
   const resolvedSyncLabel = useMemo(() => {
     if (syncLabel) return syncLabel;
-    return syncDisabled && canSync ? "Syncing…" : "Sync now";
-  }, [canSync, syncDisabled, syncLabel]);
+    const label = previewDocTypeLabel || "Document";
+    if (syncDisabled && canSync) {
+      return `Syncing ${label}…`;
+    }
+    return `Sync ${label}`;
+  }, [canSync, previewDocTypeLabel, syncDisabled, syncLabel]);
+
+  const resolvedPlaceholder = useMemo(() => {
+    if (placeholder) return placeholder;
+    const label = (previewDocTypeLabel || "document").toLowerCase();
+    return `Ask questions or paste details for the ${label}.`;
+  }, [placeholder, previewDocTypeLabel]);
 
   const realtimeButtonTitle = useMemo(() => {
     if (rtcState === "live") return "Stop realtime voice";
@@ -178,7 +191,7 @@ const Composer: React.FC<ComposerProps> = ({
           onKeyDown={handleKeyDown}
           onDrop={onDrop}
           onDragOver={onDragOver}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           disabled={disableDraft}
           className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
         />

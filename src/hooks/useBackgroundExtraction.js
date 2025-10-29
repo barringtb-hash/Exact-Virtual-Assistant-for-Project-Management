@@ -276,8 +276,13 @@ export default function useBackgroundExtraction({
       setError(null);
     }
 
+    const normalizedDocType =
+      typeof latestDocType === "string" && latestDocType.trim()
+        ? latestDocType.trim()
+        : "charter";
+
     const payload = {
-      docType: latestDocType,
+      docType: normalizedDocType,
       seed: latestSeed,
       messages: formattedMessages,
       voice: formattedVoice,
@@ -290,22 +295,55 @@ export default function useBackgroundExtraction({
 
     const applyDraft = setDraftRef.current;
 
+    const requestOptions = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    };
+
+    const fetchWithFallback = async () => {
+      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(normalizedDocType)}`;
+
+      try {
+        const response = await fetch(docEndpoint, requestOptions);
+        if (
+          response &&
+          !response.ok &&
+          normalizedDocType === "charter" &&
+          (response.status === 404 || response.status === 405)
+        ) {
+          return fetch("/api/charter/extract", requestOptions);
+        }
+        return response;
+      } catch (networkError) {
+        if (normalizedDocType !== "charter") {
+          throw networkError;
+        }
+        return fetch("/api/charter/extract", requestOptions);
+      }
+    };
+
     try {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
         try {
-          const response = await fetch("/api/charter/extract", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-          });
+          const response = await fetchWithFallback();
 
           if (!response.ok) {
             const errorPayload = await response.json().catch(() => ({}));
-            const message = errorPayload?.error || `Extraction failed with status ${response.status}`;
+            const isUnsupported = response.status === 400;
+            const message =
+              errorPayload?.error ||
+              errorPayload?.message ||
+              (isUnsupported
+                ? `Extraction is not available for "${normalizedDocType}" documents.`
+                : `Extraction failed with status ${response.status}`);
             const errorInstance = new Error(message);
             errorInstance.status = response.status;
             errorInstance.payload = errorPayload;
+            if (isUnsupported) {
+              errorInstance.code = "unsupported-doc-type";
+            }
             if (attempt < MAX_ATTEMPTS && shouldRetryStatus(response.status)) {
               await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
               continue;

@@ -323,6 +323,8 @@ export default function PreviewEditable({
   onDraftChange = noop,
   onLockField = noop,
   isLoading = false,
+  docType = "charter",
+  docLabel,
 }) {
   const safeDraft = draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
@@ -337,6 +339,25 @@ export default function PreviewEditable({
     }
     return entries;
   };
+
+  const normalizedDocType = typeof docType === "string" && docType.trim() ? docType.trim() : "charter";
+  const displayDocLabel =
+    typeof docLabel === "string" && docLabel.trim() ? docLabel.trim() : normalizedDocType;
+
+  if (normalizedDocType !== "charter") {
+    return (
+      <div className="space-y-3 rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-slate-700 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
+        <p className="font-medium">Preview editing isn’t available for “{displayDocLabel}” documents yet.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          You can continue chatting with EVA to update the draft, and future releases will include a tailored editor for this
+          document type.
+        </p>
+        <pre className="max-h-96 overflow-auto rounded-xl bg-slate-900/80 p-3 text-xs text-slate-100 dark:bg-slate-800/80">
+          {JSON.stringify(safeDraft, null, 2)}
+        </pre>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

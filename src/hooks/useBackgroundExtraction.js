@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import suggestDocType, {
+  areDocTypeSuggestionsEqual,
+  normalizeDocTypeSuggestion,
+} from "../utils/docTypeRouter.js";
+
 const DEFAULT_DEBOUNCE_MS = 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
@@ -153,8 +158,14 @@ function hasUserInput(messages) {
   });
 }
 
+function sanitizeSuggestion(candidate) {
+  return normalizeDocTypeSuggestion(candidate);
+}
+
 export default function useBackgroundExtraction({
   docType = "charter",
+  selectedDocType,
+  suggestedDocType,
   messages = [],
   voice = [],
   attachments = [],
@@ -167,12 +178,16 @@ export default function useBackgroundExtraction({
   isUploadingAttachments = false,
   onNotify,
   enabled = true,
+  docTypeRoutingEnabled = false,
 } = {}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState(null);
+  const [docTypeSuggestion, setDocTypeSuggestion] = useState(() => sanitizeSuggestion(suggestedDocType));
 
   const latestStateRef = useRef({
     docType,
+    selectedDocType,
+    suggestion: sanitizeSuggestion(suggestedDocType),
     messages,
     voice,
     attachments,
@@ -187,6 +202,8 @@ export default function useBackgroundExtraction({
   const isMountedRef = useRef(true);
   const notifyRef = useRef(typeof onNotify === "function" ? onNotify : null);
   const isUploadingRef = useRef(Boolean(isUploadingAttachments));
+  const routerEnabledRef = useRef(Boolean(docTypeRoutingEnabled));
+  const suggestionRef = useRef(docTypeSuggestion);
 
   useEffect(() => {
     return () => {
@@ -203,8 +220,16 @@ export default function useBackgroundExtraction({
   }, []);
 
   useEffect(() => {
-    latestStateRef.current = { docType, messages, voice, attachments, seed };
-  }, [docType, messages, voice, attachments, seed]);
+    latestStateRef.current = {
+      docType,
+      selectedDocType,
+      suggestion: suggestionRef.current,
+      messages,
+      voice,
+      attachments,
+      seed,
+    };
+  }, [docType, selectedDocType, messages, voice, attachments, seed, docTypeSuggestion]);
 
   useEffect(() => {
     locksRef.current = locks || {};
@@ -229,6 +254,68 @@ export default function useBackgroundExtraction({
   useEffect(() => {
     isUploadingRef.current = Boolean(isUploadingAttachments);
   }, [isUploadingAttachments]);
+
+  useEffect(() => {
+    routerEnabledRef.current = Boolean(docTypeRoutingEnabled);
+  }, [docTypeRoutingEnabled]);
+
+  useEffect(() => {
+    suggestionRef.current = docTypeSuggestion;
+  }, [docTypeSuggestion]);
+
+  useEffect(() => {
+    const normalized = sanitizeSuggestion(suggestedDocType);
+    setDocTypeSuggestion((prev) => {
+      if (areDocTypeSuggestionsEqual(prev, normalized)) {
+        return prev;
+      }
+      return normalized;
+    });
+  }, [suggestedDocType]);
+
+  useEffect(() => {
+    if (!selectedDocType) {
+      return;
+    }
+
+    const normalized = sanitizeSuggestion({ type: selectedDocType, confidence: 1 });
+    setDocTypeSuggestion((prev) => {
+      if (areDocTypeSuggestionsEqual(prev, normalized)) {
+        return prev;
+      }
+      return normalized;
+    });
+  }, [selectedDocType]);
+
+  useEffect(() => {
+    if (!routerEnabledRef.current) {
+      return undefined;
+    }
+
+    if (selectedDocType) {
+      return undefined;
+    }
+
+    const runRouting = () => {
+      const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
+      const sanitizedMessages = sanitizeMessages(latestMessages);
+      const sanitizedAttachments = sanitizeAttachments(latestAttachments);
+      const sanitizedVoice = sanitizeVoiceEvents(latestVoice);
+      const routed = sanitizeSuggestion(
+        suggestDocType({ messages: sanitizedMessages, attachments: sanitizedAttachments, voice: sanitizedVoice })
+      );
+      setDocTypeSuggestion((prev) => {
+        if (areDocTypeSuggestionsEqual(prev, routed)) {
+          return prev;
+        }
+        return routed;
+      });
+    };
+
+    runRouting();
+
+    return undefined;
+  }, [docTypeRoutingEnabled, selectedDocType, messages, attachments, voice, seed]);
 
   const clearPendingTimer = useCallback(() => {
     if (timerRef.current) {
@@ -506,5 +593,5 @@ export default function useBackgroundExtraction({
     enabled,
   ]);
 
-  return { isExtracting, error, syncNow, clearError };
+  return { isExtracting, error, syncNow, clearError, suggestedDocType: docTypeSuggestion };
 }

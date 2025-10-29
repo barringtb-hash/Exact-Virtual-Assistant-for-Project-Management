@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import AssistantFeedbackTemplate, {
   useAssistantFeedbackSections,
 } from "./components/AssistantFeedbackTemplate";
+import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
@@ -1742,6 +1743,52 @@ export default function ExactVirtualAssistantPM() {
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
+  const composerStatusText = useMemo(() => {
+    const messages = [];
+    if (isAssistantThinking) {
+      messages.push("Assistant is responding…");
+    }
+    if (isCharterSyncInFlight) {
+      messages.push("Syncing charter preview…");
+    }
+    if (isUploadingAttachments) {
+      messages.push("Processing attachments…");
+    }
+    if (listening) {
+      messages.push("Recording… (simulated)");
+    }
+    return messages.join(" · ");
+  }, [
+    isAssistantThinking,
+    isCharterSyncInFlight,
+    isUploadingAttachments,
+    listening,
+  ]);
+
+  const handleMicToggle = useCallback(() => {
+    if (realtimeEnabled) return;
+    if (listening) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [listening, realtimeEnabled, startRecording, stopRecording]);
+
+  const handleComposerDrop = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const droppedFiles = event.dataTransfer?.files
+      ? Array.from(event.dataTransfer.files)
+      : [];
+    if (droppedFiles.length) {
+      await addPickedFiles(droppedFiles);
+    }
+  };
+
+  const handleComposerDragOver = (event) => {
+    event.preventDefault();
+  };
+
   return (
     <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
       {/* Top Bar */}
@@ -1790,151 +1837,54 @@ export default function ExactVirtualAssistantPM() {
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
-                  <div
-                    className={`flex items-end gap-2 rounded-2xl bg-white/70 border border-white/60 px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300 dark:bg-slate-900/50 dark:border-slate-700/60 dark:focus-within:ring-indigo-500`}
+                  <Composer
+                    draft={input}
+                    onDraftChange={setInput}
+                    onSend={handleSend}
+                    onUploadClick={() => fileInputRef.current?.click()}
+                    onMicToggle={handleMicToggle}
+                    recording={listening}
+                    statusText={composerStatusText || undefined}
+                    onSyncNow={handleSyncNow}
+                    canSync={canSyncNow}
+                    syncDisabled={isCharterSyncInFlight}
+                    syncLabel={isCharterSyncInFlight ? "Syncing…" : undefined}
+                    sendDisabled={isAssistantThinking}
+                    uploadDisabled={isUploadingAttachments}
+                    realtimeEnabled={realtimeEnabled}
+                    rtcState={rtcState}
+                    startRealtime={startRealtime}
+                    stopRealtime={stopRealtime}
+                    rtcStatusLabel={rtcStateToLabel[rtcState] || "Idle"}
+                    rtcReset={stopRealtime}
+                    placeholder="Type here… (paste scope or attach files)"
+                    onDrop={handleComposerDrop}
+                    onDragOver={handleComposerDragOver}
+                    IconUpload={IconUpload}
+                    IconMic={IconMic}
+                    IconSend={IconSend}
                   >
-                    <textarea
-                      placeholder="Type here… (paste scope or attach files)"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                      onDrop={async (e) => {
-                        e.preventDefault();
-                        const droppedFiles = e.dataTransfer?.files
-                          ? Array.from(e.dataTransfer.files)
-                          : [];
-                        if (droppedFiles.length) {
-                          await addPickedFiles(droppedFiles);
-                        }
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      className="min-h-[44px] max-h-40 flex-1 bg-transparent outline-none resize-none text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="shrink-0 p-2 rounded-xl border bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
-                      title="Attach files"
-                    >
-                      <IconUpload className="h-5 w-5" />
-                    </button>
                     {realtimeEnabled ? (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() =>
-                              rtcState === "live" || rtcState === "connecting"
-                                ? stopRealtime()
-                                : startRealtime()
-                            }
-                            className={`shrink-0 p-2 rounded-xl border transition ${
-                              rtcState === "live"
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
-                                : rtcState === "connecting"
-                                  ? "bg-amber-50 border-amber-200 text-amber-600 animate-pulse dark:bg-amber-900 dark:border-amber-700 dark:text-amber-200"
-                                  : rtcState === "error"
-                                    ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200"
-                                    : "bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
-                            }`}
-                            title={
-                              rtcState === "live"
-                                ? "Stop realtime voice"
-                                : rtcState === "connecting"
-                                  ? "Connecting realtime audio…"
-                                  : rtcState === "error"
-                                    ? "Retry realtime voice"
-                                    : "Start realtime voice"
-                            }
-                          >
-                            <IconMic className="h-5 w-5" />
-                          </button>
-                          <span
-                            className={`text-xs font-medium px-2 py-1 rounded-lg border ${
-                              rtcState === "live"
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
-                                : rtcState === "connecting"
-                                  ? "bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-900 dark:border-amber-700 dark:text-amber-200"
-                                  : rtcState === "error"
-                                    ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200"
-                                    : "bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200"
-                            }`}
-                          >
-                            {rtcStateToLabel[rtcState] || "Idle"}
-                          </span>
-                          {rtcState !== "idle" && (
-                            <button
-                              type="button"
-                              onClick={stopRealtime}
-                              className="text-xs px-2 py-1 rounded-lg border bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60"
-                              title="Reset realtime call"
-                            >
-                              Reset
-                            </button>
-                          )}
-                        </div>
-                        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => (listening ? stopRecording() : startRecording())}
-                        className={`shrink-0 p-2 rounded-xl border ${
-                          listening
-                            ? 'bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200'
-                            : 'bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100'
-                        } transition`}
-                        title="Voice input (mock)"
-                      >
-                        <IconMic className="h-5 w-5" />
-                      </button>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleSyncNow}
-                        disabled={isCharterSyncInFlight || !canSyncNow}
-                        className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
-                          isCharterSyncInFlight || !canSyncNow
-                            ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
-                            : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
-                        }`}
-                        title="Commit the latest updates to the preview"
-                      >
-                        {isCharterSyncInFlight ? "Syncing…" : "Sync now"}
-                      </button>
-                      <button
-                        onClick={handleSend}
-                        disabled={isAssistantThinking}
-                        className={`shrink-0 p-2 rounded-xl shadow-sm transition ${
-                          isAssistantThinking
-                            ? "bg-slate-500/70 text-white/80 cursor-not-allowed opacity-60 dark:bg-indigo-300/60 dark:text-slate-200"
-                            : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                        }`}
-                        title={isAssistantThinking ? "Assistant is responding…" : "Send"}
-                      >
-                        <IconSend className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </div>
+                      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+                    ) : null}
+                  </Composer>
                   {files.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {files.map((f) => (
                         <span
                           key={f.id}
-                          className="px-2 py-1 rounded-lg bg-white/80 border border-white/60 text-xs flex items-center gap-2 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100"
+                          className="flex items-center gap-2 rounded-lg border border-white/60 bg-white/80 px-2 py-1 text-xs dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100"
                         >
                           <IconPaperclip className="h-3 w-3" />
-                          <span className="truncate max-w-[160px]">{f.name}</span>
+                          <span className="max-w-[160px] truncate">{f.name}</span>
                           <button
                             onClick={() => handleRemoveFile(f.id)}
-                            className="ml-1 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                            className="ml-1 text-slate-500 transition hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                           >
                             ×
                           </button>
                         </span>
                       ))}
-                    </div>
-                  )}
-                  {listening && (
-                    <div className="mt-1 text-xs text-red-600 flex items-center gap-1">
-                      <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" /> Recording… (simulated)
                     </div>
                   )}
                 </div>

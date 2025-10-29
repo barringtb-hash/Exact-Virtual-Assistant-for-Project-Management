@@ -305,6 +305,7 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [listening, setListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [useLLM, setUseLLM] = useState(true);
@@ -1437,6 +1438,7 @@ export default function ExactVirtualAssistantPM() {
 
       recorder.onstop = async () => {
         try {
+          setIsTranscribing(true);
           const blob = new Blob(chunks, { type: recorder.mimeType || preferredMime || "audio/webm" });
           const audioBase64 = await blobToBase64(blob);
           const res = await fetch("/api/transcribe", {
@@ -1456,7 +1458,10 @@ export default function ExactVirtualAssistantPM() {
         } catch (error) {
           console.error("Transcription failed", error);
         } finally {
-          stream.getTracks().forEach((track) => track.stop());
+          setIsTranscribing(false);
+          if (stream) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
           setRec(null);
           setListening(false);
         }
@@ -1743,36 +1748,30 @@ export default function ExactVirtualAssistantPM() {
     return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
-  const composerStatusText = useMemo(() => {
-    const messages = [];
-    if (isAssistantThinking) {
-      messages.push("Assistant is responding…");
-    }
-    if (isCharterSyncInFlight) {
-      messages.push("Syncing charter preview…");
-    }
+  const composerStatus = useMemo(() => {
     if (isUploadingAttachments) {
-      messages.push("Processing attachments…");
+      return "Processing attachments…";
+    }
+    if (isTranscribing) {
+      return "Transcribing…";
     }
     if (listening) {
-      messages.push("Recording… (simulated)");
+      return "Recording…";
     }
-    return messages.join(" · ");
+    if (isAssistantThinking) {
+      return "Assistant is responding…";
+    }
+    if (isCharterSyncInFlight) {
+      return "Syncing charter preview…";
+    }
+    return "Idle";
   }, [
     isAssistantThinking,
     isCharterSyncInFlight,
+    isTranscribing,
     isUploadingAttachments,
     listening,
   ]);
-
-  const handleMicToggle = useCallback(() => {
-    if (realtimeEnabled) return;
-    if (listening) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  }, [listening, realtimeEnabled, startRecording, stopRecording]);
 
   const handleComposerDrop = async (event) => {
     event.preventDefault();
@@ -1842,9 +1841,10 @@ export default function ExactVirtualAssistantPM() {
                     onDraftChange={setInput}
                     onSend={handleSend}
                     onUploadClick={() => fileInputRef.current?.click()}
-                    onMicToggle={handleMicToggle}
+                    onStartRecording={!realtimeEnabled ? startRecording : undefined}
+                    onStopRecording={!realtimeEnabled ? stopRecording : undefined}
                     recording={listening}
-                    statusText={composerStatusText || undefined}
+                    statusText={composerStatus}
                     onSyncNow={handleSyncNow}
                     canSync={canSyncNow}
                     syncDisabled={isCharterSyncInFlight}
@@ -1868,6 +1868,9 @@ export default function ExactVirtualAssistantPM() {
                       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
                     ) : null}
                   </Composer>
+                  {!realtimeEnabled && listening ? (
+                    <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">Recording… (simulated)</div>
+                  ) : null}
                   {files.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {files.map((f) => (

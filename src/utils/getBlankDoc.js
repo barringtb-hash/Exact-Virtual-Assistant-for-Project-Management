@@ -1,4 +1,4 @@
-import templateRegistry from "../../templates/registry.js";
+import { getTemplateManifest, getTemplateRegistry } from "../../templates/registry.js";
 import { createBlankCharter } from "../../lib/charter/normalize.js";
 
 function cloneValue(value) {
@@ -25,14 +25,18 @@ function invokeBlankFactory(factory) {
 
 export default function getBlankDoc(docType) {
   const normalized = typeof docType === "string" && docType.trim() ? docType.trim().toLowerCase() : null;
-  const manifest = normalized ? templateRegistry[normalized] : null;
+  const manifest = normalized ? getTemplateManifest(normalized) : null;
 
   let blank = invokeBlankFactory(manifest?.blank);
   if (!blank && normalized === "charter") {
     blank = createBlankCharter();
   }
-  if (!blank && templateRegistry.charter?.blank) {
-    blank = invokeBlankFactory(templateRegistry.charter.blank);
+  if (!blank) {
+    const registry = getTemplateRegistry();
+    const charterBlank = registry.charter?.blank;
+    if (charterBlank) {
+      blank = invokeBlankFactory(charterBlank);
+    }
   }
 
   if (!blank || typeof blank !== "object") {

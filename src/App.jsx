@@ -20,6 +20,7 @@ import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeR
 import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate } from "./state/docTemplateStore.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
+import { docApi } from "./lib/docApi.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -1131,110 +1132,61 @@ export default function ExactVirtualAssistantPM() {
       };
     }
 
-    const docValidateUrl = `/api/documents/validate?docType=${encodeURIComponent(requestDocType)}`;
-    const docRequestInit = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        docType: requestDocType,
-        document: draft,
-        charter: requestDocType === "charter" ? draft : undefined,
-        docTypeDetection:
-          suggested && typeof suggested?.type === "string"
-            ? {
-                type: suggested.type,
-                confidence:
-                  typeof suggested.confidence === "number"
-                    ? suggested.confidence
-                    : typeof suggestionConfidence === "number"
-                    ? suggestionConfidence
-                    : undefined,
-              }
-            : undefined,
-      }),
+    const docPayload = {
+      docType: requestDocType,
+      document: draft,
+      charter: requestDocType === "charter" ? draft : undefined,
     };
 
-    let response;
-    let usedDocEndpoint = true;
-
-    try {
-      response = await fetch(docValidateUrl, docRequestInit);
-      if (
-        response &&
-        requestDocType === "charter" &&
-        (response.status === 404 || response.status === 405)
-      ) {
-        usedDocEndpoint = false;
-        response = await fetch("/api/charter/validate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
-        });
-      }
-    } catch (error) {
-      console.error("Unable to reach /api/documents/validate", error);
-      if (requestDocType !== "charter") {
-        return {
-          ok: false,
-          errors: [
-            { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
-          ],
-          cause: error,
-        };
-      }
-
-      usedDocEndpoint = false;
-      try {
-        response = await fetch("/api/charter/validate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
-        });
-      } catch (legacyError) {
-        console.error("Unable to reach /api/charter/validate", legacyError);
-        return {
-          ok: false,
-          errors: [
-            { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
-          ],
-          cause: legacyError,
-        };
-      }
-    }
-
-    if (!response) {
-      return {
-        ok: false,
-        errors: [
-          { message: `Unable to validate the ${docTypeDisplayLabel}. Please try again.` },
-        ],
+    if (suggested && typeof suggested?.type === "string") {
+      docPayload.docTypeDetection = {
+        type: suggested.type,
+        confidence:
+          typeof suggested.confidence === "number"
+            ? suggested.confidence
+            : typeof suggestionConfidence === "number"
+            ? suggestionConfidence
+            : undefined,
       };
     }
 
-    let payload = null;
+    let payload;
     try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error(
-        usedDocEndpoint
-          ? "Failed to parse /api/documents/validate response"
-          : "Failed to parse /api/charter/validate response",
-        parseError
-      );
-    }
-
-    if (!response.ok || payload?.ok !== true) {
-      const structuredErrors = extractValidationErrorsFromPayload(payload);
+      payload = await docApi("validate", docPayload);
+    } catch (error) {
+      console.error("/api/documents/validate request failed", error);
+      const structuredErrors = extractValidationErrorsFromPayload(error?.payload);
 
       if (structuredErrors.length === 0) {
         structuredErrors.push({
           message:
-            payload?.error ||
-            payload?.message ||
-            `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
+            error?.payload?.error ||
+            error?.payload?.message ||
+            error?.message ||
+            `Unable to validate the ${docTypeDisplayLabel}. Please try again.`,
         });
       }
 
+      return {
+        ok: false,
+        errors: structuredErrors,
+        payload: error?.payload,
+        cause: error,
+      };
+    }
+
+    const structuredErrors = extractValidationErrorsFromPayload(payload);
+
+    if (structuredErrors.length === 0 && payload?.ok === false) {
+      structuredErrors.push({
+        message:
+          payload?.error ||
+          payload?.message ||
+          `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
+      });
+    }
+
+    if (structuredErrors.length > 0) {
       return { ok: false, errors: structuredErrors, payload };
     }
 
@@ -1285,7 +1237,6 @@ export default function ExactVirtualAssistantPM() {
   };
 
   const postDocRender = async ({ document, baseName, formats = [] }) => {
-    const docRenderUrl = `/api/documents/render?docType=${encodeURIComponent(requestDocType)}`;
     const docPayload = {
       docType: requestDocType,
       document,
@@ -1309,52 +1260,13 @@ export default function ExactVirtualAssistantPM() {
       };
     }
 
-    const docInit = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(docPayload),
-    };
-
-    const legacyPayload = {
-      charter: document,
-      baseName,
-    };
-    if (Array.isArray(formats) && formats.length > 0) {
-      legacyPayload.formats = formats;
-    }
-    const legacyInit = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(legacyPayload),
-    };
-
-    let response;
-    let usedDocEndpoint = true;
     try {
-      response = await fetch(docRenderUrl, docInit);
-      if (
-        response &&
-        requestDocType === "charter" &&
-        (response.status === 404 || response.status === 405)
-      ) {
-        usedDocEndpoint = false;
-        response = await fetch("/api/charter/make-link", legacyInit);
-      }
-    } catch (networkError) {
-      if (requestDocType !== "charter") {
-        networkError.endpoint = "/api/documents/render";
-        throw networkError;
-      }
-      usedDocEndpoint = false;
-      try {
-        response = await fetch("/api/charter/make-link", legacyInit);
-      } catch (legacyError) {
-        legacyError.endpoint = "/api/charter/make-link";
-        throw legacyError;
-      }
+      const payload = await docApi("render", docPayload);
+      return { ok: true, payload };
+    } catch (error) {
+      error.endpoint = "/api/documents/render";
+      throw error;
     }
-
-    return { response, usedDocEndpoint };
   };
 
   const makeShareLinksAndReply = async ({
@@ -1385,65 +1297,70 @@ export default function ExactVirtualAssistantPM() {
       requestedFormats.push("pdf");
     }
 
-    let response;
-    let usedDocEndpoint = true;
+    let payload;
     try {
       const result = await postDocRender({
         document: normalizedDocument,
         baseName,
         formats: requestedFormats,
       });
-      response = result.response;
-      usedDocEndpoint = result.usedDocEndpoint;
-    } catch (networkError) {
-      const endpointLabel = networkError?.endpoint || "/api/documents/render";
-      console.error(`${endpointLabel} network error`, networkError);
+      payload = result.payload;
+    } catch (error) {
+      const endpointLabel = error?.endpoint || "/api/documents/render";
+      if (typeof error?.status === "number") {
+        const validationErrors = extractValidationErrorsFromPayload(error.payload);
+        if (validationErrors.length > 0) {
+          postValidationErrorsToChat(validationErrors, {
+            heading:
+              `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+          });
+          await checkShareLinksConfigured();
+          return {
+            ok: false,
+            reason: "validation",
+            status: error.status,
+            payload: error.payload,
+            errors: validationErrors,
+          };
+        }
+
+        const fallbackMessage =
+          error?.payload?.error?.message ||
+          error?.payload?.error ||
+          error?.payload?.message ||
+          `Unable to create ${docTypeDisplayLabel} export links right now.`;
+        appendAssistantMessage(`Export link error: ${fallbackMessage}`);
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "http", status: error.status, payload: error?.payload };
+      }
+
+      console.error(`${endpointLabel} network error`, error);
       appendAssistantMessage(
         "Export link error: Unable to create export links right now. Please try again shortly."
       );
       await checkShareLinksConfigured();
-      return { ok: false, reason: "network", error: networkError };
+      return { ok: false, reason: "network", error };
     }
 
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error(
-        usedDocEndpoint
-          ? "Failed to parse /api/documents/render response"
-          : "Failed to parse /api/charter/make-link response",
-        parseError
-      );
+    const validationErrors = extractValidationErrorsFromPayload(payload);
+    if (validationErrors.length > 0) {
+      postValidationErrorsToChat(validationErrors, {
+        heading:
+          `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+      });
+      await checkShareLinksConfigured();
+      return { ok: false, reason: "validation", payload, errors: validationErrors };
     }
 
-    if (!response.ok) {
-      const validationErrors = extractValidationErrorsFromPayload(payload);
-      if (validationErrors.length > 0) {
-        postValidationErrorsToChat(validationErrors, {
-          heading:
-            `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
-        });
-        await checkShareLinksConfigured();
-
-        return {
-          ok: false,
-          reason: "validation",
-          status: response.status,
-          payload,
-          errors: validationErrors,
-        };
-      }
-
+    if (payload?.ok === false) {
       const fallbackMessage =
         payload?.error?.message ||
+        payload?.error ||
         payload?.message ||
         `Unable to create ${docTypeDisplayLabel} export links right now.`;
-
       appendAssistantMessage(`Export link error: ${fallbackMessage}`);
       await checkShareLinksConfigured();
-
-      return { ok: false, reason: "http", status: response.status, payload };
+      return { ok: false, reason: "http", payload };
     }
 
     const responseLinks =
@@ -1496,63 +1413,71 @@ export default function ExactVirtualAssistantPM() {
 
     setIsGeneratingExportLinks(true);
     try {
-      let response;
-      let usedDocEndpoint = true;
+      const blankDocument = normalizeDraft(createBlankDraft());
+      let payload;
       try {
-        const blankDocument = normalizeDraft(createBlankDraft());
         const result = await postDocRender({
           document: blankDocument,
           baseName,
           formats: ["docx", "pdf"],
         });
-        response = result.response;
-        usedDocEndpoint = result.usedDocEndpoint;
-      } catch (networkError) {
-      const endpointLabel = networkError?.endpoint || "/api/documents/render";
-        console.error(`${endpointLabel} network error (blank document)`, networkError);
+        payload = result.payload;
+      } catch (error) {
+        const endpointLabel = error?.endpoint || "/api/documents/render";
+        if (typeof error?.status === "number") {
+          const validationErrors = extractValidationErrorsFromPayload(error.payload);
+          if (validationErrors.length > 0) {
+            postValidationErrorsToChat(validationErrors, {
+              heading:
+                `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+            });
+            await checkShareLinksConfigured();
+            return {
+              ok: false,
+              reason: "validation",
+              status: error.status,
+              payload: error.payload,
+              errors: validationErrors,
+            };
+          }
+
+          const fallbackMessage =
+            error?.payload?.error?.message ||
+            error?.payload?.error ||
+            error?.payload?.message ||
+            `Unable to create blank ${docTypeDisplayLabel} download links right now.`;
+          appendAssistantMessage(`Blank ${docTypeDisplayLabel} error: ${fallbackMessage}`);
+          await checkShareLinksConfigured();
+          return { ok: false, reason: "http", status: error.status, payload: error?.payload };
+        }
+
+        console.error(`${endpointLabel} network error (blank document)`, error);
         appendAssistantMessage(
           `Blank ${docTypeDisplayLabel} error: Unable to create download links right now. Please try again shortly.`
         );
         await checkShareLinksConfigured();
-        return { ok: false, reason: "network", error: networkError };
+        return { ok: false, reason: "network", error };
       }
 
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (parseError) {
-        console.error(
-          usedDocEndpoint
-            ? "Failed to parse /api/documents/render response (blank document)"
-            : "Failed to parse /api/charter/make-link response (blank document)",
-          parseError
-        );
+      const validationErrors = extractValidationErrorsFromPayload(payload);
+      if (validationErrors.length > 0) {
+        postValidationErrorsToChat(validationErrors, {
+          heading:
+            `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+        });
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "validation", payload, errors: validationErrors };
       }
 
-      if (!response.ok) {
-        const validationErrors = extractValidationErrorsFromPayload(payload);
-        if (validationErrors.length > 0) {
-          postValidationErrorsToChat(validationErrors, {
-            heading:
-              `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
-          });
-          await checkShareLinksConfigured();
-          return {
-            ok: false,
-            reason: "validation",
-            status: response.status,
-            payload,
-            errors: validationErrors,
-          };
-        }
-
+      if (payload?.ok === false) {
         const fallbackMessage =
           payload?.error?.message ||
+          payload?.error ||
           payload?.message ||
           `Unable to create blank ${docTypeDisplayLabel} download links right now.`;
         appendAssistantMessage(`Blank ${docTypeDisplayLabel} error: ${fallbackMessage}`);
         await checkShareLinksConfigured();
-        return { ok: false, reason: "http", status: response.status, payload };
+        return { ok: false, reason: "http", payload };
       }
 
       const responseLinks =

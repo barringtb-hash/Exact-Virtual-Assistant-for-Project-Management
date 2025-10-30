@@ -1,6 +1,9 @@
 import { createBlankCharter } from "../lib/charter/normalize.js";
 
-export function createModuleReference(moduleId, { exportName = null, fallbacks = [], defaultExport = true } = {}) {
+export function createModuleReference(
+  moduleId,
+  { exportName = null, fallbacks = [], defaultExport = true } = {}
+) {
   if (!moduleId || typeof moduleId !== "string") {
     return null;
   }
@@ -53,8 +56,9 @@ function createDocTypeManifest({
   };
 }
 
-export const templateRegistry = {
-  charter: createDocTypeManifest({
+function buildTemplateRegistry() {
+  return {
+    charter: createDocTypeManifest({
     id: "charter",
     label: "Charter",
     version: "2024.10",
@@ -101,7 +105,7 @@ export const templateRegistry = {
     },
     blank: () => createBlankCharter(),
   }),
-  ddp: createDocTypeManifest({
+    ddp: createDocTypeManifest({
     id: "ddp",
     label: "Design & Development Plan",
     version: "2024.10",
@@ -147,7 +151,7 @@ export const templateRegistry = {
     },
     blank: () => ({}),
   }),
-  sow: createDocTypeManifest({
+    sow: createDocTypeManifest({
     id: "sow",
     label: "Statement of Work",
     version: null,
@@ -171,7 +175,21 @@ export const templateRegistry = {
     notes: "Placeholder manifest for future Statement of Work templates.",
     blank: () => ({}),
   }),
-};
+  };
+}
+
+let registryCache;
+
+export function getTemplateRegistry() {
+  if (!registryCache) {
+    registryCache = buildTemplateRegistry();
+  }
+  return registryCache;
+}
+
+export function resetTemplateRegistryForTests() {
+  registryCache = undefined;
+}
 
 export function getTemplateManifest(docType) {
   if (!docType || typeof docType !== "string") {
@@ -179,15 +197,17 @@ export function getTemplateManifest(docType) {
   }
 
   const normalized = docType.trim().toLowerCase();
-  return templateRegistry[normalized] || null;
+  const registry = getTemplateRegistry();
+  return registry[normalized] || null;
 }
 
 export function listTemplateManifests({ includeDisabled = false } = {}) {
-  const manifests = Object.values(templateRegistry).filter(Boolean);
+  const registry = getTemplateRegistry();
+  const manifests = Object.values(registry).filter(Boolean);
   if (includeDisabled) {
     return manifests;
   }
   return manifests.filter((entry) => entry.enabled !== false);
 }
 
-export default templateRegistry;
+export default getTemplateRegistry;

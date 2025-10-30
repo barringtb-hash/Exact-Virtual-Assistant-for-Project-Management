@@ -1,3 +1,5 @@
+import { docApi } from "../lib/docApi.js";
+
 const DEFAULT_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 
 function isPlainObject(value) {
@@ -116,32 +118,6 @@ export function buildExtractionPayload({
   return payload;
 }
 
-function ensureFetch(fetchImpl) {
-  return typeof fetchImpl === "function" ? fetchImpl : fetch;
-}
-
-async function requestExtraction({ docType, requestInit, fetchImpl }) {
-  const fetchFn = ensureFetch(fetchImpl);
-  const endpoint = `/api/documents/extract?docType=${encodeURIComponent(docType)}`;
-  try {
-    const response = await fetchFn(endpoint, requestInit);
-    if (
-      response &&
-      !response.ok &&
-      docType === "charter" &&
-      (response.status === 404 || response.status === 405)
-    ) {
-      return fetchFn("/api/charter/extract", requestInit);
-    }
-    return response;
-  } catch (networkError) {
-    if (docType !== "charter") {
-      throw networkError;
-    }
-    return fetchFn("/api/charter/extract", requestInit);
-  }
-}
-
 function createExtractionError(message, { status, payload, code } = {}) {
   const error = new Error(message);
   if (typeof status === "number") {
@@ -185,34 +161,30 @@ export async function extractAndPopulate({
 
   const normalizedDocType = payload.docType;
 
-  const requestInit = {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal,
-  };
-
-  const response = await requestExtraction({
-    docType: normalizedDocType,
-    requestInit,
-    fetchImpl,
-  });
-
-  if (!response.ok) {
-    const errorPayload = await response.json().catch(() => ({}));
-    const isUnsupported = response.status === 400;
+  let data;
+  try {
+    data = await docApi("extract", payload, { fetchImpl, signal });
+  } catch (error) {
+    const status = error?.status;
+    const errorPayload = error?.payload;
+    const isUnsupported = status === 400 || error?.code === "unsupported-doc-type";
     const messageCandidate =
       typeof errorPayload?.error === "string" && errorPayload.error.trim()
         ? errorPayload.error.trim()
         : typeof errorPayload?.message === "string" && errorPayload.message.trim()
         ? errorPayload.message.trim()
+        : typeof error?.message === "string" && error.message
+        ? error.message
         : isUnsupported
         ? `Extraction is not available for "${normalizedDocType}" documents.`
-        : `Extraction failed with status ${response.status}`;
+        : status
+        ? `Extraction failed with status ${status}`
+        : "Extraction failed";
+
     const extractionError = createExtractionError(messageCandidate, {
-      status: response.status,
+      status,
       payload: errorPayload,
-      code: isUnsupported ? "unsupported-doc-type" : undefined,
+      code: isUnsupported ? "unsupported-doc-type" : error?.code,
     });
 
     if (isUnsupported && typeof onUnsupportedDocType === "function") {
@@ -234,26 +206,9 @@ export async function extractAndPopulate({
     throw extractionError;
   }
 
-  let data;
-  try {
-    data = await response.json();
-  } catch (parseError) {
-    const extractionError = createExtractionError("Extractor returned unexpected payload", {
-      status: response.status,
-    });
-    if (typeof onError === "function") {
-      try {
-        onError(extractionError);
-      } catch (callbackError) {
-        console.error("extractAndPopulate onError callback failed", callbackError);
-      }
-    }
-    throw extractionError;
-  }
-
   if (!isPlainObject(data)) {
     const extractionError = createExtractionError("Extractor returned unexpected payload", {
-      status: response.status,
+      status: undefined,
       payload: data,
     });
     if (typeof onError === "function") {

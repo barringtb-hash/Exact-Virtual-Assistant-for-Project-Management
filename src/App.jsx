@@ -484,14 +484,55 @@ export default function ExactVirtualAssistantPM() {
   });
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const [pendingIntentExtraction, setPendingIntentExtraction] = useState(null);
   const messagesRef = useRef(messages);
   const voiceTranscriptsRef = useRef(voiceTranscripts);
+  const pendingIntentRef = useRef(null);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
+
+  const clearPendingIntentExtraction = useCallback(() => {
+    pendingIntentRef.current = null;
+    setPendingIntentExtraction(null);
+  }, []);
+
+  const queuePendingIntentExtraction = useCallback((payload) => {
+    pendingIntentRef.current = payload;
+    setPendingIntentExtraction(payload);
+  }, []);
+
+  const attemptIntentExtraction = useCallback(
+    async ({ intent, reason, messages: history, voice: voiceEvents }) => {
+      const result = await triggerExtraction({
+        intent,
+        docType: "charter",
+        messages: history,
+        attachments,
+        voice: voiceEvents,
+        reason,
+      });
+
+      if (!result?.ok && result?.reason === "attachments-uploading") {
+        const isNewPending = !pendingIntentRef.current;
+        queuePendingIntentExtraction({ intent, reason });
+        if (isNewPending) {
+          pushToast({
+            tone: "info",
+            message: "Waiting for attachments to finish before extracting the charter.",
+          });
+        }
+      } else {
+        clearPendingIntentExtraction();
+      }
+
+      return result;
+    },
+    [attachments, clearPendingIntentExtraction, queuePendingIntentExtraction, triggerExtraction, pushToast]
+  );
   const suggestionType = suggested?.type;
   const hasConfirmedDocType = useMemo(() => {
     if (!docRouterEnabled) {
@@ -1991,13 +2032,11 @@ const resolveDocTypeForManualSync = useCallback(
       if (intentOnlyExtractionEnabled) {
         const intent = detectCharterIntent(trimmed);
         if (intent) {
-          await triggerExtraction({
+          await attemptIntentExtraction({
             intent,
-            docType: "charter",
-            messages: nextHistory,
-            attachments,
-            voice: nextVoice,
             reason: "voice-intent",
+            messages: nextHistory,
+            voice: nextVoice,
           });
           return;
         }
@@ -2009,12 +2048,11 @@ const resolveDocTypeForManualSync = useCallback(
       }
     },
     [
-      attachments,
+      attemptIntentExtraction,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
       setMessages,
       setVoiceTranscripts,
-      triggerExtraction,
     ]
   );
 
@@ -2031,13 +2069,11 @@ const resolveDocTypeForManualSync = useCallback(
     if (intentOnlyExtractionEnabled) {
       const intent = detectCharterIntent(text);
       if (intent) {
-        await triggerExtraction({
+        await attemptIntentExtraction({
           intent,
-          docType: "charter",
-          messages: nextHistory,
-          attachments,
-          voice: voiceTranscripts,
           reason: "composer-intent",
+          messages: nextHistory,
+          voice: voiceTranscripts,
         });
         return;
       }
@@ -2283,6 +2319,78 @@ const resolveDocTypeForManualSync = useCallback(
       await processPickedFiles(droppedFiles);
     }
   };
+
+  useEffect(() => {
+    if (!intentOnlyExtractionEnabled) {
+      return;
+    }
+    if (!pendingIntentExtraction) {
+      return;
+    }
+    if (!pendingIntentExtraction.intent) {
+      clearPendingIntentExtraction();
+      return;
+    }
+    if (isUploadingAttachments) {
+      return;
+    }
+
+    let canceled = false;
+
+    const flushPendingIntent = async () => {
+      const latestMessages = Array.isArray(messagesRef.current)
+        ? messagesRef.current
+        : [];
+      const latestVoice = Array.isArray(voiceTranscriptsRef.current)
+        ? voiceTranscriptsRef.current
+        : [];
+
+      const result = await triggerExtraction({
+        intent: pendingIntentExtraction.intent,
+        docType: "charter",
+        messages: latestMessages,
+        attachments,
+        voice: latestVoice,
+        reason: pendingIntentExtraction.reason || "intent-retry",
+      });
+
+      if (canceled) {
+        return;
+      }
+
+      if (!result?.ok && result?.reason === "attachments-uploading") {
+        return;
+      }
+
+      if (
+        !result?.ok &&
+        result?.reason &&
+        result.reason !== "aborted" &&
+        result.reason !== "idle"
+      ) {
+        pushToast({
+          tone: "warning",
+          message: "Charter extraction did not start. Please try again.",
+        });
+      }
+
+      clearPendingIntentExtraction();
+    };
+
+    flushPendingIntent();
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    attachments,
+    intentOnlyExtractionEnabled,
+    isUploadingAttachments,
+    pendingIntentExtraction,
+    triggerExtraction,
+    clearPendingIntentExtraction,
+    pushToast,
+  ]);
 
   const handleComposerDragOver = (event) => {
     event.preventDefault();

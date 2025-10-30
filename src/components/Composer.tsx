@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from "react";
 
-import { useDocTypeContext } from "../context/DocTypeContext.jsx";
+import { useDocType } from "../state/docType.js";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
@@ -90,7 +90,7 @@ const Composer: React.FC<ComposerProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaId = useId();
-  const { previewDocTypeLabel } = useDocTypeContext();
+  const { previewDocTypeLabel } = useDocType();
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;

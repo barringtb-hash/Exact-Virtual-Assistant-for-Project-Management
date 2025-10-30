@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { useDocTypeContext } from "../context/DocTypeContext.jsx";
+import { useDocType } from "../state/docType.js";
 
 const DESCRIPTIONS = {
   charter: "Summarize project scope, objectives, and stakeholders.",
@@ -10,22 +10,22 @@ const DESCRIPTIONS = {
 export default function DocTypeModal({ open, onConfirm, onCancel }) {
   const {
     metadataList,
-    selectedDocType,
-    suggestedDocType,
-    suggestionConfidence,
+    docType,
+    suggested,
+    confidence,
     defaultDocType,
-  } = useDocTypeContext();
+  } = useDocType();
 
-  const recommendedType = suggestedDocType?.type;
+  const recommendedType = suggested?.type;
   const effectiveDefault = useMemo(() => {
     if (recommendedType) {
       return recommendedType;
     }
-    if (selectedDocType) {
-      return selectedDocType;
+    if (docType) {
+      return docType;
     }
     return defaultDocType;
-  }, [defaultDocType, recommendedType, selectedDocType]);
+  }, [defaultDocType, recommendedType, docType]);
 
   const [selected, setSelected] = useState(effectiveDefault);
 
@@ -90,8 +90,8 @@ export default function DocTypeModal({ open, onConfirm, onCancel }) {
                     {isRecommended ? (
                       <div className="mt-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
                         Recommended
-                        {suggestionConfidence > 0
-                          ? ` (${Math.round(suggestionConfidence * 100)}% confidence)`
+                        {confidence > 0
+                          ? ` (${Math.round(confidence * 100)}% confidence)`
                           : ""}
                       </div>
                     ) : null}

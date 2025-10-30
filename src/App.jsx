@@ -15,11 +15,8 @@ import {
   isDocTypeConfirmed,
   normalizeDocTypeSuggestion,
 } from "./utils/docTypeRouter";
-import {
-  mergeStoredDocContext,
-  readStoredDocContext,
-  useDocTypeContext,
-} from "./context/DocTypeContext.jsx";
+import { useDocType } from "./state/docType.js";
+import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -410,16 +407,16 @@ export default function ExactVirtualAssistantPM() {
     docRouterEnabled,
     supportedDocTypes,
     metadataMap,
-    selectedDocType,
-    setSelectedDocType,
-    suggestedDocType,
-    setSuggestedDocType,
+    docType,
+    setDocType,
+    suggested,
+    setSuggested,
     previewDocType,
     previewDocTypeLabel,
     effectiveDocType,
     defaultDocType,
-  } = useDocTypeContext();
-  const storedContextRef = useRef(readStoredDocContext());
+  } = useDocType();
+  const storedContextRef = useRef(readStoredSession());
   const [messages, setMessages] = useState(() => {
     const stored = storedContextRef.current;
     if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
@@ -462,7 +459,7 @@ export default function ExactVirtualAssistantPM() {
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const pendingFilesRef = useRef([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
-  const suggestionType = suggestedDocType?.type;
+  const suggestionType = suggested?.type;
   const hasSuggestedDocType =
     suggestionType && supportedDocTypes.has(suggestionType);
   const hasConfirmedDocType = useMemo(() => {
@@ -470,17 +467,17 @@ export default function ExactVirtualAssistantPM() {
       return true;
     }
     return isDocTypeConfirmed({
-      selectedDocType: supportedDocTypes.has(selectedDocType)
-        ? selectedDocType
+      selectedDocType: supportedDocTypes.has(docType)
+        ? docType
         : null,
-      suggestion: suggestedDocType,
+      suggestion: suggested,
       threshold: 0.7,
       allowedTypes: supportedDocTypes,
     });
   }, [
     docRouterEnabled,
-    selectedDocType,
-    suggestedDocType,
+    docType,
+    suggested,
     supportedDocTypes,
   ]);
   const docTypeConfig = useMemo(
@@ -692,25 +689,25 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     if (!docRouterEnabled) {
       setShowDocTypeModal(false);
-      if (suggestedDocType) {
-        setSuggestedDocType(null);
+      if (suggested) {
+        setSuggested(null);
       }
-      if (!selectedDocType || !supportedDocTypes.has(selectedDocType)) {
-        setSelectedDocType(defaultDocType);
+      if (!docType || !supportedDocTypes.has(docType)) {
+        setDocType(defaultDocType);
       }
     }
   }, [
     defaultDocType,
     docRouterEnabled,
-    selectedDocType,
-    setSelectedDocType,
-    setSuggestedDocType,
-    suggestedDocType,
+    docType,
+    setDocType,
+    setSuggested,
+    suggested,
     supportedDocTypes,
   ]);
 
   useEffect(() => {
-    mergeStoredDocContext({ attachments, messages });
+    mergeStoredSession({ attachments, messages });
   }, [attachments, messages]);
 
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
@@ -790,10 +787,10 @@ export default function ExactVirtualAssistantPM() {
     suggestedDocType: inferredDocTypeSuggestion,
   } = useBackgroundExtraction({
     docType: effectiveDocType,
-    selectedDocType: supportedDocTypes.has(selectedDocType)
-      ? selectedDocType
+    selectedDocType: supportedDocTypes.has(docType)
+      ? docType
       : null,
-    suggestedDocType,
+    suggestedDocType: suggested,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -809,7 +806,7 @@ export default function ExactVirtualAssistantPM() {
   });
   useEffect(() => {
     const normalized = normalizeDocTypeSuggestion(inferredDocTypeSuggestion);
-    setSuggestedDocType((prev) => {
+    setSuggested((prev) => {
       if (areDocTypeSuggestionsEqual(prev, normalized)) {
         return prev;
       }
@@ -2077,8 +2074,8 @@ export default function ExactVirtualAssistantPM() {
       return requestDocType;
     }
 
-    if (supportedDocTypes.has(selectedDocType)) {
-      return selectedDocType;
+    if (supportedDocTypes.has(docType)) {
+      return docType;
     }
 
     if (hasConfirmedDocType && hasSuggestedDocType) {
@@ -2089,7 +2086,7 @@ export default function ExactVirtualAssistantPM() {
   }, [
     docRouterEnabled,
     requestDocType,
-    selectedDocType,
+    docType,
     hasConfirmedDocType,
     hasSuggestedDocType,
     suggestionType,
@@ -2125,8 +2122,10 @@ export default function ExactVirtualAssistantPM() {
       }
 
       if (supportedDocTypes.has(nextType)) {
-        setSelectedDocType(nextType);
-        setSuggestedDocType(normalizeDocTypeSuggestion({ type: nextType, confidence: 1 }));
+        setDocType(nextType);
+        setSuggested(
+          normalizeDocTypeSuggestion({ type: nextType, confidence: 1 })
+        );
         setShowDocTypeModal(false);
         const typeLabel = buildDocTypeConfig(nextType, metadataMap).label;
         pushToast({
@@ -2393,8 +2392,10 @@ export default function ExactVirtualAssistantPM() {
       const normalized = supportedDocTypes.has(nextValue)
         ? nextValue
         : defaultDocType;
-      setSelectedDocType(normalized);
-      setSuggestedDocType(normalizeDocTypeSuggestion({ type: normalized, confidence: 1 }));
+      setDocType(normalized);
+      setSuggested(
+        normalizeDocTypeSuggestion({ type: normalized, confidence: 1 })
+      );
       setShowDocTypeModal(false);
       const pending = pendingFilesRef.current;
       pendingFilesRef.current = [];
@@ -2405,8 +2406,8 @@ export default function ExactVirtualAssistantPM() {
     [
       defaultDocType,
       processPickedFiles,
-      setSelectedDocType,
-      setSuggestedDocType,
+      setDocType,
+      setSuggested,
       supportedDocTypes,
     ]
   );

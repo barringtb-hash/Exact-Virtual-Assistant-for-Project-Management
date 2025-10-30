@@ -6,21 +6,25 @@ import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
-import extractDocumentAndPopulate from "./utils/extractAndPopulate.js";
 import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, {
   mergeExtractedDraft,
   onFileAttached,
 } from "./hooks/useBackgroundExtraction";
+import {
+  handleSyncCommand,
+  handleTypeCommand,
+  resolveManualSyncDocType,
+} from "./utils/chatDocTypeCommands.js";
 import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
-import { useDocType } from "./state/docType.js";
+import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate } from "./state/docTemplateStore.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 const MANUAL_SYNC_DOC_TYPE_PROMPT =
-  "Pick a document template before syncing. Choose one in the modal or run `/type <id>`.";
+  "Confirm a document template so I know what to sync. Pick one in the modal or run `/type <id>`.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
 
@@ -416,12 +420,9 @@ export default function ExactVirtualAssistantPM() {
     effectiveDocType,
     defaultDocType,
   } = useDocType();
-  const docType = typeof selectedDocType === "string" ? selectedDocType : null;
+  const docType = selectedDocType;
   const setDocType = setSelectedDocType;
-  const suggested =
-    suggestedDocType && typeof suggestedDocType === "object"
-      ? suggestedDocType
-      : null;
+  const suggested = suggestedDocType;
   const setSuggested = setSuggestedDocType;
   const {
     docType: templateDocType,
@@ -477,8 +478,6 @@ export default function ExactVirtualAssistantPM() {
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const suggestionType = suggested?.type;
-  const hasSuggestedDocType =
-    suggestionType && supportedDocTypes.has(suggestionType);
   const hasConfirmedDocType = useMemo(() => {
     if (!docRouterEnabled) {
       return true;
@@ -990,95 +989,54 @@ export default function ExactVirtualAssistantPM() {
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
 
-  const syncDocFromChat = useCallback(async (docTypeOverride) => {
-    const targetDocType =
-      typeof docTypeOverride === "string" && docTypeOverride.trim()
-        ? docTypeOverride.trim()
-        : requestDocType;
-    const targetConfig = buildDocTypeConfig(targetDocType);
-    const targetPreviewLabel = `${targetConfig.label} preview`;
-    if (isExtracting || isCharterSyncing) {
-      appendAssistantMessage(
-        `I’m already refreshing the ${targetPreviewLabel}. I’ll share updates here once they’re ready.`
-      );
-      return { ok: false, reason: "busy" };
-    }
-
-    if (!canSyncNow) {
-      appendAssistantMessage(
-        `Share some scope details, voice notes, or attachments first and I’ll update the ${targetPreviewLabel}.`
-      );
-      return { ok: false, reason: "idle" };
-    }
-
-    setIsCharterSyncing(true);
-    setCharterSyncError(null);
-
-    try {
-      const result = await extractDocumentAndPopulate({
-        docType: targetDocType,
-        messages,
-        attachments,
-        voice: voiceTranscripts,
-        suggestion: suggested,
-        suggestionConfidence,
-        seed: getCurrentDraft(),
-        normalize: normalizeDraft,
-        applyDraft: applyNormalizedDraft,
+  const syncDocFromChat = useCallback(
+    (docTypeOverride) =>
+      handleSyncCommand({
+        docRouterEnabled,
+        docTypeOverride,
+        resolveDocType: resolveDocTypeForManualSync,
+        openDocTypePicker: () => setShowDocTypeModal(true),
+        manualDocTypePrompt: MANUAL_SYNC_DOC_TYPE_PROMPT,
+        pushToast,
+        isBusy: isCharterSyncInFlight,
+        canSyncNow,
+        appendAssistantMessage,
+        extractAndPopulate,
+        buildDocTypeConfig: (nextType) => buildDocTypeConfig(nextType, metadataMap),
         parseFallbackMessage: MANUAL_PARSE_FALLBACK_MESSAGE,
-      });
-
-      if (result?.reason === "parse-fallback") {
-        const fallbackMessage = result.message || MANUAL_PARSE_FALLBACK_MESSAGE;
-        setCharterSyncError(fallbackMessage);
-        appendAssistantMessage(`${fallbackMessage}`);
-        return { ok: false, reason: "parse-fallback", data: result.data };
-      }
-
-      if (!result?.ok) {
-        throw new Error(`Unable to update the ${targetPreviewLabel}. Please try again.`);
-      }
-
-      const finalDraft = result.draft;
-      clearExtractionError();
-      setCharterSyncError(null);
-      appendAssistantMessage(
-        `I’ve refreshed the ${targetPreviewLabel} with the latest context.`
-      );
-      return { ok: true, draft: finalDraft };
-    } catch (error) {
-      const fallbackMessage =
-        typeof error?.message === "string" && error.message.trim()
-          ? error.message.trim()
-          : `Unable to update the ${targetPreviewLabel}. Please try again.`;
-      setCharterSyncError(fallbackMessage);
-      if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
-        appendAssistantMessage(`${fallbackMessage}`);
-      } else {
-        appendAssistantMessage(`I couldn’t update the preview: ${fallbackMessage}`);
-      }
-      return { ok: false, reason: "error", error };
-    } finally {
-      setIsCharterSyncing(false);
-    }
-  }, [
-    appendAssistantMessage,
-    applyNormalizedDraft,
-    docPreviewLabel,
-    attachments,
-    canSyncNow,
-    clearExtractionError,
-    getCurrentDraft,
-    normalizeDraft,
-    requestDocType,
-    isCharterSyncing,
-    isExtracting,
-    messages,
-    setCharterSyncError,
-    voiceTranscripts,
-    suggested,
-    suggestionConfidence,
-  ]);
+        onStart: () => {
+          setIsCharterSyncing(true);
+          setCharterSyncError(null);
+        },
+        onSuccess: () => {
+          clearExtractionError();
+          setCharterSyncError(null);
+        },
+        onParseFallback: (message) => {
+          setCharterSyncError(message);
+        },
+        onError: (message) => {
+          setCharterSyncError(message);
+        },
+        onComplete: () => {
+          setIsCharterSyncing(false);
+        },
+      }),
+    [
+      appendAssistantMessage,
+      canSyncNow,
+      clearExtractionError,
+      docRouterEnabled,
+      extractAndPopulate,
+      isCharterSyncInFlight,
+      metadataMap,
+      pushToast,
+      resolveDocTypeForManualSync,
+      setCharterSyncError,
+      setIsCharterSyncing,
+      setShowDocTypeModal,
+    ]
+  );
 
   const formatValidationErrorsForChat = (errors = []) => {
     if (!Array.isArray(errors) || errors.length === 0) {
@@ -1943,29 +1901,14 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const resolveDocTypeForManualSync = useCallback(() => {
-    if (!docRouterEnabled) {
-      return requestDocType;
-    }
-
-    if (supportedDocTypes.has(docType)) {
-      return docType;
-    }
-
-    if (hasConfirmedDocType && hasSuggestedDocType) {
-      return suggestionType;
-    }
-
-    return null;
-  }, [
-    docRouterEnabled,
-    requestDocType,
-    docType,
-    hasConfirmedDocType,
-    hasSuggestedDocType,
-    suggestionType,
-    supportedDocTypes,
-  ]);
+  const resolveDocTypeForManualSync = useCallback(
+    () =>
+      resolveManualSyncDocType({
+        snapshot: getDocTypeSnapshot(),
+        confirmThreshold: 0.7,
+      }),
+    []
+  );
 
   const handleCommandFromText = async (
     rawText,
@@ -1983,37 +1926,15 @@ export default function ExactVirtualAssistantPM() {
 
     if (normalized.startsWith("/type")) {
       ensureUserLogged();
-      const typeMatch = trimmed.match(/^\s*\/type\s+([^\s]+)/i);
-      const rawType = typeMatch?.[1] || "";
-      const nextType = rawType.trim().toLowerCase();
-
-      if (!nextType) {
-        pushToast({
-          tone: "warning",
-          message: "Add a document type after `/type`. Example: `/type charter`.",
-        });
-        return true;
-      }
-
-      if (supportedDocTypes.has(nextType)) {
-        setDocType(nextType);
-        setSuggested(
-          normalizeDocTypeSuggestion({ type: nextType, confidence: 1 })
-        );
-        setShowDocTypeModal(false);
-        const typeLabel = buildDocTypeConfig(nextType, metadataMap).label;
-        pushToast({
-          tone: "success",
-          message: `Document type set to ${typeLabel}.`,
-        });
-      } else {
-        const options = Array.from(supportedDocTypes).join(", ");
-        pushToast({
-          tone: "warning",
-          message: `“${rawType.trim() || nextType}” isn’t a supported document type. Try one of: ${options}.`,
-        });
-      }
-
+      handleTypeCommand({
+        command: trimmed,
+        metadataMap,
+        supportedDocTypes,
+        setDocType,
+        setSuggested,
+        closeDocTypeModal: () => setShowDocTypeModal(false),
+        pushToast,
+      });
       return true;
     }
 
@@ -2029,15 +1950,7 @@ export default function ExactVirtualAssistantPM() {
 
     if (wantsManualSync) {
       ensureUserLogged();
-      const manualDocType = resolveDocTypeForManualSync();
-      if (!manualDocType) {
-        if (docRouterEnabled) {
-          setShowDocTypeModal(true);
-        }
-        pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
-        return true;
-      }
-      await syncDocFromChat(manualDocType);
+      await syncDocFromChat();
       return true;
     }
 

@@ -28,23 +28,10 @@ async function loadFromNodeFile(normalizedPath) {
       }
       return JSON.parse(contents);
     } catch (error) {
-      // continue searching other roots
+      // ignore and continue searching other roots
     }
   }
-  console.error("Failed to read template asset from filesystem", normalizedPath);
   return null;
-}
-
-async function loadViaFetch(normalizedPath) {
-  if (!isBrowser || typeof fetch !== "function") {
-    return null;
-  }
-  try {
-    return await loadTemplateAsset(normalizedPath);
-  } catch (error) {
-    console.warn("Failed to fetch template asset", normalizedPath, error);
-    return null;
-  }
 }
 
 export async function loadTemplateJson(relativePath) {
@@ -53,19 +40,17 @@ export async function loadTemplateJson(relativePath) {
     return null;
   }
 
-  if (!isBrowser) {
-    const fromFile = await loadFromNodeFile(normalized);
-    if (fromFile !== null) {
-      return fromFile;
+  try {
+    return await loadTemplateAsset(normalized);
+  } catch (error) {
+    if (!isBrowser) {
+      const fromFile = await loadFromNodeFile(normalized);
+      if (fromFile !== null) {
+        return fromFile;
+      }
     }
+    throw error;
   }
-
-  const fromFetch = await loadViaFetch(normalized);
-  if (fromFetch !== null) {
-    return fromFetch;
-  }
-
-  return loadFromNodeFile(normalized);
 }
 
 export default loadTemplateJson;

@@ -1,4 +1,4 @@
-import templateRegistry from "../../templates/registry.js";
+import { getTemplateManifest } from "../../templates/registry.js";
 import { loadTemplateJson } from "./loadTemplateJson.js";
 
 const manifestCache = new Map();
@@ -33,7 +33,7 @@ export async function loadDocTypeManifest(type) {
     return entry.promise;
   }
 
-  const manifestEntry = templateRegistry[normalized];
+  const manifestEntry = getTemplateManifest(normalized);
   const manifestPath = manifestEntry?.manifestPath;
   if (!manifestPath) {
     entry.status = "ready";

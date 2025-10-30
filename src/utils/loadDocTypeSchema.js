@@ -1,4 +1,4 @@
-import templateRegistry from "../../templates/registry.js";
+import { getTemplateManifest } from "../../templates/registry.js";
 import { loadTemplateJson } from "./loadTemplateJson.js";
 
 const schemaCache = new Map();
@@ -33,7 +33,7 @@ export async function loadDocTypeSchema(type) {
     return entry.promise;
   }
 
-  const manifest = templateRegistry[normalized];
+  const manifest = getTemplateManifest(normalized);
   const schemaPath = manifest?.schema?.path;
   if (!schemaPath) {
     entry.status = "ready";

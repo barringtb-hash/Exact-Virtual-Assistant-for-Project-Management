@@ -1175,18 +1175,18 @@ export default function ExactVirtualAssistantPM() {
       };
     }
 
-    if (payload?.ok !== true) {
-      const structuredErrors = extractValidationErrorsFromPayload(payload);
+    const structuredErrors = extractValidationErrorsFromPayload(payload);
 
-      if (structuredErrors.length === 0) {
-        structuredErrors.push({
-          message:
-            payload?.error ||
-            payload?.message ||
-            `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
-        });
-      }
+    if (structuredErrors.length === 0 && payload?.ok === false) {
+      structuredErrors.push({
+        message:
+          payload?.error ||
+          payload?.message ||
+          `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
+      });
+    }
 
+    if (structuredErrors.length > 0) {
       return { ok: false, errors: structuredErrors, payload };
     }
 
@@ -1342,17 +1342,17 @@ export default function ExactVirtualAssistantPM() {
       return { ok: false, reason: "network", error };
     }
 
-    if (payload?.ok !== true) {
-      const validationErrors = extractValidationErrorsFromPayload(payload);
-      if (validationErrors.length > 0) {
-        postValidationErrorsToChat(validationErrors, {
-          heading:
-            `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
-        });
-        await checkShareLinksConfigured();
-        return { ok: false, reason: "validation", payload, errors: validationErrors };
-      }
+    const validationErrors = extractValidationErrorsFromPayload(payload);
+    if (validationErrors.length > 0) {
+      postValidationErrorsToChat(validationErrors, {
+        heading:
+          `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+      });
+      await checkShareLinksConfigured();
+      return { ok: false, reason: "validation", payload, errors: validationErrors };
+    }
 
+    if (payload?.ok === false) {
       const fallbackMessage =
         payload?.error?.message ||
         payload?.error ||
@@ -1459,17 +1459,17 @@ export default function ExactVirtualAssistantPM() {
         return { ok: false, reason: "network", error };
       }
 
-      if (payload?.ok !== true) {
-        const validationErrors = extractValidationErrorsFromPayload(payload);
-        if (validationErrors.length > 0) {
-          postValidationErrorsToChat(validationErrors, {
-            heading:
-              `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
-          });
-          await checkShareLinksConfigured();
-          return { ok: false, reason: "validation", payload, errors: validationErrors };
-        }
+      const validationErrors = extractValidationErrorsFromPayload(payload);
+      if (validationErrors.length > 0) {
+        postValidationErrorsToChat(validationErrors, {
+          heading:
+            `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+        });
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "validation", payload, errors: validationErrors };
+      }
 
+      if (payload?.ok === false) {
         const fallbackMessage =
           payload?.error?.message ||
           payload?.error ||

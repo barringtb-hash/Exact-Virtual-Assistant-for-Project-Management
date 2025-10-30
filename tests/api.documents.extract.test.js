@@ -182,60 +182,81 @@ test("/api/documents/extract derives intent from the last user message", async (
   const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
   assert(auditEvent, "expected audit event for derived intent");
   assert.equal(auditEvent.payload.intent_source, "derived_last_user_message");
+  assert.equal(auditEvent.payload.intent_reason, null);
 });
 
 test("/api/documents/extract rejects charter requests without intent", async () => {
   const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
 
-  await withIntentFlag("true", async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "charter" },
-        body: {
-          docType: "charter",
-          attachments: [],
-          messages: [
-            {
-              role: "user",
-              text: "Let's talk about our upcoming planning meeting agenda for next month in detail.",
-            },
-          ],
+  try {
+    await withIntentFlag("true", async () => {
+      await extractHandler(
+        {
+          method: "POST",
+          query: { docType: "charter" },
+          body: {
+            docType: "charter",
+            attachments: [],
+            messages: [
+              {
+                role: "user",
+                text: "Let's talk about our upcoming planning meeting agenda for next month in detail.",
+              },
+            ],
+          },
         },
-      },
-      res
-    );
-  });
+        res
+      );
+    });
+  } finally {
+    globalThis.__analyticsHook__ = originalHook;
+  }
 
   assert.equal(res.statusCode, 400);
   assert.match(res.body?.error || "", /intent/i);
   assert.equal(res.body?.code, "missing-charter-intent");
+  assert.equal(analyticsEvents.length, 0);
 });
 
 test("/api/documents/extract enforces context guard even in legacy mode", async () => {
   const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
 
-  await withIntentFlag("false", async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "charter" },
-        body: {
-          docType: "charter",
-          attachments: [],
-          messages: [
-            { role: "user", text: "Hi" },
-          ],
-          intent: "create_charter",
+  try {
+    await withIntentFlag("false", async () => {
+      await extractHandler(
+        {
+          method: "POST",
+          query: { docType: "charter" },
+          body: {
+            docType: "charter",
+            attachments: [],
+            messages: [
+              { role: "user", text: "Hi" },
+            ],
+            intent: "create_charter",
+          },
         },
-      },
-      res
-    );
-  });
+        res
+      );
+    });
+  } finally {
+    globalThis.__analyticsHook__ = originalHook;
+  }
 
   assert.equal(res.statusCode, 422);
   assert.match(res.body?.error || "", /provide attachments/i);
   assert.equal(res.body?.code, "insufficient-context");
+  assert.equal(analyticsEvents.length, 0);
 });
 
 test("/api/documents/extract allows legacy flow without intent when disabled", async () => {

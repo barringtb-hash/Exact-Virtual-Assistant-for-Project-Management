@@ -407,10 +407,11 @@ export default function ExactVirtualAssistantPM() {
     docRouterEnabled,
     supportedDocTypes,
     metadataMap,
-    docType,
-    setDocType,
-    suggested,
-    setSuggested,
+    selectedDocType,
+    setSelectedDocType,
+    suggestedDocType,
+    suggestionConfidence,
+    setSuggestedDocType,
     previewDocType,
     previewDocTypeLabel,
     effectiveDocType,
@@ -488,13 +489,19 @@ export default function ExactVirtualAssistantPM() {
   const docPreviewLabel = previewDocType
     ? `${docTypeDisplayLabel} preview`
     : "Document preview";
-  const previewPanelTitle = previewDocType ? docPreviewLabel : "Document preview";
-  const autoExtractTitle = previewDocType
-    ? `Auto-extract ${docTypeDisplayLabel}`
-    : "Auto-extract";
-  const autoExtractHint = previewDocType
-    ? `Use /sync to refresh the ${docTypeDisplayLabel.toLowerCase()} manually.`
-    : "Use /sync to run manually.";
+  const docTypeBadgeLabel = previewDocTypeLabel || docTypeDisplayLabel || "Document";
+  const normalizedConfidence = Number.isFinite(suggestionConfidence)
+    ? Math.max(0, Math.min(1, suggestionConfidence))
+    : null;
+  const docTypeConfidencePercent =
+    docRouterEnabled &&
+    suggestionType &&
+    suggestionType === previewDocType &&
+    (!selectedDocType || selectedDocType !== previewDocType) &&
+    normalizedConfidence !== null &&
+    normalizedConfidence > 0
+      ? Math.round(normalizedConfidence * 100)
+      : null;
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
   const createBlankDraft = useCallback(() => {
@@ -532,8 +539,6 @@ export default function ExactVirtualAssistantPM() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
-  const [useLLM, setUseLLM] = useState(true);
-  const [autoExtractEnabled, setAutoExtractEnabled] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const [charterSyncError, setCharterSyncError] = useState(null);
@@ -801,7 +806,7 @@ export default function ExactVirtualAssistantPM() {
     normalize: normalizeDraft,
     isUploadingAttachments,
     onNotify: pushToast,
-    enabled: autoExtractEnabled && hasConfirmedDocType,
+    enabled: hasConfirmedDocType,
     docTypeRoutingEnabled: docRouterEnabled,
   });
   useEffect(() => {
@@ -832,14 +837,11 @@ export default function ExactVirtualAssistantPM() {
     if (hasConfirmedDocType) {
       return;
     }
-    if (!autoExtractEnabled) {
-      return;
-    }
     if (!canSyncNow) {
       return;
     }
     setShowDocTypeModal(true);
-  }, [docRouterEnabled, hasConfirmedDocType, autoExtractEnabled, canSyncNow]);
+  }, [docRouterEnabled, hasConfirmedDocType, canSyncNow]);
   const isCharterSyncInFlight = isExtracting || isCharterSyncing;
   const activeCharterError = charterSyncError || extractError;
 
@@ -2240,7 +2242,6 @@ export default function ExactVirtualAssistantPM() {
     const text = input.trim();
     if (!text) return;
     if (isAssistantThinking) return;
-    const isLLMEnabled = useLLM;
     const userMsg = { id: Date.now() + Math.random(), role: "user", text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
@@ -2250,17 +2251,13 @@ export default function ExactVirtualAssistantPM() {
       return;
     }
     let reply = "";
-    if (isLLMEnabled) {
-      setIsAssistantThinking(true);
-      try {
-        reply = await callLLM(text, nextHistory, attachments);
-      } catch (e) {
-        reply = "LLM error (demo): " + (e?.message || "unknown");
-      } finally {
-        setIsAssistantThinking(false);
-      }
-    } else {
-      reply = mockAssistantReply(text);
+    setIsAssistantThinking(true);
+    try {
+      reply = await callLLM(text, nextHistory, attachments);
+    } catch (e) {
+      reply = "LLM error (demo): " + (e?.message || "unknown");
+    } finally {
+      setIsAssistantThinking(false);
     }
     appendAssistantMessage(reply || "");
   };
@@ -2355,16 +2352,13 @@ export default function ExactVirtualAssistantPM() {
 
       if (processedAttachments.length) {
         setAttachments((prev) => [...prev, ...processedAttachments]);
-        if (autoExtractEnabled) {
-          setExtractionSeed(Date.now());
-        }
+        setExtractionSeed(Date.now());
       }
     } finally {
       setIsUploadingAttachments(false);
     }
     },
     [
-      autoExtractEnabled,
       clearExtractionError,
       createBlankDraft,
       setCharterSyncError,
@@ -2447,9 +2441,7 @@ export default function ExactVirtualAssistantPM() {
         clearExtractionError();
         setCharterSyncError(null);
       }
-      if (autoExtractEnabled) {
-        setExtractionSeed(Date.now());
-      }
+      setExtractionSeed(Date.now());
     }
   };
 
@@ -2602,28 +2594,28 @@ export default function ExactVirtualAssistantPM() {
 
           {/* Right Preview */}
           <aside className="lg:col-span-4">
-            <Panel title={previewPanelTitle}>
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={useLLM}
-                    onChange={(e) => setUseLLM(e.target.checked)}
-                  />
-                  <span>Use LLM (beta)</span>
-                </label>
-                <label className="inline-flex items-start gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={autoExtractEnabled}
-                    onChange={(e) => setAutoExtractEnabled(e.target.checked)}
-                  />
-                  <span className="text-left leading-tight">
-                    <span className="block font-medium">{autoExtractTitle}</span>
-                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">{autoExtractHint}</span>
+            <Panel
+              title="Document preview"
+              right={
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200">
+                    <span>{docTypeBadgeLabel}</span>
+                    {docTypeConfidencePercent != null ? (
+                      <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                        {docTypeConfidencePercent}% confidence
+                      </span>
+                    ) : null}
                   </span>
-                </label>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDocTypeModal(true)}
+                    className="rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Change
+                  </button>
+                </div>
+              }
+            >
               <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
                 <PreviewEditable
                   draft={charterPreview}
@@ -2898,15 +2890,6 @@ function ChatBubble({ role, text, hideEmptySections }) {
       </div>
     </div>
   );
-}
-
-// --- Mock assistant logic ---
-function mockAssistantReply(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes("sponsor")) return "Great — I’ll set the Sponsor field and add them as an approver.";
-  if (lower.includes("milestone")) return "Captured. I’ll reflect these in the Charter and DDP timelines.";
-  if (lower.includes("scope")) return "Thanks! I’ll parse scope and map to templates. Anything else to add?";
-  return "Got it. I’ll incorporate that into the draft. (Note: this is a UI‑only prototype for Phase 1)";
 }
 
 // --- LLM wiring (placeholder) ---

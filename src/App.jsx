@@ -989,7 +989,14 @@ export default function ExactVirtualAssistantPM() {
 
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
-
+const resolveDocTypeForManualSync = useCallback(
+    () =>
+      resolveManualSyncDocType({
+        snapshot: getDocTypeSnapshot(),
+        confirmThreshold: 0.7,
+      }),
+    []
+  );
   const syncDocFromChat = useCallback(
     (docTypeOverride) =>
       handleSyncCommand({
@@ -1826,14 +1833,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const resolveDocTypeForManualSync = useCallback(
-    () =>
-      resolveManualSyncDocType({
-        snapshot: getDocTypeSnapshot(),
-        confirmThreshold: 0.7,
-      }),
-    []
-  );
+  
 
   const handleCommandFromText = async (
     rawText,

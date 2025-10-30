@@ -142,7 +142,122 @@ function shouldAutoExtractPayload({ messages, voice, attachments }) {
   );
 }
 
-export async function onFileAttached({
+async function modernOnFileAttached({
+  attachments = [],
+  messages = [],
+  voice = [],
+  autoThreshold = AUTO_ROUTER_THRESHOLD,
+  requireConfirmation,
+  router = routerDetect,
+  store,
+} = {}) {
+  const {
+    getSnapshot = getDocTypeSnapshot,
+    setSuggested: applySuggested = setSuggested,
+  } = store || {};
+
+  const snapshot = typeof getSnapshot === "function" ? getSnapshot() : getDocTypeSnapshot();
+  const {
+    docRouterEnabled,
+    supportedDocTypes = new Set(),
+    selectedDocType,
+    suggestedDocType,
+    effectiveDocType,
+  } = snapshot;
+
+  const allowedTypes =
+    supportedDocTypes instanceof Set
+      ? supportedDocTypes
+      : new Set(Array.isArray(supportedDocTypes) ? supportedDocTypes : []);
+
+  const hasConfirmedDocType = !docRouterEnabled
+    ? true
+    : isDocTypeConfirmed({
+        selectedDocType,
+        suggestion: suggestedDocType,
+        threshold: autoThreshold,
+        allowedTypes,
+      });
+
+  const sanitizedMessages = sanitizeMessages(messages);
+  const sanitizedAttachments = sanitizeAttachments(attachments);
+  const sanitizedVoice = sanitizeVoiceEvents(voice);
+
+  const buildResult = (overrides = {}) => ({
+    ok: false,
+    reason: "idle",
+    attachments: sanitizedAttachments,
+    messages: sanitizedMessages,
+    voice: sanitizedVoice,
+    ...overrides,
+  });
+
+  if (!docRouterEnabled || hasConfirmedDocType) {
+    return buildResult({ reason: "idle", docType: effectiveDocType });
+  }
+
+  if (
+    sanitizedAttachments.length === 0 &&
+    sanitizedMessages.length === 0 &&
+    sanitizedVoice.length === 0
+  ) {
+    if (typeof requireConfirmation === "function") {
+      requireConfirmation();
+    }
+    return buildResult({ reason: "insufficient-context" });
+  }
+
+  let routedSuggestion = null;
+  try {
+    const detected = await router({
+      messages: sanitizedMessages,
+      attachments: sanitizedAttachments,
+      voice: sanitizedVoice,
+    });
+    routedSuggestion = sanitizeSuggestion(detected);
+  } catch (error) {
+    console.error("Doc type router detection failed", error);
+  }
+
+  if (!routedSuggestion || !allowedTypes.has(routedSuggestion.type)) {
+    if (typeof applySuggested === "function") {
+      applySuggested(null);
+    }
+    if (typeof requireConfirmation === "function") {
+      requireConfirmation();
+    }
+    return buildResult({ reason: "no-match" });
+  }
+
+  if (typeof applySuggested === "function") {
+    applySuggested((previous) => {
+      if (areDocTypeSuggestionsEqual(previous, routedSuggestion)) {
+        return previous;
+      }
+      return routedSuggestion;
+    });
+  }
+
+  if (routedSuggestion.confidence < autoThreshold) {
+    if (typeof requireConfirmation === "function") {
+      requireConfirmation(routedSuggestion);
+    }
+    return buildResult({
+      reason: "needs-confirmation",
+      suggestion: routedSuggestion,
+    });
+  }
+
+  return {
+    ok: true,
+    suggestion: routedSuggestion,
+    attachments: sanitizedAttachments,
+    messages: sanitizedMessages,
+    voice: sanitizedVoice,
+  };
+}
+
+async function legacyOnFileAttached({
   attachments = [],
   messages = [],
   voice = [],
@@ -262,6 +377,13 @@ export async function onFileAttached({
   }
 
   return { ok: false, reason: "needs-confirmation", suggestion: routedSuggestion };
+}
+
+export async function onFileAttached(options = {}) {
+  if (!isIntentOnlyExtractionEnabled()) {
+    return legacyOnFileAttached(options);
+  }
+  return modernOnFileAttached(options);
 }
 
 export default function useBackgroundExtraction({

@@ -2171,26 +2171,27 @@ const resolveDocTypeForManualSync = useCallback(
             updatedAttachments = [...prev, ...processedAttachments];
             return updatedAttachments;
           });
+
           if (legacyAutoExtractionEnabled) {
             setExtractionSeed(Date.now());
+          }
 
-            try {
-              await onFileAttached({
-                attachments: updatedAttachments,
-                messages,
-                voice: voiceTranscripts,
-                trigger: (overrides = {}) =>
-                  triggerExtraction({
-                    attachments: updatedAttachments,
-                    messages,
-                    voice: voiceTranscripts,
-                    ...overrides,
-                  }),
-                requireConfirmation: () => setShowDocTypeModal(true),
-              });
-            } catch (error) {
-              console.error("onFileAttached failed", error);
-            }
+          try {
+            await onFileAttached({
+              attachments: updatedAttachments,
+              messages,
+              voice: voiceTranscripts,
+              trigger: (overrides = {}) =>
+                triggerExtraction({
+                  attachments: updatedAttachments,
+                  messages,
+                  voice: voiceTranscripts,
+                  ...overrides,
+                }),
+              requireConfirmation: () => setShowDocTypeModal(true),
+            });
+          } catch (error) {
+            console.error("onFileAttached failed", error);
           }
         }
       } finally {

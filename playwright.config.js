@@ -1,6 +1,33 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4010";
+const createWebServerProject = ({
+  name,
+  port,
+  docRouterEnabled,
+  testMatch,
+  testIgnore,
+  use = {},
+}) => ({
+  name,
+  testMatch,
+  testIgnore,
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    ...use,
+  },
+  webServer: {
+    command: "node tests/e2e/test-server.mjs",
+    url: `http://127.0.0.1:${port}/api/charter/health`,
+    timeout: 60_000,
+    reuseExistingServer: !process.env.CI,
+    env: {
+      ...process.env,
+      FILES_LINK_SECRET: process.env.FILES_LINK_SECRET || "playwright-secret",
+      PLAYWRIGHT_TEST_PORT: String(port),
+      VITE_ENABLE_DOC_ROUTER: docRouterEnabled ? "1" : "0",
+    },
+  },
+});
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -8,36 +35,33 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  use: {
-    baseURL,
-  },
-  webServer: {
-    command: "node tests/e2e/test-server.mjs",
-    url: "http://127.0.0.1:4010/api/charter/health",
-    timeout: 60_000,
-    reuseExistingServer: !process.env.CI,
-    env: {
-      ...process.env,
-      FILES_LINK_SECRET: process.env.FILES_LINK_SECRET || "playwright-secret",
-      PLAYWRIGHT_TEST_PORT: "4010",
-    },
-  },
+  fullyParallel: false,
   projects: [
-    {
+    createWebServerProject({
       name: "api",
+      port: 4010,
+      docRouterEnabled: false,
       testMatch: /.*\.api\.spec\.js/,
+    }),
+    createWebServerProject({
+      name: "chromium-doc-router-off",
+      port: 4011,
+      docRouterEnabled: false,
+      testIgnore: [/.*\.api\.spec\.js/, /doc-router-on\.spec\.js/],
       use: {
-        baseURL,
-      },
-    },
-    {
-      name: "chromium",
-      use: {
-        baseURL,
         browserName: "chromium",
         viewport: { width: 1280, height: 720 },
       },
-      testIgnore: /.*\.api\.spec\.js/,
-    },
+    }),
+    createWebServerProject({
+      name: "chromium-doc-router-on",
+      port: 4012,
+      docRouterEnabled: true,
+      testMatch: /doc-router-on\.spec\.js/,
+      use: {
+        browserName: "chromium",
+        viewport: { width: 1280, height: 720 },
+      },
+    }),
   ],
 });

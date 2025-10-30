@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DOCX_FILENAME = "project_charter_tokens.docx";
-const SCHEMA_FILENAME = "charter.schema.json";
+const SCHEMA_PATH = ["charter", "schema.json"];
 
 function snakeToCamel(snake) {
   return snake.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
@@ -185,7 +185,7 @@ function validateTokens(tokens, metadata) {
 
 async function main() {
   const docxPath = path.resolve(__dirname, "..", DOCX_FILENAME);
-  const schemaPath = path.resolve(__dirname, "..", SCHEMA_FILENAME);
+  const schemaPath = path.resolve(__dirname, "..", ...SCHEMA_PATH);
 
   const [buffer, schemaContents] = await Promise.all([
     loadDocxBuffer(docxPath),
@@ -214,7 +214,7 @@ async function main() {
   }
 
   console.log(
-    `DOCX tokens in ${DOCX_FILENAME} match the schema defined in ${SCHEMA_FILENAME}.`
+    `DOCX tokens in ${DOCX_FILENAME} match the schema defined in ${SCHEMA_PATH.join("/")}.`
   );
 }
 

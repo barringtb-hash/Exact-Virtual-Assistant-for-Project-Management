@@ -6,10 +6,6 @@ test.describe("charter preview manual sync", () => {
 
     await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
 
-    const llmToggle = page.getByLabel("Use LLM (beta)");
-    await llmToggle.uncheck();
-    await expect(llmToggle).not.toBeChecked();
-
     const projectTitleField = page.getByLabel("Project Title");
     await expect(projectTitleField).toHaveValue("");
 
@@ -19,7 +15,7 @@ test.describe("charter preview manual sync", () => {
 
     await expect(projectTitleField).toHaveValue("");
 
-    await composer.fill("/charter");
+    await composer.fill("/sync");
     await composer.press("Enter");
 
     await expect(projectTitleField).toHaveValue("Launch Initiative");

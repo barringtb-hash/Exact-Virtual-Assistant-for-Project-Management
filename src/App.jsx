@@ -4,14 +4,88 @@ import AssistantFeedbackTemplate, {
 } from "./components/AssistantFeedbackTemplate";
 import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
-import getBlankCharter from "./utils/getBlankCharter";
-import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
-import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
+import DocTypeModal from "./components/DocTypeModal";
+import getBlankDoc from "./utils/getBlankDoc.js";
+import normalizeCharter from "../lib/charter/normalize.js";
+import useBackgroundExtraction, {
+  mergeExtractedDraft,
+  onFileAttached,
+} from "./hooks/useBackgroundExtraction";
+import {
+  handleSyncCommand,
+  handleTypeCommand,
+  resolveManualSyncDocType,
+} from "./utils/chatDocTypeCommands.js";
+import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
+import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
+import { useDocTemplate } from "./state/docTemplateStore.js";
+import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
+import { docApi } from "./lib/docApi.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
+const MANUAL_SYNC_DOC_TYPE_PROMPT =
+  "Confirm a document template so I know what to sync. Pick one in the modal or run `/type <id>`.";
 
 const normalizeCharterDraft = (draft) => normalizeCharter(draft);
+
+const DEFAULT_DOC_TYPE = "charter";
+const GENERIC_DOC_NORMALIZER = (draft) =>
+  draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+
+function buildDocTypeConfig(docType, metadataMap = new Map()) {
+  const hasExplicitDocType = typeof docType === "string" && docType.trim();
+  if (!hasExplicitDocType) {
+    return {
+      type: null,
+      label: "Document",
+      normalize: GENERIC_DOC_NORMALIZER,
+      createBlank: () => getBlankDoc(null),
+      requiredFieldsHeading: "Document required fields",
+      defaultBaseName: "Project_Document_v1.0",
+      previewKind: "generic",
+    };
+  }
+
+  const normalized = docType.trim();
+
+  if (normalized === "charter") {
+    const label = metadataMap.get("charter")?.label || "Charter";
+    return {
+      type: "charter",
+      label,
+      normalize: normalizeCharterDraft,
+      createBlank: () => normalizeCharterDraft(getBlankDoc("charter")),
+      requiredFieldsHeading: "Charter required fields",
+      defaultBaseName: "Project_Charter_v1.0",
+      previewKind: "charter",
+    };
+  }
+
+  if (normalized === "ddp") {
+    const label = metadataMap.get("ddp")?.label || "DDP";
+    return {
+      type: "ddp",
+      label,
+      normalize: GENERIC_DOC_NORMALIZER,
+      createBlank: () => getBlankDoc("ddp"),
+      requiredFieldsHeading: `${label} required fields`,
+      defaultBaseName: `Project_${label.replace(/\s+/g, "_")}_v1.0`,
+      previewKind: "generic",
+    };
+  }
+
+  const fallbackLabel = metadataMap.get(normalized)?.label || "Document";
+  return {
+    type: normalized,
+    label: fallbackLabel,
+    normalize: GENERIC_DOC_NORMALIZER,
+    createBlank: () => getBlankDoc(normalized),
+    requiredFieldsHeading: `${fallbackLabel} required fields`,
+    defaultBaseName: `Project_${fallbackLabel.replace(/\s+/g, "_")}_v1.0`,
+    previewKind: "generic",
+  };
+}
 
 const NUMERIC_SEGMENT_PATTERN = /^\d+$/;
 
@@ -259,6 +333,63 @@ const fileToBase64 = (file) =>
     reader.readAsDataURL(file);
   });
 
+const prettyBytes = (num) => {
+  if (!Number.isFinite(num) || num < 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = num;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = value < 10 && unitIndex > 0 ? 1 : 0;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+};
+
+function restoreFilesFromStoredAttachments(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return [];
+  }
+
+  const baseTimestamp = Date.now();
+  return attachments
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const name = typeof item.name === "string" ? item.name : "";
+      if (!name) {
+        return null;
+      }
+
+      const text = typeof item.text === "string" ? item.text : "";
+      let sizeLabel = "";
+      if (text) {
+        try {
+          const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+          const bytes = encoder ? encoder.encode(text).length : text.length;
+          sizeLabel = prettyBytes(bytes);
+        } catch (error) {
+          sizeLabel = `${text.length} chars`;
+        }
+      }
+
+      return {
+        id: `${baseTimestamp}-restored-${index}`,
+        name,
+        size: sizeLabel || undefined,
+        file: null,
+      };
+    })
+    .filter(Boolean);
+}
+
 // --- Seed messages ---
 // Friendly, generic starter messages to welcome users
 const seedMessages = [
@@ -275,12 +406,44 @@ const seedMessages = [
 ];
 
 export default function ExactVirtualAssistantPM() {
-  const createBlankDraft = useCallback(() => normalizeCharterDraft(getBlankCharter()), []);
   const initialDraftRef = useRef(null);
-  if (initialDraftRef.current === null) {
-    initialDraftRef.current = createBlankDraft();
-  }
-  const [messages, setMessages] = useState(seedMessages);
+  const {
+    docRouterEnabled,
+    supportedDocTypes,
+    metadataMap,
+    selectedDocType,
+    setSelectedDocType,
+    suggestedDocType,
+    suggestionConfidence,
+    setSuggestedDocType,
+    previewDocType,
+    previewDocTypeLabel,
+    effectiveDocType,
+    defaultDocType,
+  } = useDocType();
+  const docType = selectedDocType;
+  const setDocType = setSelectedDocType;
+  const suggested = suggestedDocType;
+  const setSuggested = setSuggestedDocType;
+  const {
+    docType: templateDocType,
+    templateLabel: activeTemplateLabel,
+    templateVersion: activeTemplateVersion,
+    schemaId: activeSchemaId,
+    manifestMetadata: activeManifestMetadata,
+    manifestStatus,
+    manifest: activeDocManifest,
+    schemaStatus,
+    schema: activeDocSchema,
+  } = useDocTemplate();
+  const storedContextRef = useRef(readStoredSession());
+  const [messages, setMessages] = useState(() => {
+    const stored = storedContextRef.current;
+    if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
+      return stored.messages;
+    }
+    return seedMessages;
+  });
   const visibleMessages = useMemo(() => {
     if (!Array.isArray(messages)) {
       return [];
@@ -289,9 +452,101 @@ export default function ExactVirtualAssistantPM() {
     return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
   }, [messages]);
   const [input, setInput] = useState("");
-  const [files, setFiles] = useState([]);
-  const [attachments, setAttachments] = useState([]);
+  const [files, setFiles] = useState(() => {
+    const stored = storedContextRef.current;
+    return restoreFilesFromStoredAttachments(stored?.attachments);
+  });
+  const [attachments, setAttachments] = useState(() => {
+    const stored = storedContextRef.current;
+    if (stored && Array.isArray(stored.attachments) && stored.attachments.length > 0) {
+      return stored.attachments
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const name = typeof item.name === "string" ? item.name : "";
+          const text = typeof item.text === "string" ? item.text : "";
+          if (!name || !text) {
+            return null;
+          }
+          const mimeType = typeof item.mimeType === "string" ? item.mimeType : undefined;
+          return { name, mimeType, text };
+        })
+        .filter(Boolean);
+    }
+    return [];
+  });
+  const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const suggestionType = suggested?.type;
+  const hasConfirmedDocType = useMemo(() => {
+    if (!docRouterEnabled) {
+      return true;
+    }
+    return isDocTypeConfirmed({
+      selectedDocType: supportedDocTypes.has(docType)
+        ? docType
+        : null,
+      suggestion: suggested,
+      threshold: 0.7,
+      allowedTypes: supportedDocTypes,
+    });
+  }, [
+    docRouterEnabled,
+    docType,
+    suggested,
+    supportedDocTypes,
+  ]);
+  const docTypeConfig = useMemo(() => {
+    const baseConfig = buildDocTypeConfig(previewDocType, metadataMap);
+    if (activeTemplateLabel && baseConfig.label !== activeTemplateLabel) {
+      return { ...baseConfig, label: activeTemplateLabel };
+    }
+    return baseConfig;
+  }, [activeTemplateLabel, metadataMap, previewDocType]);
+  const docTypeDisplayLabel = docTypeConfig.label;
+  const docPreviewLabel = previewDocType
+    ? `${docTypeDisplayLabel} preview`
+    : "Document preview";
+  const docTypeBadgeLabel = previewDocTypeLabel || docTypeDisplayLabel || "Document";
+  const normalizedConfidence = Number.isFinite(suggestionConfidence)
+    ? Math.max(0, Math.min(1, suggestionConfidence))
+    : null;
+  const docTypeConfidencePercent =
+    docRouterEnabled &&
+    suggestionType &&
+    suggestionType === previewDocType &&
+    (!selectedDocType || selectedDocType !== previewDocType) &&
+    normalizedConfidence !== null &&
+    normalizedConfidence > 0
+      ? Math.round(normalizedConfidence * 100)
+      : null;
+  const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
+  const defaultShareBaseName = docTypeConfig.defaultBaseName;
+  const hasPreviewDocType = Boolean(previewDocType);
+  const manifestLoading =
+    hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
+  const schemaLoading =
+    hasPreviewDocType && (schemaStatus === "loading" || schemaStatus === "idle");
+  const templateLoading = manifestLoading || schemaLoading;
+  const templateError =
+    hasPreviewDocType &&
+    (manifestStatus === "error" || schemaStatus === "error");
+  const createBlankDraft = useCallback(() => {
+    if (!previewDocType) {
+      return {};
+    }
+    return docTypeConfig.createBlank();
+  }, [docTypeConfig, previewDocType]);
+  if (initialDraftRef.current === null && previewDocType) {
+    initialDraftRef.current = createBlankDraft();
+  }
+  const normalizeDraft = useCallback(
+    (draft) => (previewDocType ? docTypeConfig.normalize(draft) : GENERIC_DOC_NORMALIZER(draft)),
+    [docTypeConfig, previewDocType]
+  );
+  const requestDocType = previewDocType || defaultDocType || DEFAULT_DOC_TYPE;
+  const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
   const [locks, setLocks] = useState(() => ({}));
@@ -308,8 +563,6 @@ export default function ExactVirtualAssistantPM() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
-  const [useLLM, setUseLLM] = useState(true);
-  const [autoExtractEnabled, setAutoExtractEnabled] = useState(true);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const [charterSyncError, setCharterSyncError] = useState(null);
@@ -357,6 +610,66 @@ export default function ExactVirtualAssistantPM() {
     locksRef.current = locks;
   }, [locks]);
 
+  useEffect(() => {
+    if (!previewDocType) {
+      initialDraftRef.current = null;
+      charterDraftRef.current = null;
+      if (charterPreview !== null) {
+        setCharterPreview(null);
+      }
+      if (locksRef.current && Object.keys(locksRef.current).length > 0) {
+        locksRef.current = {};
+        setLocks({});
+      }
+      setFieldStates((prev) => (prev && Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+
+    if (initialDraftRef.current === null) {
+      initialDraftRef.current = createBlankDraft();
+    }
+
+    if (charterPreview === null) {
+      const baseDraft = initialDraftRef.current ?? createBlankDraft();
+      charterDraftRef.current = baseDraft;
+      setCharterPreview(baseDraft);
+      const touchedPaths = expandPathsWithAncestors(collectPaths(baseDraft));
+      const now = Date.now();
+      setFieldStates((prev) =>
+        synchronizeFieldStates(baseDraft, prev || {}, {
+          touchedPaths,
+          source: "Auto",
+          timestamp: now,
+          locks: locksRef.current || {},
+        })
+      );
+    }
+  }, [previewDocType, charterPreview, createBlankDraft]);
+
+  useEffect(() => {
+    if (!docRouterEnabled) {
+      setShowDocTypeModal(false);
+      if (suggested) {
+        setSuggested(null);
+      }
+      if (!docType || !supportedDocTypes.has(docType)) {
+        setDocType(defaultDocType);
+      }
+    }
+  }, [
+    defaultDocType,
+    docRouterEnabled,
+    docType,
+    setDocType,
+    setSuggested,
+    suggested,
+    supportedDocTypes,
+  ]);
+
+  useEffect(() => {
+    mergeStoredSession({ attachments, messages });
+  }, [attachments, messages]);
+
   const getCurrentDraft = useCallback(() => charterDraftRef.current, []);
 
   useEffect(() => {
@@ -394,6 +707,9 @@ export default function ExactVirtualAssistantPM() {
   );
   const applyNormalizedDraft = useCallback(
     (normalizedDraft) => {
+      if (!previewDocType) {
+        return charterDraftRef.current ?? initialDraftRef.current ?? {};
+      }
       if (!normalizedDraft || typeof normalizedDraft !== "object") {
         return charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
       }
@@ -421,15 +737,21 @@ export default function ExactVirtualAssistantPM() {
 
       return finalDraft;
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
 
   const {
     isExtracting,
     error: extractError,
     clearError: clearExtractionError,
+    extractAndPopulate,
   } = useBackgroundExtraction({
-    docType: "charter",
+    docType: effectiveDocType,
+    selectedDocType: supportedDocTypes.has(docType)
+      ? docType
+      : null,
+    suggestedDocType: suggested,
+    allowedDocTypes: supportedDocTypes,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -437,10 +759,11 @@ export default function ExactVirtualAssistantPM() {
     locks,
     getDraft: getCurrentDraft,
     setDraft: applyNormalizedDraft,
-    normalize: normalizeCharterDraft,
+    normalize: normalizeDraft,
     isUploadingAttachments,
     onNotify: pushToast,
-    enabled: autoExtractEnabled,
+    docTypeRoutingEnabled: docRouterEnabled,
+    requireDocType: () => setShowDocTypeModal(true),
   });
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -454,11 +777,26 @@ export default function ExactVirtualAssistantPM() {
       : false;
     return hasAttachments || hasVoice || hasUserMessage;
   }, [attachments, voiceTranscripts, messages]);
+  useEffect(() => {
+    if (!docRouterEnabled) {
+      return;
+    }
+    if (hasConfirmedDocType) {
+      return;
+    }
+    if (!canSyncNow) {
+      return;
+    }
+    setShowDocTypeModal(true);
+  }, [docRouterEnabled, hasConfirmedDocType, canSyncNow]);
   const isCharterSyncInFlight = isExtracting || isCharterSyncing;
   const activeCharterError = charterSyncError || extractError;
 
   const applyCharterDraft = useCallback(
     (nextDraft, { resetLocks = false, source = "Auto" } = {}) => {
+      if (!previewDocType) {
+        return null;
+      }
       const draft =
         nextDraft && typeof nextDraft === "object" && !Array.isArray(nextDraft)
           ? nextDraft
@@ -484,12 +822,36 @@ export default function ExactVirtualAssistantPM() {
           locks: locksSnapshot,
         })
       );
+      return draft;
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
+
+  useEffect(() => {
+    if (!previewDocType) {
+      lastDocTypeRef.current = requestDocType;
+      return;
+    }
+    if (lastDocTypeRef.current === requestDocType) {
+      return;
+    }
+    lastDocTypeRef.current = requestDocType;
+    const blankDraft = createBlankDraft();
+    initialDraftRef.current = blankDraft;
+    if (!hasDraftContent(charterPreview)) {
+      applyCharterDraft(blankDraft, { resetLocks: true });
+    }
+  }, [
+    applyCharterDraft,
+    charterPreview,
+    createBlankDraft,
+    previewDocType,
+    requestDocType,
+  ]);
 
   const handleDraftChange = useCallback(
     (path, value) => {
+      if (!previewDocType) return;
       if (!path) return;
       const segments = path.split(".").filter(Boolean);
       if (segments.length === 0) return;
@@ -517,11 +879,12 @@ export default function ExactVirtualAssistantPM() {
         return next;
       });
     },
-    [createBlankDraft]
+    [createBlankDraft, previewDocType]
   );
 
   const handleLockField = useCallback((path) => {
     if (!path) return;
+    if (!previewDocType) return;
     setLocks((prev) => {
       if (prev[path]) {
         return prev;
@@ -542,7 +905,7 @@ export default function ExactVirtualAssistantPM() {
       });
       return nextLocks;
     });
-  }, []);
+  }, [previewDocType]);
 
   const draftHasContent = useMemo(() => hasDraftContent(charterPreview), [charterPreview]);
 
@@ -626,162 +989,67 @@ export default function ExactVirtualAssistantPM() {
 
   const shareLinksNotConfiguredMessage =
     "Share links aren’t configured yet. Ask your admin to set EVA_SHARE_SECRET.";
-
-  const syncCharterFromChat = useCallback(async () => {
-    if (isExtracting || isCharterSyncing) {
-      appendAssistantMessage(
-        "I’m already refreshing the charter preview. I’ll share updates here once they’re ready."
-      );
-      return { ok: false, reason: "busy" };
-    }
-
-    if (!canSyncNow) {
-      appendAssistantMessage(
-        "Share some scope details, voice notes, or attachments first and I’ll update the charter preview."
-      );
-      return { ok: false, reason: "idle" };
-    }
-
-    setIsCharterSyncing(true);
-    setCharterSyncError(null);
-
-    const sanitizeMessages = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((entry) => {
-          const role = entry?.role === "assistant" ? "assistant" : "user";
-          const text =
-            typeof entry?.text === "string"
-              ? entry.text
-              : typeof entry?.content === "string"
-              ? entry.content
-              : "";
-          const trimmed = text.trim();
-          if (!trimmed) return null;
-          return { role, text: trimmed, content: trimmed };
-        })
-        .filter(Boolean);
-    };
-
-    const sanitizeAttachments = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((item) => {
-          const text = typeof item?.text === "string" ? item.text : "";
-          const trimmed = text.trim();
-          if (!trimmed) return null;
-          return {
-            name: typeof item?.name === "string" ? item.name : undefined,
-            mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
-            text: trimmed,
-          };
-        })
-        .filter(Boolean);
-    };
-
-    const sanitizeVoice = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((entry) => {
-          const text = typeof entry?.text === "string" ? entry.text.trim() : "";
-          if (!text) return null;
-          const timestamp = typeof entry?.timestamp === "number" ? entry.timestamp : Date.now();
-          return { id: entry?.id ?? `${timestamp}`, text, timestamp };
-        })
-        .filter(Boolean);
-    };
-
-    try {
-      const payload = {
-        docType: "charter",
-        messages: sanitizeMessages(messages),
-        attachments: sanitizeAttachments(attachments),
-        voice: sanitizeVoice(voiceTranscripts),
-      };
-
-      const seedDraft = getCurrentDraft();
-      if (seedDraft && typeof seedDraft === "object") {
-        payload.seed = seedDraft;
-      }
-
-      const response = await fetch("/api/charter/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        const message =
-          typeof errorPayload?.error === "string" && errorPayload.error.trim()
-            ? errorPayload.error.trim()
-            : `Extraction failed with status ${response.status}`;
-        throw new Error(message);
-      }
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (error) {
-        throw new Error("Failed to parse extractor response.");
-      }
-
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Extractor returned unexpected payload.");
-      }
-
-      if (Object.prototype.hasOwnProperty.call(data, "result")) {
-        throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
-      }
-
-      const coercedData = coerceAliasesToSchemaKeys(data);
-
-      let normalizedDraft;
-      try {
-        normalizedDraft = normalizeCharterDraft(coercedData);
-      } catch (normalizeError) {
-        console.error("Manual charter sync normalize error", normalizeError);
-        normalizedDraft = coercedData;
-      }
-
-      const finalDraft = await applyNormalizedDraft(normalizedDraft);
-      clearExtractionError();
-      setCharterSyncError(null);
-      appendAssistantMessage("I’ve refreshed the charter preview with the latest context.");
-      return { ok: true, draft: finalDraft };
-    } catch (error) {
-      const fallbackMessage =
-        typeof error?.message === "string" && error.message.trim()
-          ? error.message.trim()
-          : "Unable to update the charter preview. Please try again.";
-      setCharterSyncError(fallbackMessage);
-      if (fallbackMessage === MANUAL_PARSE_FALLBACK_MESSAGE) {
-        appendAssistantMessage(`${fallbackMessage}`);
-      } else {
-        appendAssistantMessage(`I couldn’t update the preview: ${fallbackMessage}`);
-      }
-      return { ok: false, reason: "error", error };
-    } finally {
-      setIsCharterSyncing(false);
-    }
-  }, [
-    appendAssistantMessage,
-    applyNormalizedDraft,
-    attachments,
-    canSyncNow,
-    clearExtractionError,
-    getCurrentDraft,
-    isCharterSyncing,
-    isExtracting,
-    messages,
-    setCharterSyncError,
-    voiceTranscripts,
-  ]);
+const resolveDocTypeForManualSync = useCallback(
+    () =>
+      resolveManualSyncDocType({
+        snapshot: getDocTypeSnapshot(),
+        confirmThreshold: 0.7,
+      }),
+    []
+  );
+  const syncDocFromChat = useCallback(
+    (docTypeOverride) =>
+      handleSyncCommand({
+        docRouterEnabled,
+        docTypeOverride,
+        resolveDocType: resolveDocTypeForManualSync,
+        openDocTypePicker: () => setShowDocTypeModal(true),
+        manualDocTypePrompt: MANUAL_SYNC_DOC_TYPE_PROMPT,
+        pushToast,
+        isBusy: isCharterSyncInFlight,
+        canSyncNow,
+        appendAssistantMessage,
+        extractAndPopulate,
+        buildDocTypeConfig: (nextType) => buildDocTypeConfig(nextType, metadataMap),
+        parseFallbackMessage: MANUAL_PARSE_FALLBACK_MESSAGE,
+        onStart: () => {
+          setIsCharterSyncing(true);
+          setCharterSyncError(null);
+        },
+        onSuccess: () => {
+          clearExtractionError();
+          setCharterSyncError(null);
+        },
+        onParseFallback: (message) => {
+          setCharterSyncError(message);
+        },
+        onError: (message) => {
+          setCharterSyncError(message);
+        },
+        onComplete: () => {
+          setIsCharterSyncing(false);
+        },
+      }),
+    [
+      appendAssistantMessage,
+      canSyncNow,
+      clearExtractionError,
+      docRouterEnabled,
+      extractAndPopulate,
+      isCharterSyncInFlight,
+      metadataMap,
+      pushToast,
+      resolveDocTypeForManualSync,
+      setCharterSyncError,
+      setIsCharterSyncing,
+      setShowDocTypeModal,
+    ]
+  );
 
   const formatValidationErrorsForChat = (errors = []) => {
     if (!Array.isArray(errors) || errors.length === 0) {
       return [
-        "I couldn’t validate the project charter. Please review the required fields in the Design & Development Plan.",
+        `I couldn’t validate the ${docTypeDisplayLabel} document. Please review ${requiredFieldsHeading}.`,
       ];
     }
 
@@ -856,7 +1124,7 @@ export default function ExactVirtualAssistantPM() {
     const bulletLines = formatValidationErrorsForChat(errors);
     const intro =
       heading ||
-      "I couldn’t validate the project charter. Please review the following:";
+      `I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`;
     const message = [intro, ...bulletLines.map((line) => `- ${line}`)].join("\n");
     appendAssistantMessage(message);
   };
@@ -866,48 +1134,66 @@ export default function ExactVirtualAssistantPM() {
       return {
         ok: false,
         errors: [
-          { message: "No charter data available. Generate a draft before exporting." },
+          { message: `No ${docTypeDisplayLabel} data available. Generate a draft before exporting.` },
         ],
       };
     }
 
-    let response;
+    const docPayload = {
+      docType: requestDocType,
+      document: draft,
+      charter: requestDocType === "charter" ? draft : undefined,
+    };
+
+    if (suggested && typeof suggested?.type === "string") {
+      docPayload.docTypeDetection = {
+        type: suggested.type,
+        confidence:
+          typeof suggested.confidence === "number"
+            ? suggested.confidence
+            : typeof suggestionConfidence === "number"
+            ? suggestionConfidence
+            : undefined,
+      };
+    }
+
+    let payload;
     try {
-      response = await fetch("/api/charter/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      });
+      payload = await docApi("validate", docPayload);
     } catch (error) {
-      console.error("Unable to reach /api/charter/validate", error);
-      return {
-        ok: false,
-        errors: [
-          { message: "Unable to validate the charter. Please try again." },
-        ],
-        cause: error,
-      };
-    }
-
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error("Failed to parse /api/charter/validate response", parseError);
-    }
-
-    if (!response.ok || payload?.ok !== true) {
-      const structuredErrors = extractValidationErrorsFromPayload(payload);
+      console.error("/api/documents/validate request failed", error);
+      const structuredErrors = extractValidationErrorsFromPayload(error?.payload);
 
       if (structuredErrors.length === 0) {
         structuredErrors.push({
           message:
-            payload?.error ||
-            payload?.message ||
-            "Charter validation failed. Please review the Required Fields in the Design & Development Plan.",
+            error?.payload?.error ||
+            error?.payload?.message ||
+            error?.message ||
+            `Unable to validate the ${docTypeDisplayLabel}. Please try again.`,
         });
       }
 
+      return {
+        ok: false,
+        errors: structuredErrors,
+        payload: error?.payload,
+        cause: error,
+      };
+    }
+
+    const structuredErrors = extractValidationErrorsFromPayload(payload);
+
+    if (structuredErrors.length === 0 && payload?.ok === false) {
+      structuredErrors.push({
+        message:
+          payload?.error ||
+          payload?.message ||
+          `${docTypeDisplayLabel} validation failed. Please review ${requiredFieldsHeading}.`,
+      });
+    }
+
+    if (structuredErrors.length > 0) {
       return { ok: false, errors: structuredErrors, payload };
     }
 
@@ -957,23 +1243,54 @@ export default function ExactVirtualAssistantPM() {
     return result;
   };
 
+  const postDocRender = async ({ document, baseName, formats = [] }) => {
+    const docPayload = {
+      docType: requestDocType,
+      document,
+      baseName,
+    };
+    if (Array.isArray(formats) && formats.length > 0) {
+      docPayload.formats = formats;
+    }
+    if (requestDocType === "charter") {
+      docPayload.charter = document;
+    }
+    if (suggested && typeof suggested?.type === "string") {
+      docPayload.docTypeDetection = {
+        type: suggested.type,
+        confidence:
+          typeof suggested.confidence === "number"
+            ? suggested.confidence
+            : typeof suggestionConfidence === "number"
+            ? suggestionConfidence
+            : undefined,
+      };
+    }
+
+    try {
+      const payload = await docApi("render", docPayload);
+      return { ok: true, payload };
+    } catch (error) {
+      error.endpoint = "/api/documents/render";
+      throw error;
+    }
+  };
+
   const makeShareLinksAndReply = async ({
-    baseName = "Project_Charter",
+    baseName = defaultShareBaseName,
     includeDocx = true,
     includePdf = true,
     introText,
   } = {}) => {
     const hasCharterDraft =
       charterPreview && typeof charterPreview === "object" && !Array.isArray(charterPreview);
-    const normalizedCharter = hasCharterDraft
-      ? normalizeCharterDraft(charterPreview)
-      : null;
+    const normalizedDocument = hasCharterDraft ? normalizeDraft(charterPreview) : null;
 
     if (hasCharterDraft) {
-      applyCharterDraft(normalizedCharter);
+      applyCharterDraft(normalizedDocument);
     }
 
-    const validation = await validateCharter(normalizedCharter);
+    const validation = await validateCharter(normalizedDocument);
     if (!validation.ok) {
       postValidationErrorsToChat(validation.errors);
       return { ok: false, reason: "validation" };
@@ -987,61 +1304,70 @@ export default function ExactVirtualAssistantPM() {
       requestedFormats.push("pdf");
     }
 
-    let response;
+    let payload;
     try {
-      const requestBody = { charter: normalizedCharter, baseName };
-      if (requestedFormats.length > 0) {
-        requestBody.formats = requestedFormats;
+      const result = await postDocRender({
+        document: normalizedDocument,
+        baseName,
+        formats: requestedFormats,
+      });
+      payload = result.payload;
+    } catch (error) {
+      const endpointLabel = error?.endpoint || "/api/documents/render";
+      if (typeof error?.status === "number") {
+        const validationErrors = extractValidationErrorsFromPayload(error.payload);
+        if (validationErrors.length > 0) {
+          postValidationErrorsToChat(validationErrors, {
+            heading:
+              `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+          });
+          await checkShareLinksConfigured();
+          return {
+            ok: false,
+            reason: "validation",
+            status: error.status,
+            payload: error.payload,
+            errors: validationErrors,
+          };
+        }
+
+        const fallbackMessage =
+          error?.payload?.error?.message ||
+          error?.payload?.error ||
+          error?.payload?.message ||
+          `Unable to create ${docTypeDisplayLabel} export links right now.`;
+        appendAssistantMessage(`Export link error: ${fallbackMessage}`);
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "http", status: error.status, payload: error?.payload };
       }
 
-      response = await fetch("/api/charter/make-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-    } catch (networkError) {
-      console.error("/api/charter/make-link network error", networkError);
+      console.error(`${endpointLabel} network error`, error);
       appendAssistantMessage(
         "Export link error: Unable to create export links right now. Please try again shortly."
       );
       await checkShareLinksConfigured();
-      return { ok: false, reason: "network", error: networkError };
+      return { ok: false, reason: "network", error };
     }
 
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error("Failed to parse /api/charter/make-link response", parseError);
+    const validationErrors = extractValidationErrorsFromPayload(payload);
+    if (validationErrors.length > 0) {
+      postValidationErrorsToChat(validationErrors, {
+        heading:
+          `Export link error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+      });
+      await checkShareLinksConfigured();
+      return { ok: false, reason: "validation", payload, errors: validationErrors };
     }
 
-    if (!response.ok) {
-      const validationErrors = extractValidationErrorsFromPayload(payload);
-      if (validationErrors.length > 0) {
-        postValidationErrorsToChat(validationErrors, {
-          heading:
-            "Export link error: I couldn’t validate the project charter. Please review the following:",
-        });
-        await checkShareLinksConfigured();
-
-        return {
-          ok: false,
-          reason: "validation",
-          status: response.status,
-          payload,
-          errors: validationErrors,
-        };
-      }
-
+    if (payload?.ok === false) {
       const fallbackMessage =
         payload?.error?.message ||
+        payload?.error ||
         payload?.message ||
-        "Unable to create export links right now.";
-
+        `Unable to create ${docTypeDisplayLabel} export links right now.`;
       appendAssistantMessage(`Export link error: ${fallbackMessage}`);
       await checkShareLinksConfigured();
-
-      return { ok: false, reason: "http", status: response.status, payload };
+      return { ok: false, reason: "http", payload };
     }
 
     const responseLinks =
@@ -1079,7 +1405,7 @@ export default function ExactVirtualAssistantPM() {
       return { ok: false, reason: "no-formats" };
     }
 
-    const safeBaseName = baseName || "Project_Charter";
+    const safeBaseName = baseName || defaultShareBaseName;
     const heading = introText || `Here are your export links for ${safeBaseName}:`;
     const message = `${heading}\n${lines.join("\n")}`;
     appendAssistantMessage(message);
@@ -1094,57 +1420,71 @@ export default function ExactVirtualAssistantPM() {
 
     setIsGeneratingExportLinks(true);
     try {
-      let response;
+      const blankDocument = normalizeDraft(createBlankDraft());
+      let payload;
       try {
-        const blankCharter = normalizeCharterDraft(getBlankCharter());
-
-        response = await fetch("/api/charter/make-link", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            charter: blankCharter,
-            baseName,
-            formats: ["docx", "pdf"],
-          }),
+        const result = await postDocRender({
+          document: blankDocument,
+          baseName,
+          formats: ["docx", "pdf"],
         });
-      } catch (networkError) {
-        console.error("/api/charter/make-link network error (blank charter)", networkError);
-        appendAssistantMessage(
-          "Blank charter error: Unable to create download links right now. Please try again shortly."
-        );
-        await checkShareLinksConfigured();
-        return { ok: false, reason: "network", error: networkError };
-      }
+        payload = result.payload;
+      } catch (error) {
+        const endpointLabel = error?.endpoint || "/api/documents/render";
+        if (typeof error?.status === "number") {
+          const validationErrors = extractValidationErrorsFromPayload(error.payload);
+          if (validationErrors.length > 0) {
+            postValidationErrorsToChat(validationErrors, {
+              heading:
+                `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+            });
+            await checkShareLinksConfigured();
+            return {
+              ok: false,
+              reason: "validation",
+              status: error.status,
+              payload: error.payload,
+              errors: validationErrors,
+            };
+          }
 
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (parseError) {
-        console.error("Failed to parse /api/charter/make-link response (blank charter)", parseError);
-      }
-
-      if (!response.ok) {
-        const validationErrors = extractValidationErrorsFromPayload(payload);
-        if (validationErrors.length > 0) {
-          postValidationErrorsToChat(validationErrors, {
-            heading:
-              "Blank charter error: I couldn’t validate the project charter. Please review the following:",
-          });
+          const fallbackMessage =
+            error?.payload?.error?.message ||
+            error?.payload?.error ||
+            error?.payload?.message ||
+            `Unable to create blank ${docTypeDisplayLabel} download links right now.`;
+          appendAssistantMessage(`Blank ${docTypeDisplayLabel} error: ${fallbackMessage}`);
           await checkShareLinksConfigured();
-          return {
-            ok: false,
-            reason: "validation",
-            status: response.status,
-            payload,
-            errors: validationErrors,
-          };
+          return { ok: false, reason: "http", status: error.status, payload: error?.payload };
         }
 
-        const fallbackMessage =
-          payload?.error?.message || payload?.message || "Unable to create download links right now.";
-        appendAssistantMessage(`Blank charter error: ${fallbackMessage}`);
+        console.error(`${endpointLabel} network error (blank document)`, error);
+        appendAssistantMessage(
+          `Blank ${docTypeDisplayLabel} error: Unable to create download links right now. Please try again shortly.`
+        );
         await checkShareLinksConfigured();
-        return { ok: false, reason: "http", status: response.status, payload };
+        return { ok: false, reason: "network", error };
+      }
+
+      const validationErrors = extractValidationErrorsFromPayload(payload);
+      if (validationErrors.length > 0) {
+        postValidationErrorsToChat(validationErrors, {
+          heading:
+            `Blank ${docTypeDisplayLabel} error: I couldn’t validate the ${docTypeDisplayLabel} document. Please review the following:`,
+        });
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "validation", payload, errors: validationErrors };
+      }
+
+      if (payload?.ok === false) {
+        const fallbackMessage =
+          payload?.error?.message ||
+          payload?.error ||
+          payload?.message ||
+          `Unable to create blank ${docTypeDisplayLabel} download links right now.`;
+        appendAssistantMessage(`Blank ${docTypeDisplayLabel} error: ${fallbackMessage}`);
+        await checkShareLinksConfigured();
+        return { ok: false, reason: "http", payload };
       }
 
       const responseLinks =
@@ -1169,7 +1509,7 @@ export default function ExactVirtualAssistantPM() {
         if (!link) {
           const label = format.toUpperCase();
           appendAssistantMessage(
-            `Blank charter error: The ${label} link was missing from the response.`
+            `Blank ${docTypeDisplayLabel} error: The ${label} link was missing from the response.`
           );
           await checkShareLinksConfigured();
           return { ok: false, reason: `missing-${format}` };
@@ -1179,8 +1519,8 @@ export default function ExactVirtualAssistantPM() {
         resolvedLinks[format] = link;
       }
 
-      const safeBaseName = baseName || "Project_Charter";
-      const message = `Here’s a blank charter for ${safeBaseName}:\n${lines.join("\n")}`;
+      const safeBaseName = baseName || defaultShareBaseName;
+      const message = `Here’s a blank ${docTypeDisplayLabel} for ${safeBaseName}:\n${lines.join("\n")}`;
       appendAssistantMessage(message);
 
       return { ok: true, links: resolvedLinks };
@@ -1189,7 +1529,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const exportDocxViaChat = async (baseName = "Project_Charter") => {
+  const exportDocxViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
       return { ok: false, reason: "busy" };
     }
@@ -1207,7 +1547,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const exportPdfViaChat = async (baseName = "Project_Charter") => {
+  const exportPdfViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingPdf || isGeneratingExportLinks || isExportingDocx) {
       return { ok: false, reason: "busy" };
     }
@@ -1225,7 +1565,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const shareLinksViaChat = async (baseName = "Project_Charter") => {
+  const shareLinksViaChat = async (baseName = defaultShareBaseName) => {
     if (isGeneratingExportLinks || isExportingDocx || isExportingPdf) {
       return { ok: false, reason: "busy" };
     }
@@ -1493,7 +1833,7 @@ export default function ExactVirtualAssistantPM() {
     }
   };
 
-  const defaultShareBaseName = "Project_Charter_v1.0";
+  
 
   const handleCommandFromText = async (
     rawText,
@@ -1503,7 +1843,28 @@ export default function ExactVirtualAssistantPM() {
     if (!trimmed) return false;
 
     const normalized = trimmed.toLowerCase();
-    const wantsCharterCommit =
+    const ensureUserLogged = () => {
+      if (!userMessageAppended) {
+        appendUserMessageToChat(trimmed);
+      }
+    };
+
+    if (normalized.startsWith("/type")) {
+      ensureUserLogged();
+      handleTypeCommand({
+        command: trimmed,
+        metadataMap,
+        supportedDocTypes,
+        setDocType,
+        setSuggested,
+        closeDocTypeModal: () => setShowDocTypeModal(false),
+        pushToast,
+      });
+      return true;
+    }
+
+    const wantsManualSync =
+      normalized.startsWith("/sync") ||
       normalized.startsWith("/charter") ||
       normalized.includes("commit charter") ||
       normalized.includes("commit the charter") ||
@@ -1512,11 +1873,9 @@ export default function ExactVirtualAssistantPM() {
       normalized.includes("sync charter") ||
       normalized.includes("sync the charter");
 
-    if (wantsCharterCommit) {
-      if (!userMessageAppended) {
-        appendUserMessageToChat(trimmed);
-      }
-      await syncCharterFromChat();
+    if (wantsManualSync) {
+      ensureUserLogged();
+      await syncDocFromChat();
       return true;
     }
 
@@ -1541,12 +1900,6 @@ export default function ExactVirtualAssistantPM() {
     const wantsDocx = mentionsDocx && (mentionsDownload || normalized.includes("docx link"));
     const wantsPdf = mentionsPdf && (mentionsDownload || normalized.includes("pdf link"));
     const wantsShareLinks = mentionsShare || (mentionsDownload && normalized.includes("links"));
-
-    const ensureUserLogged = () => {
-      if (!userMessageAppended) {
-        appendUserMessageToChat(trimmed);
-      }
-    };
 
     if (wantsBothFormats || wantsShareLinks) {
       ensureUserLogged();
@@ -1599,7 +1952,6 @@ export default function ExactVirtualAssistantPM() {
     const text = input.trim();
     if (!text) return;
     if (isAssistantThinking) return;
-    const isLLMEnabled = useLLM;
     const userMsg = { id: Date.now() + Math.random(), role: "user", text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
@@ -1609,64 +1961,121 @@ export default function ExactVirtualAssistantPM() {
       return;
     }
     let reply = "";
-    if (isLLMEnabled) {
-      setIsAssistantThinking(true);
-      try {
-        reply = await callLLM(text, nextHistory, attachments);
-      } catch (e) {
-        reply = "LLM error (demo): " + (e?.message || "unknown");
-      } finally {
-        setIsAssistantThinking(false);
-      }
-    } else {
-      reply = mockAssistantReply(text);
+    setIsAssistantThinking(true);
+    try {
+      reply = await callLLM(text, nextHistory, attachments);
+    } catch (e) {
+      reply = "LLM error (demo): " + (e?.message || "unknown");
+    } finally {
+      setIsAssistantThinking(false);
     }
     appendAssistantMessage(reply || "");
   };
 
-  const handleSyncNow = useCallback(() => {
-    return syncCharterFromChat();
-  }, [syncCharterFromChat]);
-
-  const addPickedFiles = async (list) => {
-    if (!list || !list.length) return;
-    setIsUploadingAttachments(true);
-    try {
-      const pickedFiles = Array.from(list);
-      const baseTimestamp = Date.now();
-      const newFiles = pickedFiles.map((f, index) => ({
-        id: `${baseTimestamp}-${index}`,
-        name: f.name,
-        size: prettyBytes(f.size),
-        file: f,
-      }));
-
-      setFiles((prev) => [...prev, ...newFiles]);
-
-      const processedAttachments = [];
-
-      for (const file of pickedFiles) {
-        try {
-          const base64 = await fileToBase64(file);
-          const response = await fetch("/api/files/text", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: file.name,
-              mimeType: file.type,
-              base64,
-            }),
-          });
-
-          let payload = {};
-          try {
-            payload = await response.json();
-          } catch (err) {
-            console.error("Failed to parse /api/files/text response", err);
+  const handleSyncNow = useCallback(async () => {
+    const result = await onFileAttached({
+      attachments,
+      messages,
+      voice: voiceTranscripts,
+      extractAndPopulate: async (overrides = {}) => {
+        const manualDocType =
+          overrides?.docType || resolveDocTypeForManualSync();
+        if (!manualDocType) {
+          if (docRouterEnabled) {
+            setShowDocTypeModal(true);
           }
+          pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+          return { ok: false, reason: "docTypeRequired" };
+        }
+        return syncDocFromChat(manualDocType);
+      },
+      requireConfirmation: () => {
+        if (docRouterEnabled) {
+          setShowDocTypeModal(true);
+        }
+        pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+      },
+    });
 
-          if (!response.ok || payload?.ok === false) {
-            const message = payload?.error || `Unable to process ${file.name}`;
+    if (!result) {
+      const manualDocType = resolveDocTypeForManualSync();
+      if (!manualDocType) {
+        return { ok: false, reason: "docTypeRequired" };
+      }
+      return syncDocFromChat(manualDocType);
+    }
+
+    return result;
+  }, [
+    attachments,
+    docRouterEnabled,
+    messages,
+    pushToast,
+    resolveDocTypeForManualSync,
+    setShowDocTypeModal,
+    syncDocFromChat,
+    voiceTranscripts,
+  ]);
+
+  const processPickedFiles = useCallback(
+    async (list) => {
+      if (!list || !list.length) return;
+      setIsUploadingAttachments(true);
+      try {
+        const pickedFiles = Array.from(list);
+        const baseTimestamp = Date.now();
+        const newFiles = pickedFiles.map((f, index) => ({
+          id: `${baseTimestamp}-${index}`,
+          name: f.name,
+          size: prettyBytes(f.size),
+          file: f,
+        }));
+
+        setFiles((prev) => [...prev, ...newFiles]);
+
+        const processedAttachments = [];
+
+        for (const file of pickedFiles) {
+          try {
+            const base64 = await fileToBase64(file);
+            const response = await fetch("/api/files/text", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: file.name,
+                mimeType: file.type,
+                base64,
+              }),
+            });
+
+            let payload = {};
+            try {
+              payload = await response.json();
+            } catch (err) {
+              console.error("Failed to parse /api/files/text response", err);
+            }
+
+            if (!response.ok || payload?.ok === false) {
+              const message = payload?.error || `Unable to process ${file.name}`;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "assistant",
+                  text: `Attachment error (${file.name}): ${message}`,
+                },
+              ]);
+              continue;
+            }
+
+            processedAttachments.push({
+              name: payload?.name || file.name,
+              mimeType: payload?.mimeType || file.type,
+              text: payload?.text || "",
+            });
+          } catch (error) {
+            const message = error?.message || "Unknown error";
+            console.error("processPickedFiles error", error);
             setMessages((prev) => [
               ...prev,
               {
@@ -1675,45 +2084,96 @@ export default function ExactVirtualAssistantPM() {
                 text: `Attachment error (${file.name}): ${message}`,
               },
             ]);
-            continue;
           }
+        }
 
-          processedAttachments.push({
-            name: payload?.name || file.name,
-            mimeType: payload?.mimeType || file.type,
-            text: payload?.text || "",
+        if (processedAttachments.length) {
+          let updatedAttachments = [];
+          setAttachments((prev) => {
+            updatedAttachments = [...prev, ...processedAttachments];
+            return updatedAttachments;
           });
-        } catch (error) {
-          const message = error?.message || "Unknown error";
-          console.error("addPickedFiles error", error);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now() + Math.random(),
-              role: "assistant",
-              text: `Attachment error (${file.name}): ${message}`,
-            },
-          ]);
-        }
-      }
-
-      if (processedAttachments.length) {
-        setAttachments((prev) => [...prev, ...processedAttachments]);
-        if (autoExtractEnabled) {
           setExtractionSeed(Date.now());
+
+          try {
+            await onFileAttached({
+              attachments: updatedAttachments,
+              messages,
+              voice: voiceTranscripts,
+              extractAndPopulate: (overrides = {}) =>
+                extractAndPopulate({
+                  attachments: updatedAttachments,
+                  messages,
+                  voice: voiceTranscripts,
+                  ...overrides,
+                }),
+              requireConfirmation: () => setShowDocTypeModal(true),
+            });
+          } catch (error) {
+            console.error("onFileAttached failed", error);
+          }
         }
+      } finally {
+        setIsUploadingAttachments(false);
       }
-    } finally {
-      setIsUploadingAttachments(false);
+    },
+    [
+      extractAndPopulate,
+      messages,
+      setAttachments,
+      setFiles,
+      setIsUploadingAttachments,
+      setMessages,
+      setShowDocTypeModal,
+      voiceTranscripts,
+    ]
+  );
+  const handleDocTypeConfirm = useCallback(
+    async (nextValue) => {
+      const normalized = supportedDocTypes.has(nextValue)
+        ? nextValue
+        : defaultDocType;
+      setDocType(normalized);
+      setSuggested(
+        normalizeDocTypeSuggestion({ type: normalized, confidence: 1 })
+      );
+      setShowDocTypeModal(false);
+      try {
+        await extractAndPopulate({
+          docType: normalized,
+          attachments,
+          messages,
+          voice: voiceTranscripts,
+        });
+      } catch (error) {
+        console.error("extractAndPopulate after confirm failed", error);
+      }
+    },
+    [
+      attachments,
+      defaultDocType,
+      extractAndPopulate,
+      messages,
+      setDocType,
+      setShowDocTypeModal,
+      setSuggested,
+      supportedDocTypes,
+      voiceTranscripts,
+    ]
+  );
+  const handleDocTypeCancel = useCallback(() => {
+    setShowDocTypeModal(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
-  };
+  }, []);
 
   const handleFilePick = async (e) => {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];
-    if (fileList.length) {
-      await addPickedFiles(fileList);
-    }
     if (e.target) e.target.value = "";
+    if (fileList.length) {
+      await processPickedFiles(fileList);
+    }
   };
 
   const handleRemoveFile = (id) => {
@@ -1736,16 +2196,8 @@ export default function ExactVirtualAssistantPM() {
         clearExtractionError();
         setCharterSyncError(null);
       }
-      if (autoExtractEnabled) {
-        setExtractionSeed(Date.now());
-      }
+      setExtractionSeed(Date.now());
     }
-  };
-
-  const prettyBytes = (num) => {
-    const units = ["B", "KB", "MB", "GB"]; let i = 0; let n = num;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
   };
 
   const composerStatus = useMemo(() => {
@@ -1762,7 +2214,7 @@ export default function ExactVirtualAssistantPM() {
       return "Assistant is responding…";
     }
     if (isCharterSyncInFlight) {
-      return "Syncing charter preview…";
+      return `Syncing ${docPreviewLabel}…`;
     }
     return "Idle";
   }, [
@@ -1780,7 +2232,7 @@ export default function ExactVirtualAssistantPM() {
       ? Array.from(event.dataTransfer.files)
       : [];
     if (droppedFiles.length) {
-      await addPickedFiles(droppedFiles);
+      await processPickedFiles(droppedFiles);
     }
   };
 
@@ -1897,47 +2349,87 @@ export default function ExactVirtualAssistantPM() {
 
           {/* Right Preview */}
           <aside className="lg:col-span-4">
-            <Panel title="Preview">
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={useLLM}
-                    onChange={(e) => setUseLLM(e.target.checked)}
-                  />
-                  <span>Use LLM (beta)</span>
-                </label>
-                <label className="inline-flex items-start gap-2 text-xs bg-white/70 border border-white/60 rounded-xl px-2 py-1 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={autoExtractEnabled}
-                    onChange={(e) => setAutoExtractEnabled(e.target.checked)}
-                  />
-                  <span className="text-left leading-tight">
-                    <span className="block font-medium">Auto-extract</span>
-                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">
-                      Use /charter to sync manually.
-                    </span>
+            <Panel
+              title="Document preview"
+              right={
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200">
+                    <span>{docTypeBadgeLabel}</span>
+                    {docTypeConfidencePercent != null ? (
+                      <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                        {docTypeConfidencePercent}% confidence
+                      </span>
+                    ) : null}
                   </span>
-                </label>
-              </div>
-              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <PreviewEditable
-                  draft={charterPreview}
-                  locks={locks}
-                  fieldStates={fieldStates}
-                  isLoading={isCharterSyncInFlight}
-                  onDraftChange={handleDraftChange}
-                  onLockField={handleLockField}
-                />
+                  <button
+                    type="button"
+                    onClick={() => setShowDocTypeModal(true)}
+                    className="rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Change
+                  </button>
+                </div>
+              }
+            >
+              <div
+                className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60"
+                data-doc-type={templateDocType || undefined}
+                data-doc-schema={activeSchemaId || undefined}
+                data-template-version={activeTemplateVersion || undefined}
+                data-has-manifest-metadata={
+                  activeManifestMetadata ? "true" : undefined
+                }
+              >
+                {!hasPreviewDocType ? (
+                  <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-medium text-slate-700 dark:text-slate-100">
+                      Choose a document template to get started.
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      The preview will appear once you pick a document type.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDocTypeModal(true)}
+                      className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:bg-sky-500 dark:hover:bg-sky-400 dark:focus-visible:ring-offset-slate-900"
+                    >
+                      Choose document type
+                    </button>
+                  </div>
+                ) : templateLoading ? (
+                  <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-medium">Loading {docTypeDisplayLabel} template…</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Hang tight while we fetch the schema and layout.
+                    </p>
+                  </div>
+                ) : templateError ? (
+                  <div className="space-y-2 text-sm text-red-600 dark:text-red-300">
+                    <p className="font-medium">Unable to load template metadata.</p>
+                    <p className="text-xs text-red-500 dark:text-red-400">
+                      Retry selecting the document type or refresh the page.
+                    </p>
+                  </div>
+                ) : (
+                  <PreviewEditable
+                    draft={charterPreview}
+                    locks={locks}
+                    fieldStates={fieldStates}
+                    isLoading={isCharterSyncInFlight}
+                    onDraftChange={handleDraftChange}
+                    onLockField={handleLockField}
+                    manifest={activeDocManifest}
+                    schema={activeDocSchema}
+                  />
+                )}
               </div>
               {isCharterSyncInFlight && (
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating charter preview…</div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating {docPreviewLabel}…</div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={syncCharterFromChat}
+                  onClick={handleSyncNow}
                   disabled={!canSyncNow || isCharterSyncInFlight || isAssistantThinking}
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !canSyncNow || isCharterSyncInFlight || isAssistantThinking
@@ -2022,12 +2514,18 @@ export default function ExactVirtualAssistantPM() {
               )}
 
               <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">Required Fields</div>
-                <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
-                  <li className="flex items-center gap-2"><span className="text-amber-600 dark:text-amber-300"><IconAlert className="h-4 w-4" /></span> Milestones</li>
-                </ul>
+                <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">{requiredFieldsHeading}</div>
+                {docTypeConfig.type === "charter" ? (
+                  <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                    <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Sponsor</li>
+                    <li className="flex items-center gap-2"><span className="text-emerald-600 dark:text-emerald-400"><IconCheck className="h-4 w-4" /></span> Problem Statement</li>
+                    <li className="flex items-center gap-2"><span className="text-amber-600 dark:text-amber-300"><IconAlert className="h-4 w-4" /></span> Milestones</li>
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-700 dark:text-slate-200">
+                    Required field guidance isn’t available for this document type yet.
+                  </p>
+                )}
               </div>
             </Panel>
           </aside>
@@ -2037,6 +2535,11 @@ export default function ExactVirtualAssistantPM() {
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <DocTypeModal
+        open={docRouterEnabled && showDocTypeModal}
+        onConfirm={handleDocTypeConfirm}
+        onCancel={handleDocTypeCancel}
+      />
     </div>
   );
 }
@@ -2182,15 +2685,6 @@ function ChatBubble({ role, text, hideEmptySections }) {
       </div>
     </div>
   );
-}
-
-// --- Mock assistant logic ---
-function mockAssistantReply(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes("sponsor")) return "Great — I’ll set the Sponsor field and add them as an approver.";
-  if (lower.includes("milestone")) return "Captured. I’ll reflect these in the Charter and DDP timelines.";
-  if (lower.includes("scope")) return "Thanks! I’ll parse scope and map to templates. Anything else to add?";
-  return "Got it. I’ll incorporate that into the draft. (Note: this is a UI‑only prototype for Phase 1)";
 }
 
 // --- LLM wiring (placeholder) ---

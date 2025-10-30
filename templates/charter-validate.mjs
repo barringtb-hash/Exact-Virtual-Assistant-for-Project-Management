@@ -8,7 +8,7 @@
 import { readFile } from 'fs/promises';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import schema from './charter.schema.json' assert { type: 'json' };
+import schema from './charter/schema.json' assert { type: 'json' };
 
 async function validateFile(filePath) {
   const ajv = new Ajv({ allErrors: true, strict: true });

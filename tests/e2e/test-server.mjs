@@ -10,6 +10,11 @@ import makeLinkHandler from "../../api/charter/make-link.js";
 import downloadHandler from "../../api/charter/download.js";
 import extractHandler from "../../api/charter/extract.js";
 import healthHandler from "../../api/charter/health.js";
+import docExtractHandler from "../../api/doc/extract.js";
+import docValidateHandler from "../../api/doc/validate.js";
+import docRenderHandler from "../../api/doc/render.js";
+import filesTextHandler from "../../api/files/text.js";
+import suggestDocType from "../../src/utils/docTypeRouter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +111,119 @@ const server = http.createServer(async (req, res) => {
       };
       const nextRes = wrapResponse(res);
       await extractHandler(nextReq, nextRes);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/chat") {
+      const body = await readJsonBody(req);
+      const messages = Array.isArray(body?.messages) ? body.messages : [];
+      const lastMessage = messages[messages.length - 1] || {};
+      const normalizedText =
+        typeof lastMessage?.content === "string"
+          ? lastMessage.content.toLowerCase()
+          : typeof lastMessage?.text === "string"
+          ? lastMessage.text.toLowerCase()
+          : "";
+      let reply = "Happy to help with your project.";
+      if (normalizedText.includes("sponsor")) {
+        reply = "Great — I’ll set the Sponsor field and add them as an approver.";
+      } else if (normalizedText.includes("roadmap")) {
+        reply = "Let’s capture the milestones and next steps in your plan.";
+      }
+
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ reply }));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/extract" || url.pathname === "/api/doc/extract")
+    ) {
+      const body = await readJsonBody(req);
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host,
+          "x-forwarded-proto": "http",
+        },
+        body,
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await docExtractHandler(nextReq, nextRes);
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/validate" || url.pathname === "/api/doc/validate")
+    ) {
+      const body = await readJsonBody(req);
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host,
+          "x-forwarded-proto": "http",
+        },
+        body,
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await docValidateHandler(nextReq, nextRes);
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/render" || url.pathname === "/api/doc/render")
+    ) {
+      const body = await readJsonBody(req);
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host,
+          "x-forwarded-proto": "http",
+        },
+        body,
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await docRenderHandler(nextReq, nextRes);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/documents/router") {
+      const body = await readJsonBody(req);
+      const suggestion = suggestDocType({
+        messages: Array.isArray(body?.messages) ? body.messages : [],
+        attachments: Array.isArray(body?.attachments) ? body.attachments : [],
+        voice: Array.isArray(body?.voice) ? body.voice : [],
+      });
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(suggestion || { type: "charter", confidence: 0 }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/files/text") {
+      const body = await readJsonBody(req);
+      const nextReq = {
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host,
+          "x-forwarded-proto": "http",
+        },
+        body,
+        query,
+      };
+      const nextRes = wrapResponse(res);
+      await filesTextHandler(nextReq, nextRes);
       return;
     }
 
@@ -206,6 +324,19 @@ function wrapResponse(res) {
   }
   if (typeof res.json !== "function") {
     res.json = function json(payload) {
+      if (!res.headersSent) {
+        res.setHeader("content-type", "application/json");
+      }
+      res.end(JSON.stringify(payload));
+      return res;
+    };
+  }
+  if (typeof res.send !== "function") {
+    res.send = function send(payload) {
+      if (Buffer.isBuffer(payload) || typeof payload === "string") {
+        res.end(payload);
+        return res;
+      }
       if (!res.headersSent) {
         res.setHeader("content-type", "application/json");
       }

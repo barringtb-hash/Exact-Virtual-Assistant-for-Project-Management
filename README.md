@@ -5,11 +5,16 @@ A React + Tailwind single-page assistant that drafts project charters, validates
 ## Architecture Overview
 - **Client shell (`src/App.jsx`)** – orchestrates chat history, attachment state, realtime voice, the editable preview draft, and the light/dark/auto appearance mode. The UI is a single-page React composition rendered through Tailwind utility classes; icons are inlined SVG components for zero extra dependencies. Chat render effects automatically scroll to the latest exchange while preserving focus for keyboard input, and the assistant bubble pipes responses through `AssistantFeedbackTemplate` to normalize Markdown links and section headings.
 - **Editable preview** – the right rail renders `PreviewEditable`, a reusable form that binds to the charter draft. User edits mark fields as locked so background extraction cannot overwrite them, while list editors make risks, scope, and milestone maintenance quick.
-- **Background extraction** – `useBackgroundExtraction` watches chat, voice, and attachment updates. It debounces activity (~1s), calls `/api/charter/extract` with the latest signals, normalizes the payload, and merges the result into the draft without touching locked fields. The Summarize button now triggers the same extractor immediately as a "Sync now" accelerator.
+- **Background extraction** – `useBackgroundExtraction` watches chat, voice, and attachment updates. It debounces activity (~1s), calls `/api/documents/extract` with the active `docType`, normalizes the payload, and merges the result into the draft without touching locked fields. The Summarize button now triggers the same extractor immediately as a "Sync now" accelerator.
 - **Message flow** – user input is pushed into local state, optionally sent to `/api/chat`, and the assistant response is appended back into the transcript. The composer includes a lightweight command router so phrases like “share links,” “download docx,” or “export pdf” skip the LLM hop and immediately trigger charter validation plus export link generation within the chat transcript.
 - **Voice capture** – the microphone button records via `MediaRecorder`. Recordings are base64-encoded and POSTed to `/api/transcribe`, which chooses the primary speech-to-text model declared in `OPENAI_STT_MODEL` and automatically falls back to Whisper (`whisper-1`) if the primary model returns 400/404 errors. Voice transcripts also run through the same command router, so spoken export requests yield shareable links without touching the sidebar.
 - **Realtime voice toggle** – setting `VITE_OPENAI_REALTIME_MODEL` exposes a "Realtime" button that spins up a WebRTC session. The browser offers SDP to `/api/voice/sdp`, which exchanges it with OpenAI Realtime using the `OPENAI_REALTIME_MODEL` + `OPENAI_REALTIME_VOICE` env configuration. When realtime is unavailable or errors, the UI cleans up the peer connection and users can still fall back to the recording/transcription flow above.
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
+
+## Document router & doc types
+- **Router overview** – `/api/documents/extract`, `/api/documents/validate`, and `/api/documents/render` are the primary endpoints. Each handler looks up metadata in [`lib/doc/registry.js`](lib/doc/registry.js) so shared logic (prompt loading, schema validation, DOCX rendering) can adapt to any registered document without duplicating code.
+- **Template store** – [`templates/registry.js`](templates/registry.js) declares manifest entries for every doc type, including prompt fallbacks, schema paths, metadata, and render configuration. Charter assets (`templates/extract_prompt.txt`, `templates/charter/schema.json`, `templates/project_charter_tokens.docx.b64`) and DDP runtime files (`templates/doc-types/ddp/*`) load through the same registry.
+- **Legacy aliases** – `/api/charter/*` and `/api/doc/*` re-export the router handlers so historic clients keep working. Prefer the `/api/documents/*` endpoints when extending the product or writing new tooling.
 
 ## Serverless API Reference (`/api`)
 All routes are implemented as Vercel serverless functions. They rely on the environment variables summarised below.
@@ -54,28 +59,28 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 - **Response** – Raw SDP answer text suitable for `setRemoteDescription`.
 - **Behavior** – forwards the SDP to OpenAI Realtime REST with the `Authorization` header sourced from `OPENAI_API_KEY`. Applies the `OpenAI-Beta: realtime=v1` header automatically when the chosen realtime model includes "preview".
 
-### Charter automation endpoints
-All endpoints live under `/api/charter` and share the same OpenAI key dependency when they call the API.
+### Document automation endpoints
+The generalized document endpoints live under `/api/documents` and share the same OpenAI key dependency when they call the API. Legacy `/api/charter/*` routes forward into the router so historic clients continue to function.
 
-#### `POST /api/charter/extract`
+#### `POST /api/documents/extract`
 - **Payload** – `{ docType, messages, voice, attachments, seed }` representing the active document type plus the latest chat, voice, and upload context to analyze. `docType` defaults to `"charter"`, `voice` is optional, `attachments` accepts `{ id, name, mime, size }` metadata, and `seed` carries the current draft so the extractor can preserve existing values.
 - **Response** – JSON body generated by OpenAI that aligns to the schema rules (falls back to raw string if parsing fails).
-- **Behavior** – loads [`templates/extract_prompt.txt`](templates/extract_prompt.txt) and prepends it as the system prompt before asking the model for structured charter data. Future doc types can switch prompts based on `docType` without changing the client flow.
+- **Behavior** – Loads prompt and metadata paths from [`templates/registry.js`](templates/registry.js) via [`lib/doc/registry.js`](lib/doc/registry.js), then prepends the resolved prompt as the system message before asking the model for structured document data. `/api/charter/extract` re-exports this handler.
 
-#### `POST /api/charter/render`
-- **Payload** – Structured charter object (e.g. `{ title, sponsor, risks, milestones, ... }`) whose keys correspond to the placeholders in the charter template stored at [`templates/project_charter_tokens.docx.b64`](templates/project_charter_tokens.docx.b64).
-- **Response** – Streams a rendered `application/vnd.openxmlformats-officedocument.wordprocessingml.document` buffer with the filename `project_charter.docx`.
-- **Behavior** – Uses Docxtemplater to inject data into the DOCX template, with paragraph and linebreak support enabled.
+#### `POST /api/documents/render`
+- **Payload** – Structured document object (e.g. charter `{ title, sponsor, risks, milestones, ... }`) whose keys correspond to the placeholders declared in the manifest’s DOCX template, such as [`templates/project_charter_tokens.docx.b64`](templates/project_charter_tokens.docx.b64).
+- **Response** – Streams a rendered `application/vnd.openxmlformats-officedocument.wordprocessingml.document` buffer using the manifest-supplied filename.
+- **Behavior** – Uses Docxtemplater (or a manifest-specific renderer) to inject data into the DOCX template resolved from the registry. `/api/charter/render` re-exports this handler.
+
+#### `POST /api/documents/validate`
+- **Payload** – `{ docType, draft }` JSON body that should conform to the schema declared in the registry (charter resolves to [`templates/charter/schema.json`](templates/charter/schema.json)).
+- **Response** – `{ ok: true }` when the payload conforms; otherwise `{ ok: false, errors }` with Ajv error details.
+- **Behavior** – Compiles the schema once, augments Ajv with `ajv-formats`, normalizes values via doc-type helpers, and returns detailed validation errors. `/api/charter/validate` re-exports this handler.
 
 #### `POST /api/export/pdf`
 - **Payload** – Same charter JSON shape accepted by the DOCX renderer.
 - **Response** – Streams a polished PDF (`application/pdf`) with a generated-on timestamp and structured sections.
 - **Behavior** – Validates input with Ajv, builds a pdfmake document definition with [`templates/pdf/charter.pdfdef.mjs`](templates/pdf/charter.pdfdef.mjs), and resolves the buffer entirely in-memory via `pdfmake`. The endpoint contract remains unchanged, but the runtime no longer depends on Chromium.
-
-#### `POST /api/charter/validate`
-- **Payload** – Structured charter JSON object to validate.
-- **Response** – `{ ok: true }` when the payload conforms to [`templates/charter.schema.json`](templates/charter.schema.json); otherwise `{ errors: AjvError[] }` with HTTP 400.
-- **Behavior** – Compiles the schema once, augments Ajv with `ajv-formats`, and returns detailed validation errors to help highlight missing or malformed fields.
 
 #### `POST /api/charter/make-link`
 - **Payload** – `{ charter, baseName, formats? }` where `formats` is an optional array drawn from the supported exports (`docx`, `pdf`, `json`, `xlsx`, …). When omitted the handler falls back to `docx` and `pdf`.
@@ -92,15 +97,18 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 - **Behavior** – Supports GET requests only and reads the secret directly from `process.env` without triggering link generation.
 
 ## Charter automation workflow
-1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter.schema.json`](templates/charter.schema.json). Customize these files to change tone, required sections, or value formats.
-2. **Extraction** – `/api/charter/extract` (or a direct OpenAI call with the same prompt) produces draft charter JSON keyed to the schema. Downstream processes should assume optional sections may be empty and rely on schema validation before render.
-3. **Validation** – Use `/api/charter/validate` inside the app or run the CLI helper for offline workflows:
+1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter/schema.json`](templates/charter/schema.json). Customize these files to change tone, required sections, or value formats.
+2. **Extraction** – `/api/documents/extract?docType=charter` (or a direct OpenAI call with the same prompt) produces draft charter JSON keyed to the schema. Downstream processes should assume optional sections may be empty and rely on schema validation before render.
+3. **Validation** – Use `/api/documents/validate?docType=charter` inside the app or run the CLI helper for offline workflows:
    ```bash
    node templates/charter-validate.mjs ./path/to/charter.json
    ```
    The script prints success/failure along with human-readable Ajv errors. Because it loads the schema locally, no API access is required.
-4. **Render** – Once validated, POST the charter object to `/api/charter/render` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX.
+   For the Design & Development Plan flow, run `node templates/ddp/ddp-validate.mjs ./path/to/ddp.json` to lint payloads against [`templates/ddp/ddp.schema.json`](templates/ddp/ddp.schema.json) before rendering.
+4. **Render** – Once validated, POST the charter object to `/api/documents/render?docType=charter` (or run a similar Node script) to merge values into the committed charter template (`templates/project_charter_tokens.docx.b64`). The endpoint decodes the base64 file, renders it, and returns a ready-to-share DOCX.
 5. **Export/share** – Call `/api/export/pdf` for the styled PDF, or `/api/charter/make-link` to generate signed download URLs for DOCX/PDF/JSON (XLSX placeholder). `/api/charter/download` verifies signatures and streams the requested format on demand.
+
+> **DDP workflow:** the document router mirrors the same extract → validate → render steps for the DDP template. Assets live under [`templates/doc-types/ddp/`](templates/doc-types/ddp/) for runtime prompts/schema plus [`templates/ddp/`](templates/ddp/) when editing the DOCX and running the standalone validator.
 
 ## Local development (Vite)
 Prerequisites: Node.js 18+ and npm 9+. Populate `.env.local` with any client-side env values such as `VITE_OPENAI_REALTIME_MODEL` when testing realtime voice. When exercising the charter download endpoints locally, add `FILES_LINK_SECRET` to your environment (for example via `.env.local` or direct export) and set it to a long, random string.
@@ -157,7 +165,7 @@ Open the printed localhost URL.
 
 ## Notes
 - Tailwind is preconfigured (see `tailwind.config.js`, `postcss.config.js`, and `src/index.css`).
-- Background extraction is always on; `useBackgroundExtraction` debounces chat, voice, and attachment signals and keeps the editable preview in sync without overwriting manually locked fields.
+- Background extraction is always on; `useBackgroundExtraction` debounces chat, voice, and attachment signals, calls `/api/documents/extract`, and keeps the editable preview in sync without overwriting manually locked fields.
 - This is a UI-only prototype; no data persistence yet.
 - Attachment picker resets after each upload so the same file can be reattached without refreshing. Removing the last attachment now clears stale charter previews to avoid confusion.
 - Dark mode preference is stored under `localStorage['eva-theme-mode']` and respects the OS scheme when set to **Auto**.

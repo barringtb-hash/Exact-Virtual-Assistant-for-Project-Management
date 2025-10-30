@@ -1,4 +1,5 @@
 import { docApi } from "../lib/docApi.js";
+import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 
 const DEFAULT_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 
@@ -89,6 +90,51 @@ function toDocTypeDetection(suggestion, suggestionConfidence) {
   return undefined;
 }
 
+function normalizeIntent(value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeIntentSource(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+const INTENT_REASON_MAX_LENGTH = 200;
+
+function normalizeIntentReason(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.length <= INTENT_REASON_MAX_LENGTH) {
+    return trimmed;
+  }
+
+  return trimmed.slice(0, INTENT_REASON_MAX_LENGTH);
+}
+
 export function buildExtractionPayload({
   docType,
   messages = [],
@@ -97,6 +143,9 @@ export function buildExtractionPayload({
   seed,
   suggestion,
   suggestionConfidence,
+  intent,
+  intentSource,
+  intentReason,
 } = {}) {
   const normalizedDocType = normalizeDocType(docType);
   const payload = {
@@ -113,6 +162,23 @@ export function buildExtractionPayload({
   const detection = toDocTypeDetection(suggestion, suggestionConfidence);
   if (detection && detection.type) {
     payload.docTypeDetection = detection;
+  }
+
+  if (isIntentOnlyExtractionEnabled()) {
+    const normalizedIntent = normalizeIntent(intent);
+    if (normalizedIntent !== null) {
+      payload.intent = normalizedIntent;
+    }
+
+    const normalizedIntentSource = normalizeIntentSource(intentSource);
+    if (normalizedIntentSource) {
+      payload.intentSource = normalizedIntentSource;
+    }
+
+    const normalizedIntentReason = normalizeIntentReason(intentReason);
+    if (normalizedIntentReason) {
+      payload.intentReason = normalizedIntentReason;
+    }
   }
 
   return payload;
@@ -140,6 +206,9 @@ export async function extractAndPopulate({
   seed,
   suggestion,
   suggestionConfidence,
+  intent,
+  intentSource,
+  intentReason,
   normalize = (value) => value,
   applyDraft,
   signal,
@@ -157,6 +226,9 @@ export async function extractAndPopulate({
     seed,
     suggestion,
     suggestionConfidence,
+    intent,
+    intentSource,
+    intentReason,
   });
 
   const normalizedDocType = payload.docType;

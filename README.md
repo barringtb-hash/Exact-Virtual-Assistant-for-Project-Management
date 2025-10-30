@@ -30,9 +30,11 @@ All routes are implemented as Vercel serverless functions. They rely on the envi
 | `ATTACHMENT_PARALLELISM` | `/api/chat` | Maximum concurrent attachment chunk summaries (defaults to `3`). |
 | `SMALL_ATTACHMENTS_TOKEN_BUDGET` | `/api/chat` | Inlines the full attachment text when total tokens stay under this value (defaults to `1200`). |
 | `VITE_OPENAI_REALTIME_MODEL` | Vite client | If set, enables realtime UI and controls which model the client requests. |
+| `VITE_INTENT_ONLY_EXTRACTION` | Vite client | Overrides the default intent-only extraction mode on the client. Set to `false` to preserve the legacy payload. |
 | `OPENAI_REALTIME_MODEL` | `/api/voice/sdp` | Default realtime model when exchanging SDP with OpenAI (defaults to `gpt-realtime`). |
 | `OPENAI_REALTIME_VOICE` | `/api/voice/sdp` | Preferred OpenAI voice when realtime is active (defaults to `alloy`). |
 | `OPENAI_STT_MODEL` | `/api/transcribe` | Primary speech-to-text model (defaults to `gpt-4o-mini-transcribe`). |
+| `INTENT_ONLY_EXTRACTION` | `/api/documents/*` | Toggles intent-only extraction payload metadata on the server. Defaults to `true`; set to `false` to disable the new flow and emit the legacy payload. |
 | `FILES_LINK_SECRET` | `/api/charter/make-link`, `/api/charter/download`, `/api/charter/health` | Required secret used to sign and verify temporary charter download links (and detected by the health probe). Generate a 64-character hex string with `openssl rand -hex 32` or an equivalent secrets manager. |
 | `FILE_TEXT_SIZE_LIMIT` | `/api/files/text` | Optional override for the file text extractor body size (defaults to `10mb`). |
 | `CHAT_PROMPT_TOKEN_LIMIT` | `/api/chat` | Optional hard cap on combined prompt tokens before early rejection (defaults to unlimited). |

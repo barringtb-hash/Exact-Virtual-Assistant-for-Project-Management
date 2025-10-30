@@ -5,183 +5,21 @@ import { promises as fs } from "fs";
 
 import Docxtemplater from "docxtemplater";
 
-import extractHandler from "../api/documents/extract.js";
 import validateHandler from "../api/documents/validate.js";
 import renderHandler, { __clearDocTemplateCache } from "../api/documents/render.js";
 import { __clearValidationCaches } from "../lib/doc/validation.js";
 import { MINIMAL_VALID_DDP, MINIMAL_INVALID_DDP } from "./fixtures/doc/ddp.js";
+import { createMockResponse, withStubbedReadFile } from "./helpers/http.js";
 import { computeDocumentHash } from "../lib/doc/audit.js";
 
 const projectRoot = process.cwd();
 const templatesDir = path.join(projectRoot, "templates");
 const originalReadFile = fs.readFile.bind(fs);
 
-function createMockResponse() {
-  const res = {
-    statusCode: 200,
-    headers: Object.create(null),
-    body: undefined,
-    sentJson: false,
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    setHeader(name, value) {
-      this.headers[String(name).toLowerCase()] = value;
-    },
-    json(payload) {
-      this.sentJson = true;
-      this.body = payload;
-      if (!this.headers["content-type"]) {
-        this.setHeader("content-type", "application/json");
-      }
-      return this;
-    },
-    send(payload) {
-      this.sentJson = false;
-      this.body = payload;
-      if (Buffer.isBuffer(payload)) {
-        if (!this.headers["content-type"]) {
-          this.setHeader(
-            "content-type",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          );
-        }
-      }
-      return this;
-    },
-  };
-  return res;
-}
-
-async function withStubbedReadFile(override, run) {
-  const previous = fs.readFile;
-  fs.readFile = override;
-  try {
-    await run();
-  } finally {
-    fs.readFile = previous;
-  }
-}
-
-test("/api/documents/extract falls back to charter prompt, loads metadata, and records audit", async () => {
-  const promptCalls = [];
-  const res = createMockResponse();
-  const analyticsEvents = [];
-  const originalHook = globalThis.__analyticsHook__;
-  globalThis.__analyticsHook__ = (event, payload) => {
-    analyticsEvents.push({ event, payload });
-  };
-  const infoLogs = [];
-  const originalInfo = console.info;
-  console.info = (...args) => {
-    infoLogs.push(args);
-  };
-
-  await withStubbedReadFile(async (filePath, encoding) => {
-    if (encoding !== "utf8") {
-      return originalReadFile(filePath, encoding);
-    }
-    promptCalls.push(filePath);
-    if (filePath.endsWith(path.join("charter", "extract_prompt.txt"))) {
-      const error = new Error("not found");
-      error.code = "ENOENT";
-      throw error;
-    }
-    if (filePath.endsWith("extract_prompt.charter.txt")) {
-      const error = new Error("not found");
-      error.code = "ENOENT";
-      throw error;
-    }
-    if (filePath.endsWith("extract_prompt.txt")) {
-      return "Charter fallback prompt";
-    }
-    if (filePath.endsWith(path.join("charter", "metadata.json"))) {
-      return JSON.stringify({ label: "Charter" });
-    }
-    return originalReadFile(filePath, encoding);
-  }, async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "charter" },
-        body: {
-          docType: "charter",
-          attachments: [],
-          messages: [],
-          docTypeDetection: { type: "charter", confidence: 0.92 },
-        },
-      },
-      res
-    );
-  });
-
-  console.info = originalInfo;
-  globalThis.__analyticsHook__ = originalHook;
-
-  assert.equal(res.statusCode, 200);
-  const expectedPromptPaths = [
-    path.join(templatesDir, "doc-types", "charter", "extract_prompt.txt"),
-    path.join(templatesDir, "extract_prompt.charter.txt"),
-    path.join(templatesDir, "extract_prompt.txt"),
-  ];
-  assert.deepEqual(
-    promptCalls.filter((entry) => entry.includes("extract_prompt")),
-    expectedPromptPaths
-  );
-
-  const expectedHash = computeDocumentHash(res.body);
-  assert(infoLogs.some((entry) => entry[0] === "[documents:audit]"));
-  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
-  assert(auditEvent, "expected documents.extract audit event");
-  assert.equal(auditEvent.payload.fileHash, expectedHash);
-  assert.equal(auditEvent.payload.detectedType, "charter");
-  assert.equal(auditEvent.payload.finalType, "charter");
-});
-
-test("/api/documents/extract loads ddp assets first", async () => {
-  const readCalls = [];
-  const res = createMockResponse();
-  await withStubbedReadFile(async (filePath, encoding) => {
-    readCalls.push(filePath);
-    return originalReadFile(filePath, encoding);
-  }, async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "ddp" },
-        body: { docType: "ddp", attachments: [], messages: [] },
-      },
-      res
-    );
-  });
-
-  assert.equal(res.statusCode, 200);
-  const ddpPromptPath = path.join(templatesDir, "doc-types", "ddp", "extract_prompt.txt");
-  assert(readCalls.some((entry) => entry === ddpPromptPath));
-  const metadataPath = path.join(templatesDir, "doc-types", "ddp", "metadata.json");
-  assert(readCalls.some((entry) => entry === metadataPath));
-});
-
-test("/api/documents/extract rejects unsupported doc types", async () => {
-  const res = createMockResponse();
-  await extractHandler(
-    {
-      method: "POST",
-      query: { docType: "unknown" },
-      body: { docType: "unknown" },
-    },
-    res
-  );
-
-  assert.equal(res.statusCode, 400);
-  assert.match(res.body?.error || "", /Extraction is not available/);
-});
-
 test("/api/documents/validate returns normalized payload for ddp", async () => {
   const readCalls = [];
   const res = createMockResponse();
-  await withStubbedReadFile(async (filePath, encoding) => {
+  await withStubbedReadFile(fs, async (filePath, encoding) => {
     readCalls.push(filePath);
     return originalReadFile(filePath, encoding);
   }, async () => {
@@ -249,7 +87,7 @@ test("/api/documents/render returns docx buffer for ddp and records audit", asyn
     infoLogs.push(args);
   };
 
-  await withStubbedReadFile(async (filePath, encoding) => {
+  await withStubbedReadFile(fs, async (filePath, encoding) => {
     readCalls.push(filePath);
     return originalReadFile(filePath, encoding);
   }, async () => {
@@ -319,7 +157,7 @@ test("/api/documents/render reports missing templates", async () => {
   __clearDocTemplateCache();
   const templatePath = path.join(templatesDir, "doc-types", "ddp", "template.docx.b64");
   const res = createMockResponse();
-  await withStubbedReadFile(async (filePath, encoding) => {
+  await withStubbedReadFile(fs, async (filePath, encoding) => {
     if (filePath === templatePath) {
       const error = new Error("not found");
       error.code = "ENOENT";
@@ -345,7 +183,7 @@ test("/api/documents/validate surfaces missing schema", async () => {
   __clearValidationCaches();
   const schemaPath = path.join(templatesDir, "doc-types", "ddp", "schema.json");
   const res = createMockResponse();
-  await withStubbedReadFile(async (filePath, encoding) => {
+  await withStubbedReadFile(fs, async (filePath, encoding) => {
     if (filePath === schemaPath) {
       const error = new Error("not found");
       error.code = "ENOENT";

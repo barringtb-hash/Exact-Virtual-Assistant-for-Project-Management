@@ -21,10 +21,6 @@ test.describe("assistant chat", () => {
       await expect(page.getByText(text, { exact: true })).toHaveCount(0);
     }
 
-    const llmToggle = page.getByLabel("Use LLM (beta)");
-    await llmToggle.uncheck();
-    await expect(llmToggle).not.toBeChecked();
-
     const composer = page.getByPlaceholder("Type here… (paste scope or attach files)");
     await composer.fill("The sponsor will be Alice Example.");
     await composer.press("Enter");

@@ -39,61 +39,126 @@ function createMockStore({ routerEnabled = true } = {}) {
   };
 }
 
-test("onFileAttached auto-selects doc type when confidence meets threshold", async () => {
-  const store = createMockStore();
-  let extractionCalls = 0;
+test("intent-only mode records suggestion without triggering extraction", async () => {
+  const original = process.env.INTENT_ONLY_EXTRACTION;
+  process.env.INTENT_ONLY_EXTRACTION = "true";
 
-  const result = await onFileAttached({
-    attachments: [{ name: "requirements.pdf", text: "Project DDP overview" }],
-    messages: [],
-    voice: [],
-    router: async () => ({ type: "ddp", confidence: 0.82 }),
-    trigger: async (overrides = {}) => {
-      extractionCalls += 1;
-      return { ok: true, docType: overrides.docType };
-    },
-    store: {
-      getSnapshot: store.getSnapshot,
-      setDocType: store.setDocType,
-      setSuggested: store.setSuggested,
-    },
-  });
+  try {
+    const store = createMockStore();
+    let extractionCalls = 0;
+    let confirmations = 0;
 
-  assert.equal(result.ok, true);
-  assert.equal(store.state.docType, "ddp");
-  assert.equal(store.state.selectedDocType, "ddp");
-  assert.equal(store.state.suggestedDocType.type, "ddp");
-  assert.equal(extractionCalls, 1);
+    const result = await onFileAttached({
+      attachments: [{ name: "requirements.pdf", text: "Project DDP overview" }],
+      messages: [],
+      voice: [],
+      router: async () => ({ type: "ddp", confidence: 0.82 }),
+      trigger: async () => {
+        extractionCalls += 1;
+        return { ok: true };
+      },
+      requireConfirmation: () => {
+        confirmations += 1;
+      },
+      store: {
+        getSnapshot: store.getSnapshot,
+        setDocType: store.setDocType,
+        setSuggested: store.setSuggested,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.suggestion.type, "ddp");
+    assert.equal(store.state.docType, null);
+    assert.equal(store.state.suggestedDocType.type, "ddp");
+    assert.equal(extractionCalls, 0);
+    assert.equal(confirmations, 0);
+  } finally {
+    if (typeof original === "undefined") {
+      delete process.env.INTENT_ONLY_EXTRACTION;
+    } else {
+      process.env.INTENT_ONLY_EXTRACTION = original;
+    }
+  }
 });
 
-test("onFileAttached records suggestion and requests confirmation when confidence is low", async () => {
-  const store = createMockStore();
-  let confirmationRequested = 0;
-  let extractionCalls = 0;
+test("intent-only mode requests confirmation for low confidence", async () => {
+  const original = process.env.INTENT_ONLY_EXTRACTION;
+  process.env.INTENT_ONLY_EXTRACTION = "true";
 
-  const result = await onFileAttached({
-    attachments: [{ name: "notes.txt", text: "Potential ddp scope" }],
-    messages: [],
-    voice: [],
-    router: async () => ({ type: "ddp", confidence: 0.42 }),
-    trigger: async () => {
-      extractionCalls += 1;
-      return { ok: true };
-    },
-    requireConfirmation: () => {
-      confirmationRequested += 1;
-    },
-    store: {
-      getSnapshot: store.getSnapshot,
-      setDocType: store.setDocType,
-      setSuggested: store.setSuggested,
-    },
-  });
+  try {
+    const store = createMockStore();
+    let confirmationRequested = 0;
+    let extractionCalls = 0;
 
-  assert.equal(result.ok, false);
-  assert.equal(result.reason, "needs-confirmation");
-  assert.equal(store.state.docType, null);
-  assert.equal(store.state.suggestedDocType.type, "ddp");
-  assert.equal(extractionCalls, 0);
-  assert.equal(confirmationRequested, 1);
+    const result = await onFileAttached({
+      attachments: [{ name: "notes.txt", text: "Potential ddp scope" }],
+      messages: [],
+      voice: [],
+      router: async () => ({ type: "ddp", confidence: 0.42 }),
+      trigger: async () => {
+        extractionCalls += 1;
+        return { ok: true };
+      },
+      requireConfirmation: () => {
+        confirmationRequested += 1;
+      },
+      store: {
+        getSnapshot: store.getSnapshot,
+        setDocType: store.setDocType,
+        setSuggested: store.setSuggested,
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "needs-confirmation");
+    assert.equal(store.state.docType, null);
+    assert.equal(store.state.suggestedDocType.type, "ddp");
+    assert.equal(extractionCalls, 0);
+    assert.equal(confirmationRequested, 1);
+  } finally {
+    if (typeof original === "undefined") {
+      delete process.env.INTENT_ONLY_EXTRACTION;
+    } else {
+      process.env.INTENT_ONLY_EXTRACTION = original;
+    }
+  }
+});
+
+test("legacy mode triggers extraction when confidence meets threshold", async () => {
+  const original = process.env.INTENT_ONLY_EXTRACTION;
+  process.env.INTENT_ONLY_EXTRACTION = "false";
+
+  try {
+    const store = createMockStore();
+    let extractionCalls = 0;
+
+    const result = await onFileAttached({
+      attachments: [{ name: "requirements.pdf", text: "Project DDP overview" }],
+      messages: [],
+      voice: [],
+      router: async () => ({ type: "ddp", confidence: 0.82 }),
+      trigger: async (overrides = {}) => {
+        extractionCalls += 1;
+        return { ok: true, docType: overrides.docType };
+      },
+      store: {
+        getSnapshot: store.getSnapshot,
+        setDocType: store.setDocType,
+        setSuggested: store.setSuggested,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(store.state.docType, "ddp");
+    assert.equal(store.state.selectedDocType, "ddp");
+    assert.equal(store.state.suggestedDocType.type, "ddp");
+    assert.equal(extractionCalls, 1);
+  } finally {
+    if (typeof original === "undefined") {
+      delete process.env.INTENT_ONLY_EXTRACTION;
+    } else {
+      process.env.INTENT_ONLY_EXTRACTION = original;
+    }
+  }
 });

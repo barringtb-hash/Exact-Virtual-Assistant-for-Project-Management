@@ -1,22 +1,19 @@
 import templateRegistry from "../../templates/registry.js";
+import { loadTemplateJson } from "./loadTemplateJson.js";
 
 const manifestCache = new Map();
 
-function normalizeManifestModule(module) {
-  if (!module) {
-    return null;
+function ensureCacheEntry(type) {
+  let entry = manifestCache.get(type);
+  if (!entry) {
+    entry = { status: "idle", value: null, error: null, promise: null };
+    manifestCache.set(type, entry);
   }
-  if (module.default) {
-    return module.default;
-  }
-  return module;
+  return entry;
 }
 
-function resolveTemplateSpecifier(relativePath) {
-  if (!relativePath || typeof relativePath !== "string") {
-    return null;
-  }
-  return `../../templates/${relativePath}`;
+function normalizeManifestValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
 export async function loadDocTypeManifest(type) {
@@ -25,32 +22,42 @@ export async function loadDocTypeManifest(type) {
     return null;
   }
 
-  if (manifestCache.has(normalized)) {
-    return manifestCache.get(normalized);
+  const entry = ensureCacheEntry(normalized);
+  if (entry.status === "ready") {
+    return entry.value;
+  }
+  if (entry.status === "loading" && entry.promise) {
+    return entry.promise;
+  }
+  if (entry.status === "error" && entry.promise) {
+    return entry.promise;
   }
 
   const manifestEntry = templateRegistry[normalized];
   const manifestPath = manifestEntry?.manifestPath;
   if (!manifestPath) {
-    manifestCache.set(normalized, null);
-    return null;
+    entry.status = "ready";
+    entry.value = null;
+    entry.error = null;
+    entry.promise = Promise.resolve(null);
+    return entry.promise;
   }
 
-  const specifier = resolveTemplateSpecifier(manifestPath);
-  if (!specifier) {
-    manifestCache.set(normalized, null);
-    return null;
-  }
-
-  const promise = import(/* @vite-ignore */ specifier)
-    .then((module) => normalizeManifestModule(module))
+  entry.status = "loading";
+  entry.error = null;
+  entry.promise = loadTemplateJson(manifestPath)
+    .then((value) => normalizeManifestValue(value))
+    .then((manifest) => {
+      entry.status = "ready";
+      entry.value = manifest;
+      return manifest;
+    })
     .catch((error) => {
-      console.error("Failed to load manifest for doc type", normalized, error);
-      return null;
+      entry.status = "error";
+      entry.error = error;
+      throw error;
     });
-
-  manifestCache.set(normalized, promise);
-  return promise;
+  return entry.promise;
 }
 
 export default loadDocTypeManifest;

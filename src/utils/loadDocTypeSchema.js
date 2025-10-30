@@ -1,22 +1,19 @@
 import templateRegistry from "../../templates/registry.js";
+import { loadTemplateJson } from "./loadTemplateJson.js";
 
 const schemaCache = new Map();
 
-function normalizeSchemaModule(module) {
-  if (!module) {
-    return null;
+function ensureCacheEntry(type) {
+  let entry = schemaCache.get(type);
+  if (!entry) {
+    entry = { status: "idle", value: null, error: null, promise: null };
+    schemaCache.set(type, entry);
   }
-  if (module.default) {
-    return module.default;
-  }
-  return module;
+  return entry;
 }
 
-function resolveTemplateSpecifier(relativePath) {
-  if (!relativePath || typeof relativePath !== "string") {
-    return null;
-  }
-  return `../../templates/${relativePath}`;
+function normalizeSchemaValue(value) {
+  return value && typeof value === "object" ? value : null;
 }
 
 export async function loadDocTypeSchema(type) {
@@ -25,32 +22,42 @@ export async function loadDocTypeSchema(type) {
     return null;
   }
 
-  if (schemaCache.has(normalized)) {
-    return schemaCache.get(normalized);
+  const entry = ensureCacheEntry(normalized);
+  if (entry.status === "ready") {
+    return entry.value;
+  }
+  if (entry.status === "loading" && entry.promise) {
+    return entry.promise;
+  }
+  if (entry.status === "error" && entry.promise) {
+    return entry.promise;
   }
 
   const manifest = templateRegistry[normalized];
   const schemaPath = manifest?.schema?.path;
   if (!schemaPath) {
-    schemaCache.set(normalized, null);
-    return null;
+    entry.status = "ready";
+    entry.value = null;
+    entry.error = null;
+    entry.promise = Promise.resolve(null);
+    return entry.promise;
   }
 
-  const specifier = resolveTemplateSpecifier(schemaPath);
-  if (!specifier) {
-    schemaCache.set(normalized, null);
-    return null;
-  }
-
-  const promise = import(/* @vite-ignore */ specifier)
-    .then((module) => normalizeSchemaModule(module))
+  entry.status = "loading";
+  entry.error = null;
+  entry.promise = loadTemplateJson(schemaPath)
+    .then((value) => normalizeSchemaValue(value))
+    .then((schema) => {
+      entry.status = "ready";
+      entry.value = schema;
+      return schema;
+    })
     .catch((error) => {
-      console.error("Failed to load schema for doc type", normalized, error);
-      return null;
+      entry.status = "error";
+      entry.error = error;
+      throw error;
     });
-
-  schemaCache.set(normalized, promise);
-  return promise;
+  return entry.promise;
 }
 
 export default loadDocTypeSchema;

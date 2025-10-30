@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useCallback } from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
-import { useDocType } from "../state/docType.js";
+import { useDocTemplate } from "../state/docTemplateStore.js";
 
 const CUSTOM_EDITORS = {};
 
@@ -485,7 +485,14 @@ export default function PreviewEditable({
   schema,
   manifest,
 }) {
-  const { previewDocType, previewDocTypeLabel } = useDocType();
+  const selectDocTemplate = useCallback(
+    (snapshot) => ({
+      docType: snapshot.docType,
+      templateLabel: snapshot.templateLabel,
+    }),
+    []
+  );
+  const { docType: previewDocType, templateLabel } = useDocTemplate(selectDocTemplate);
   const safeDraft =
     draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);
@@ -527,7 +534,7 @@ export default function PreviewEditable({
   const displayDocLabel =
     previewManifest?.displayLabel ||
     manifestConfig?.label ||
-    previewDocTypeLabel ||
+    templateLabel ||
     normalizedDocType ||
     "Document";
 

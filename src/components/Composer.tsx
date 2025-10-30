@@ -22,10 +22,6 @@ export interface ComposerProps {
   onStopRecording?: () => void;
   recording?: boolean;
   statusText?: string | null;
-  onSyncNow?: () => void;
-  canSync?: boolean;
-  syncDisabled?: boolean;
-  syncLabel?: string;
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
@@ -66,10 +62,6 @@ const Composer: React.FC<ComposerProps> = ({
   onStopRecording,
   recording = false,
   statusText,
-  onSyncNow,
-  canSync = true,
-  syncDisabled = false,
-  syncLabel,
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
@@ -138,15 +130,6 @@ const Composer: React.FC<ComposerProps> = ({
     onMicToggle?.();
   }, [onMicToggle, onStartRecording, onStopRecording, recording]);
 
-  const resolvedSyncLabel = useMemo(() => {
-    if (syncLabel) return syncLabel;
-    const label = previewDocTypeLabel || "Document";
-    if (syncDisabled && canSync) {
-      return `Syncing ${label}…`;
-    }
-    return `Sync ${label}`;
-  }, [canSync, previewDocTypeLabel, syncDisabled, syncLabel]);
-
   const resolvedPlaceholder = useMemo(() => {
     if (placeholder) return placeholder;
     const label = (previewDocTypeLabel || "document").toLowerCase();
@@ -167,11 +150,6 @@ const Composer: React.FC<ComposerProps> = ({
       startRealtime?.();
     }
   }, [rtcState, startRealtime, stopRealtime]);
-
-  const handleSyncClick = useCallback(() => {
-    if (syncDisabled || !canSync) return;
-    onSyncNow?.();
-  }, [canSync, onSyncNow, syncDisabled]);
 
   const micButtonClasses = recording
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
@@ -255,21 +233,6 @@ const Composer: React.FC<ComposerProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {onSyncNow && (
-              <button
-                type="button"
-                onClick={handleSyncClick}
-                disabled={syncDisabled || !canSync}
-                className={`shrink-0 rounded-xl border px-3 py-2 text-sm transition ${
-                  syncDisabled || !canSync
-                    ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
-                    : "bg-white/80 border-white/60 text-slate-700 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-700"
-                }`}
-                title="Commit the latest updates to the preview"
-              >
-                {resolvedSyncLabel}
-              </button>
-            )}
             <button
               type="button"
               onClick={onSend}

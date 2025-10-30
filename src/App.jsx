@@ -22,6 +22,7 @@ import { useDocTemplate } from "./state/docTemplateStore.js";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
+import { isIntentOnlyExtractionEnabled } from "../config/featureFlags.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -33,6 +34,8 @@ const normalizeCharterDraft = (draft) => normalizeCharter(draft);
 const DEFAULT_DOC_TYPE = "charter";
 const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+
+const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
@@ -408,6 +411,8 @@ const seedMessages = [
 
 export default function ExactVirtualAssistantPM() {
   const initialDraftRef = useRef(null);
+  const intentOnlyExtractionEnabled = INTENT_ONLY_EXTRACTION_ENABLED;
+  const legacyAutoExtractionEnabled = !intentOnlyExtractionEnabled;
   const {
     docRouterEnabled,
     supportedDocTypes,
@@ -479,6 +484,14 @@ export default function ExactVirtualAssistantPM() {
   });
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
+  const messagesRef = useRef(messages);
+  const voiceTranscriptsRef = useRef(voiceTranscripts);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    voiceTranscriptsRef.current = voiceTranscripts;
+  }, [voiceTranscripts]);
   const suggestionType = suggested?.type;
   const hasConfirmedDocType = useMemo(() => {
     if (!docRouterEnabled) {
@@ -1683,19 +1696,7 @@ const resolveDocTypeForManualSync = useCallback(
         if (transcript) {
           const trimmedTranscript = transcript.trim();
           if (!trimmedTranscript) return;
-          setVoiceTranscripts((prev) => {
-            const entry = {
-              id: Date.now() + Math.random(),
-              text: trimmedTranscript,
-              timestamp: Date.now(),
-            };
-            const next = [...prev, entry];
-            return next.slice(-20);
-          });
-          const handled = await handleCommandFromText(trimmedTranscript);
-          if (!handled) {
-            appendUserMessageToChat(trimmedTranscript);
-          }
+          await handleVoiceTranscriptMessage(trimmedTranscript);
         }
       };
 
@@ -1833,36 +1834,34 @@ const resolveDocTypeForManualSync = useCallback(
       setListening(false);
     }
   };
+  const handleCommandFromText = useCallback(
+    async (
+      rawText,
+      { userMessageAppended = false, baseName = defaultShareBaseName } = {}
+    ) => {
+      const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+      if (!trimmed) return false;
 
-  
+      const normalized = trimmed.toLowerCase();
+      const ensureUserLogged = () => {
+        if (!userMessageAppended) {
+          appendUserMessageToChat(trimmed);
+        }
+      };
 
-  const handleCommandFromText = async (
-    rawText,
-    { userMessageAppended = false, baseName = defaultShareBaseName } = {}
-  ) => {
-    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
-    if (!trimmed) return false;
-
-    const normalized = trimmed.toLowerCase();
-    const ensureUserLogged = () => {
-      if (!userMessageAppended) {
-        appendUserMessageToChat(trimmed);
+      if (normalized.startsWith("/type")) {
+        ensureUserLogged();
+        handleTypeCommand({
+          command: trimmed,
+          metadataMap,
+          supportedDocTypes,
+          setDocType,
+          setSuggested,
+          closeDocTypeModal: () => setShowDocTypeModal(false),
+          pushToast,
+        });
+        return true;
       }
-    };
-
-    if (normalized.startsWith("/type")) {
-      ensureUserLogged();
-      handleTypeCommand({
-        command: trimmed,
-        metadataMap,
-        supportedDocTypes,
-        setDocType,
-        setSuggested,
-        closeDocTypeModal: () => setShowDocTypeModal(false),
-        pushToast,
-      });
-      return true;
-    }
 
     const wantsManualSync =
       normalized.startsWith("/sync") ||
@@ -1944,10 +1943,80 @@ const resolveDocTypeForManualSync = useCallback(
         );
       }
       return true;
-    }
+      }
 
-    return false;
-  };
+      return false;
+    },
+    [
+      appendAssistantMessage,
+      appendUserMessageToChat,
+      defaultShareBaseName,
+      exportDocxViaChat,
+      exportPdfViaChat,
+      generateBlankCharter,
+      metadataMap,
+      pushToast,
+      setDocType,
+      setShowDocTypeModal,
+      setSuggested,
+      shareLinksViaChat,
+      supportedDocTypes,
+      syncDocFromChat,
+    ]
+  );
+
+  const handleVoiceTranscriptMessage = useCallback(
+    async (rawText) => {
+      const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+      if (!trimmed) return;
+
+      const entry = {
+        id: Date.now() + Math.random(),
+        text: trimmed,
+        timestamp: Date.now(),
+      };
+      const baseVoice = Array.isArray(voiceTranscriptsRef.current)
+        ? voiceTranscriptsRef.current
+        : [];
+      const nextVoice = [...baseVoice, entry].slice(-20);
+      voiceTranscriptsRef.current = nextVoice;
+      setVoiceTranscripts(nextVoice);
+
+      const userMsg = { id: Date.now() + Math.random(), role: "user", text: trimmed };
+      const baseHistory = Array.isArray(messagesRef.current) ? messagesRef.current : [];
+      const nextHistory = [...baseHistory, userMsg];
+      messagesRef.current = nextHistory;
+      setMessages(nextHistory);
+
+      if (intentOnlyExtractionEnabled) {
+        const intent = detectCharterIntent(trimmed);
+        if (intent) {
+          await triggerExtraction({
+            intent,
+            docType: "charter",
+            messages: nextHistory,
+            attachments,
+            voice: nextVoice,
+            reason: "voice-intent",
+          });
+          return;
+        }
+      }
+
+      const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
+      if (handled) {
+        return;
+      }
+    },
+    [
+      attachments,
+      handleCommandFromText,
+      intentOnlyExtractionEnabled,
+      setMessages,
+      setVoiceTranscripts,
+      triggerExtraction,
+    ]
+  );
 
   const handleSend = async () => {
     const text = input.trim();
@@ -1956,7 +2025,24 @@ const resolveDocTypeForManualSync = useCallback(
     const userMsg = { id: Date.now() + Math.random(), role: "user", text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
+    messagesRef.current = nextHistory;
     setInput("");
+
+    if (intentOnlyExtractionEnabled) {
+      const intent = detectCharterIntent(text);
+      if (intent) {
+        await triggerExtraction({
+          intent,
+          docType: "charter",
+          messages: nextHistory,
+          attachments,
+          voice: voiceTranscripts,
+          reason: "composer-intent",
+        });
+        return;
+      }
+    }
+
     const handled = await handleCommandFromText(text, { userMessageAppended: true });
     if (handled) {
       return;
@@ -1972,51 +2058,6 @@ const resolveDocTypeForManualSync = useCallback(
     }
     appendAssistantMessage(reply || "");
   };
-
-  const handleSyncNow = useCallback(async () => {
-    const result = await onFileAttached({
-      attachments,
-      messages,
-      voice: voiceTranscripts,
-      trigger: async (overrides = {}) => {
-        const manualDocType =
-          overrides?.docType || resolveDocTypeForManualSync();
-        if (!manualDocType) {
-          if (docRouterEnabled) {
-            setShowDocTypeModal(true);
-          }
-          pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
-          return { ok: false, reason: "docTypeRequired" };
-        }
-        return syncDocFromChat(manualDocType);
-      },
-      requireConfirmation: () => {
-        if (docRouterEnabled) {
-          setShowDocTypeModal(true);
-        }
-        pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
-      },
-    });
-
-    if (!result) {
-      const manualDocType = resolveDocTypeForManualSync();
-      if (!manualDocType) {
-        return { ok: false, reason: "docTypeRequired" };
-      }
-      return syncDocFromChat(manualDocType);
-    }
-
-    return result;
-  }, [
-    attachments,
-    docRouterEnabled,
-    messages,
-    pushToast,
-    resolveDocTypeForManualSync,
-    setShowDocTypeModal,
-    syncDocFromChat,
-    voiceTranscripts,
-  ]);
 
   const processPickedFiles = useCallback(
     async (list) => {
@@ -2094,24 +2135,26 @@ const resolveDocTypeForManualSync = useCallback(
             updatedAttachments = [...prev, ...processedAttachments];
             return updatedAttachments;
           });
-          setExtractionSeed(Date.now());
+          if (legacyAutoExtractionEnabled) {
+            setExtractionSeed(Date.now());
 
-          try {
-            await onFileAttached({
-              attachments: updatedAttachments,
-              messages,
-              voice: voiceTranscripts,
-              trigger: (overrides = {}) =>
-                triggerExtraction({
-                  attachments: updatedAttachments,
-                  messages,
-                  voice: voiceTranscripts,
-                  ...overrides,
-                }),
-              requireConfirmation: () => setShowDocTypeModal(true),
-            });
-          } catch (error) {
-            console.error("onFileAttached failed", error);
+            try {
+              await onFileAttached({
+                attachments: updatedAttachments,
+                messages,
+                voice: voiceTranscripts,
+                trigger: (overrides = {}) =>
+                  triggerExtraction({
+                    attachments: updatedAttachments,
+                    messages,
+                    voice: voiceTranscripts,
+                    ...overrides,
+                  }),
+                requireConfirmation: () => setShowDocTypeModal(true),
+              });
+            } catch (error) {
+              console.error("onFileAttached failed", error);
+            }
           }
         }
       } finally {
@@ -2121,8 +2164,10 @@ const resolveDocTypeForManualSync = useCallback(
     [
       triggerExtraction,
       messages,
+      legacyAutoExtractionEnabled,
       setAttachments,
       setFiles,
+      setExtractionSeed,
       setIsUploadingAttachments,
       setMessages,
       setShowDocTypeModal,
@@ -2197,7 +2242,9 @@ const resolveDocTypeForManualSync = useCallback(
         clearExtractionError();
         setCharterSyncError(null);
       }
-      setExtractionSeed(Date.now());
+      if (legacyAutoExtractionEnabled) {
+        setExtractionSeed(Date.now());
+      }
     }
   };
 
@@ -2298,10 +2345,6 @@ const resolveDocTypeForManualSync = useCallback(
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
                     recording={listening}
                     statusText={composerStatus}
-                    onSyncNow={handleSyncNow}
-                    canSync={canSyncNow}
-                    syncDisabled={isCharterSyncInFlight}
-                    syncLabel={isCharterSyncInFlight ? "Syncing…" : undefined}
                     sendDisabled={isAssistantThinking}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
@@ -2428,19 +2471,6 @@ const resolveDocTypeForManualSync = useCallback(
                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating {docPreviewLabel}…</div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSyncNow}
-                  disabled={!canSyncNow || isCharterSyncInFlight || isAssistantThinking}
-                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !canSyncNow || isCharterSyncInFlight || isAssistantThinking
-                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
-                      : "bg-sky-600 text-white hover:bg-sky-500 dark:bg-sky-500 dark:hover:bg-sky-400"
-                  }`}
-                  title="Commit the latest chat context to the preview"
-                >
-                  {isCharterSyncInFlight ? "Committing…" : "Commit to Preview"}
-                </button>
                 <button
                   type="button"
                   onClick={() => exportDocxViaChat(defaultShareBaseName)}

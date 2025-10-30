@@ -8,6 +8,7 @@ import {
   recordDocumentAudit,
   resolveDetectionFromRequest,
 } from "../../lib/doc/audit.js";
+import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 
 const ATTACHMENT_CHAR_LIMIT = 20_000;
 
@@ -199,6 +200,7 @@ export default async function handler(req, res) {
     const voice = Array.isArray(body.voice) ? body.voice : [];
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const seed = typeof body.seed === "number" ? body.seed : undefined;
+    const intentReasonRaw = body?.intentReason;
 
     const extractPrompt = await loadExtractPrompt(docType, config);
     const docTypeMetadata = await loadExtractMetadata(config);
@@ -239,16 +241,19 @@ export default async function handler(req, res) {
       res.status(200).json(payload);
     }
 
-    recordDocumentAudit(
-      "documents.extract",
-      {
-        hashSource: payload,
-        detection,
-        finalType: config.type,
-        templateVersion: config.templateVersion,
-      },
-      { logger: console }
-    );
+    const auditOptions = {
+      hashSource: payload,
+      detection,
+      finalType: config.type,
+      templateVersion: config.templateVersion,
+    };
+
+    if (isIntentOnlyExtractionEnabled()) {
+      auditOptions.intentSource = "nl_intent";
+      auditOptions.intentReason = intentReasonRaw;
+    }
+
+    recordDocumentAudit("documents.extract", auditOptions, { logger: console });
   } catch (error) {
     if (error instanceof UnsupportedDocTypeError) {
       return res.status(400).json({

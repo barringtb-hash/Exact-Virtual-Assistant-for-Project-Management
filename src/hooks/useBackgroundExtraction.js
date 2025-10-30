@@ -262,6 +262,9 @@ export default function useBackgroundExtraction({
   voice = [],
   attachments = [],
   seed,
+  intent,
+  intentSource,
+  intentReason,
   locks = {},
   getDraft,
   setDraft,
@@ -285,6 +288,9 @@ export default function useBackgroundExtraction({
     voice,
     attachments,
     seed,
+    intent,
+    intentSource,
+    intentReason,
   });
   const locksRef = useRef(locks || {});
   const normalizeRef = useRef(typeof normalize === "function" ? normalize : (value) => value);
@@ -330,8 +336,22 @@ export default function useBackgroundExtraction({
       voice,
       attachments,
       seed,
+      intent,
+      intentSource,
+      intentReason,
     };
-  }, [docType, selectedDocType, messages, voice, attachments, seed, docTypeSuggestion]);
+  }, [
+    docType,
+    selectedDocType,
+    messages,
+    voice,
+    attachments,
+    seed,
+    intent,
+    intentSource,
+    intentReason,
+    docTypeSuggestion,
+  ]);
 
   useEffect(() => {
     locksRef.current = locks || {};
@@ -509,6 +529,9 @@ export default function useBackgroundExtraction({
       voice: latestVoice,
       attachments: latestAttachments,
       seed: latestSeed,
+      intent: latestIntent,
+      intentSource: latestIntentSource,
+      intentReason: latestIntentReason,
     } = state;
 
     const formattedAttachments = sanitizeAttachments(latestAttachments);
@@ -552,6 +575,9 @@ export default function useBackgroundExtraction({
             voice: formattedVoice,
             seed: latestSeed,
             suggestion: suggestionRef.current,
+            intent: latestIntent,
+            intentSource: latestIntentSource,
+            intentReason: latestIntentReason,
             normalize: normalizeRef.current,
             applyDraft: setDraftRef.current,
             signal: controller.signal,

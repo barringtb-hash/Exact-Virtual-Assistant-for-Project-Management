@@ -1,0 +1,11 @@
+Team Project Plan (Demo)
+========================
+
+Project: Launch Initiative
+Sponsor: Casey Example
+Project Lead: Alex Example
+
+Objectives:
+- Deliver onboarding materials
+- Train regional teams
+

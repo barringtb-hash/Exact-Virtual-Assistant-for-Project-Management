@@ -9,8 +9,10 @@ import {
   resolveDetectionFromRequest,
 } from "../../lib/doc/audit.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
+import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
 
 const ATTACHMENT_CHAR_LIMIT = 20_000;
+const MIN_TEXT_CONTEXT_LENGTH = 25;
 
 async function readFirstAvailableFile(paths = []) {
   for (const filePath of paths) {
@@ -116,6 +118,100 @@ function formatVoice(voiceEvents) {
   return `Voice Context:\n${entries.join("\n")}`;
 }
 
+function normalizeIntent(value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  return null;
+}
+
+function extractMessageText(entry) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+
+  const candidates = [entry.text, entry.content, entry.message];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+
+  return "";
+}
+
+function getLastUserMessageText(messages) {
+  if (!Array.isArray(messages)) {
+    return "";
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index];
+    const role = typeof entry?.role === "string" && entry.role.trim() ? entry.role.trim() : "user";
+    if (role !== "user") {
+      continue;
+    }
+
+    const text = extractMessageText(entry);
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function computeUserTextLength(messages) {
+  if (!Array.isArray(messages)) {
+    return 0;
+  }
+
+  return messages.reduce((total, entry) => {
+    const role = typeof entry?.role === "string" && entry.role.trim() ? entry.role.trim() : "user";
+    if (role !== "user") {
+      return total;
+    }
+
+    const text = extractMessageText(entry);
+    return text ? total + text.length : total;
+  }, 0);
+}
+
+function hasVoiceText(voiceEvents) {
+  if (!Array.isArray(voiceEvents)) {
+    return false;
+  }
+
+  return voiceEvents.some((event) => {
+    if (!event || typeof event !== "object") {
+      return false;
+    }
+    const text = typeof event.text === "string" ? event.text.trim() : "";
+    return Boolean(text);
+  });
+}
+
+function hasAttachmentContext(attachments) {
+  if (!Array.isArray(attachments)) {
+    return false;
+  }
+
+  return attachments.some((attachment) => attachment != null);
+}
+
 function normalizeRequestBody(body) {
   if (body == null) {
     return {};
@@ -200,7 +296,48 @@ export default async function handler(req, res) {
     const voice = Array.isArray(body.voice) ? body.voice : [];
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const seed = typeof body.seed === "number" ? body.seed : undefined;
+    const intentRaw = body?.intent;
+    const intentSourceRaw = body?.intentSource;
     const intentReasonRaw = body?.intentReason;
+
+    const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
+
+    let resolvedIntent = intentOnlyExtractionEnabled ? normalizeIntent(intentRaw) : null;
+    let resolvedIntentSource =
+      typeof intentSourceRaw === "string" && intentSourceRaw.trim() ? intentSourceRaw.trim() : null;
+
+    if (config.type === "charter") {
+      if (intentOnlyExtractionEnabled && !resolvedIntent) {
+        const lastUserMessage = getLastUserMessageText(messages);
+        const detectedIntent = detectCharterIntent(lastUserMessage);
+        if (detectedIntent) {
+          resolvedIntent = detectedIntent;
+          if (!resolvedIntentSource) {
+            resolvedIntentSource = "derived_last_user_message";
+          }
+        }
+      }
+
+      if (intentOnlyExtractionEnabled && !resolvedIntent) {
+        return res.status(400).json({
+          error: "Charter extraction requires an explicit or detected intent.",
+          code: "missing-charter-intent",
+        });
+      }
+    }
+
+    const hasContext =
+      hasAttachmentContext(attachments) ||
+      hasVoiceText(voice) ||
+      computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH;
+
+    if (config.type === "charter" && !hasContext) {
+      return res.status(422).json({
+        error:
+          "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
+        code: "insufficient-context",
+      });
+    }
 
     const extractPrompt = await loadExtractPrompt(docType, config);
     const docTypeMetadata = await loadExtractMetadata(config);
@@ -248,8 +385,8 @@ export default async function handler(req, res) {
       templateVersion: config.templateVersion,
     };
 
-    if (isIntentOnlyExtractionEnabled()) {
-      auditOptions.intentSource = "nl_intent";
+    if (intentOnlyExtractionEnabled) {
+      auditOptions.intentSource = resolvedIntentSource || null;
       auditOptions.intentReason = intentReasonRaw;
     }
 

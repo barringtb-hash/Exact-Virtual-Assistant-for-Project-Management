@@ -48,7 +48,7 @@ test("onFileAttached auto-selects doc type when confidence meets threshold", asy
     messages: [],
     voice: [],
     router: async () => ({ type: "ddp", confidence: 0.82 }),
-    extractAndPopulate: async (overrides = {}) => {
+    trigger: async (overrides = {}) => {
       extractionCalls += 1;
       return { ok: true, docType: overrides.docType };
     },
@@ -76,7 +76,7 @@ test("onFileAttached records suggestion and requests confirmation when confidenc
     messages: [],
     voice: [],
     router: async () => ({ type: "ddp", confidence: 0.42 }),
-    extractAndPopulate: async () => {
+    trigger: async () => {
       extractionCalls += 1;
       return { ok: true };
     },

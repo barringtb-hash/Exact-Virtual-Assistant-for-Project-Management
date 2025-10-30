@@ -13,6 +13,7 @@ import {
   sanitizeVoiceEvents,
   PARSE_FALLBACK_MESSAGE,
 } from "../utils/extractAndPopulate.js";
+import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import {
   getDocTypeSnapshot,
   setDocType,
@@ -23,6 +24,8 @@ const DEFAULT_DEBOUNCE_MS = 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const AUTO_ROUTER_THRESHOLD = 0.7;
+
+const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled();
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -131,11 +134,19 @@ function sanitizeSuggestion(candidate) {
   return normalizeDocTypeSuggestion(candidate);
 }
 
+function shouldAutoExtractPayload({ messages, voice, attachments }) {
+  return (
+    sanitizeAttachments(attachments).length > 0 ||
+    sanitizeVoiceEvents(voice).length > 0 ||
+    hasUserInput(messages)
+  );
+}
+
 export async function onFileAttached({
   attachments = [],
   messages = [],
   voice = [],
-  extractAndPopulate,
+  trigger,
   autoThreshold = AUTO_ROUTER_THRESHOLD,
   requireConfirmation,
   router = routerDetect,
@@ -171,8 +182,8 @@ export async function onFileAttached({
       });
 
   if (!docRouterEnabled || hasConfirmedDocType) {
-    if (typeof extractAndPopulate === "function") {
-      return extractAndPopulate({
+    if (typeof trigger === "function") {
+      return trigger({
         docType: docRouterEnabled
           ? effectiveDocType
           : selectedDocType ?? effectiveDocType,
@@ -235,8 +246,8 @@ export async function onFileAttached({
       (typeof applyDocType === "function"
         ? applyDocType(routedSuggestion.type)
         : setDocType(routedSuggestion.type)) || routedSuggestion.type;
-    if (typeof extractAndPopulate === "function") {
-      return extractAndPopulate({
+    if (typeof trigger === "function") {
+      return trigger({
         docType: appliedDocType,
         attachments,
         messages,
@@ -517,12 +528,13 @@ export default function useBackgroundExtraction({
     setError(null);
   }, []);
 
-  const extractAndPopulate = useCallback(async (overrides = {}) => {
+  const executeExtraction = useCallback(async (state) => {
     if (isUploadingRef.current) {
       return { ok: false, reason: "attachments-uploading" };
     }
 
-    const state = { ...latestStateRef.current, ...overrides };
+    const baseState =
+      state && typeof state === "object" ? state : latestStateRef.current || {};
     const {
       docType: latestDocType,
       messages: latestMessages,
@@ -532,7 +544,7 @@ export default function useBackgroundExtraction({
       intent: latestIntent,
       intentSource: latestIntentSource,
       intentReason: latestIntentReason,
-    } = state;
+    } = baseState;
 
     const formattedAttachments = sanitizeAttachments(latestAttachments);
     const formattedVoice = sanitizeVoiceEvents(latestVoice);
@@ -642,30 +654,58 @@ export default function useBackgroundExtraction({
     }
   }, []);
 
+  const trigger = useCallback(
+    async ({
+      intent: overrideIntent,
+      docType: overrideDocType,
+      messages: overrideMessages,
+      attachments: overrideAttachments,
+      voice: overrideVoice,
+      reason: _reason,
+    } = {}) => {
+      if (isUploadingRef.current) {
+        return { ok: false, reason: "attachments-uploading" };
+      }
+
+      const base = latestStateRef.current || {};
+      const normalizedDocType =
+        typeof overrideDocType === "string" && overrideDocType.trim()
+          ? overrideDocType.trim()
+          : base.docType;
+
+      const nextState = {
+        ...base,
+        intent: overrideIntent ?? base.intent,
+        docType: normalizedDocType,
+        messages: overrideMessages ?? base.messages,
+        attachments: overrideAttachments ?? base.attachments,
+        voice: overrideVoice ?? base.voice,
+      };
+
+      return executeExtraction(nextState);
+    },
+    [executeExtraction]
+  );
+
   const scheduleExtraction = useCallback(() => {
+    if (!LEGACY_AUTO_EXTRACTION_ENABLED) {
+      return;
+    }
     clearPendingTimer();
     if (!autoExtractAllowedRef.current || isUploadingRef.current) {
       return;
     }
     timerRef.current = setTimeout(() => {
       if (!isUploadingRef.current && autoExtractAllowedRef.current) {
-        extractAndPopulate();
+        trigger({ reason: "legacy-auto" });
       }
     }, Math.max(0, debounceMs || DEFAULT_DEBOUNCE_MS));
-  }, [clearPendingTimer, debounceMs, extractAndPopulate]);
-
-  const syncNow = useCallback(
-    (force = false) => {
-      clearPendingTimer();
-      if (!autoExtractAllowedRef.current && !force) {
-        return Promise.resolve({ ok: false, reason: "docType-unconfirmed" });
-      }
-      return extractAndPopulate();
-    },
-    [clearPendingTimer, extractAndPopulate]
-  );
+  }, [clearPendingTimer, debounceMs, trigger]);
 
   useEffect(() => {
+    if (!LEGACY_AUTO_EXTRACTION_ENABLED) {
+      return undefined;
+    }
     if (autoExtractAllowed) {
       return undefined;
     }
@@ -678,15 +718,19 @@ export default function useBackgroundExtraction({
   }, [autoExtractAllowed, clearPendingTimer]);
 
   useEffect(() => {
+    if (!LEGACY_AUTO_EXTRACTION_ENABLED) {
+      return undefined;
+    }
     if (!autoExtractAllowed) {
       return undefined;
     }
 
     const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
-    const shouldExtract =
-      sanitizeAttachments(latestAttachments).length > 0 ||
-      sanitizeVoiceEvents(latestVoice).length > 0 ||
-      hasUserInput(latestMessages);
+    const shouldExtract = shouldAutoExtractPayload({
+      messages: latestMessages,
+      voice: latestVoice,
+      attachments: latestAttachments,
+    });
 
     if (!shouldExtract) {
       clearPendingTimer();
@@ -719,9 +763,7 @@ export default function useBackgroundExtraction({
   return {
     isExtracting,
     error,
-    syncNow,
     clearError,
-    suggestedDocType: docTypeSuggestion,
-    extractAndPopulate,
+    trigger,
   };
 }

@@ -24,7 +24,7 @@ test.describe("document router enabled flows", () => {
 
     const extractResponse = await page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/extract") &&
+        response.url().includes("/api/documents/extract") &&
         response.request().method() === "POST"
     );
     expect(extractResponse.ok()).toBeTruthy();
@@ -34,12 +34,12 @@ test.describe("document router enabled flows", () => {
 
     const validatePromise = page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/validate") &&
+        response.url().includes("/api/documents/validate") &&
         response.request().method() === "POST"
     );
     const renderPromise = page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/render") &&
+        response.url().includes("/api/documents/render") &&
         response.request().method() === "POST"
     );
 
@@ -65,7 +65,7 @@ test.describe("document router enabled flows", () => {
 
     const extractResponse = await page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/extract") &&
+        response.url().includes("/api/documents/extract") &&
         response.request().method() === "POST"
     );
     expect(extractResponse.ok()).toBeTruthy();
@@ -78,12 +78,12 @@ test.describe("document router enabled flows", () => {
 
     const validatePromise = page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/validate") &&
+        response.url().includes("/api/documents/validate") &&
         response.request().method() === "POST"
     );
     const renderPromise = page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/render") &&
+        response.url().includes("/api/documents/render") &&
         response.request().method() === "POST"
     );
 
@@ -120,7 +120,7 @@ test.describe("document router enabled flows", () => {
 
     const manualExtract = page.waitForResponse(
       (response) =>
-        response.url().includes("/api/doc/extract") &&
+        response.url().includes("/api/documents/extract") &&
         response.request().method() === "POST"
     );
 

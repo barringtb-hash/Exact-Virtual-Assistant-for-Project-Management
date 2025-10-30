@@ -1,5 +1,6 @@
 {
   "type": "charter",
+  "version": "2024.10",
   "label": "Charter",
   "preview": {
     "mode": "sections",

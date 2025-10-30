@@ -12,9 +12,9 @@ A React + Tailwind single-page assistant that drafts project charters, validates
 - **Reference map** – for a guided tour of every top-level area, read [`docs/CODEMAP.md`](docs/CODEMAP.md); UI-specific breadcrumbs remain inline in [`src/App.jsx`](src/App.jsx) comments, and the charter assets the client references are all located under [`templates/`](templates/).
 
 ## Document router & doc types
-- **Doc router overview** – the generalized document router powers `/api/doc/extract`, `/api/doc/validate`, and `/api/doc/render`. Each handler looks up metadata in [`lib/doc/registry.js`](lib/doc/registry.js) so shared logic (prompt loading, schema validation, DOCX rendering) can adapt to any registered document without duplicating code.
+- **Doc router overview** – the generalized document router powers `/api/documents/extract`, `/api/documents/validate`, and `/api/documents/render`. Each handler looks up metadata in [`lib/doc/registry.js`](lib/doc/registry.js) so shared logic (prompt loading, schema validation, DOCX rendering) can adapt to any registered document without duplicating code.
 - **Supported document types** – the registry currently exposes `charter` and `ddp` (Design & Development Plan). Charter assets continue to live beside the legacy flow (`templates/extract_prompt.txt`, `templates/charter.schema.json`, `templates/project_charter_tokens.docx.b64`). DDP-specific prompts, schema, and encodings live under [`templates/doc-types/ddp/`](templates/doc-types/ddp/) for the runtime plus [`templates/ddp/`](templates/ddp/) when you need the standalone validation CLI or raw assets.
-- **Client toggle** – set `VITE_ENABLE_DOC_ROUTER=true` in `.env.local` to surface the document switcher inside the Vite client. When enabled, `useBackgroundExtraction` and the chat command router target the generalized `/api/doc/*` endpoints, while the legacy `/api/charter/*` routes remain as aliases for backwards compatibility and automated tests.
+- **Client toggle** – set `VITE_ENABLE_DOC_ROUTER=true` in `.env.local` to surface the document switcher inside the Vite client. When enabled, `useBackgroundExtraction` and the chat command router target the generalized `/api/documents/*` endpoints, while the legacy `/api/charter/*` routes remain as aliases for backwards compatibility and automated tests.
 
 ## Serverless API Reference (`/api`)
 All routes are implemented as Vercel serverless functions. They rely on the environment variables summarised below.
@@ -99,7 +99,7 @@ All endpoints live under `/api/charter` and share the same OpenAI key dependency
 ## Charter automation workflow
 1. **Prompt + field rules** – The extraction step reads [`extract_prompt.txt`](templates/extract_prompt.txt) and is guided by the business constraints encoded in [`field_rules.json`](templates/field_rules.json) as well as the JSON schema in [`charter.schema.json`](templates/charter.schema.json). Customize these files to change tone, required sections, or value formats.
 2. **Extraction** – `/api/charter/extract` (or a direct OpenAI call with the same prompt) produces draft charter JSON keyed to the schema. Downstream processes should assume optional sections may be empty and rely on schema validation before render.
-3. **Validation** – Use `/api/charter/validate` (or `/api/doc/validate?docType=charter`) inside the app or run the CLI helper for offline workflows:
+3. **Validation** – Use `/api/charter/validate` (or `/api/documents/validate?docType=charter`) inside the app or run the CLI helper for offline workflows:
    ```bash
    node templates/charter-validate.mjs ./path/to/charter.json
    ```

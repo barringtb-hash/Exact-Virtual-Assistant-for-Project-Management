@@ -1111,6 +1111,18 @@ export default function ExactVirtualAssistantPM() {
         voice: sanitizeVoice(voiceTranscripts),
       };
 
+      if (suggested && typeof suggested?.type === "string") {
+        payload.docTypeDetection = {
+          type: suggested.type,
+          confidence:
+            typeof suggested.confidence === "number"
+              ? suggested.confidence
+              : typeof suggestionConfidence === "number"
+              ? suggestionConfidence
+              : undefined,
+        };
+      }
+
       const seedDraft = getCurrentDraft();
       if (seedDraft && typeof seedDraft === "object") {
         payload.seed = seedDraft;
@@ -1123,7 +1135,7 @@ export default function ExactVirtualAssistantPM() {
         body: requestBody,
       };
 
-      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(targetDocType)}`;
+      const docEndpoint = `/api/documents/extract?docType=${encodeURIComponent(targetDocType)}`;
       let response;
       try {
         response = await fetch(docEndpoint, requestOptions);
@@ -1314,7 +1326,7 @@ export default function ExactVirtualAssistantPM() {
       };
     }
 
-    const docValidateUrl = `/api/doc/validate?docType=${encodeURIComponent(requestDocType)}`;
+    const docValidateUrl = `/api/documents/validate?docType=${encodeURIComponent(requestDocType)}`;
     const docRequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1322,6 +1334,18 @@ export default function ExactVirtualAssistantPM() {
         docType: requestDocType,
         document: draft,
         charter: requestDocType === "charter" ? draft : undefined,
+        docTypeDetection:
+          suggested && typeof suggested?.type === "string"
+            ? {
+                type: suggested.type,
+                confidence:
+                  typeof suggested.confidence === "number"
+                    ? suggested.confidence
+                    : typeof suggestionConfidence === "number"
+                    ? suggestionConfidence
+                    : undefined,
+              }
+            : undefined,
       }),
     };
 
@@ -1343,7 +1367,7 @@ export default function ExactVirtualAssistantPM() {
         });
       }
     } catch (error) {
-      console.error("Unable to reach /api/doc/validate", error);
+      console.error("Unable to reach /api/documents/validate", error);
       if (requestDocType !== "charter") {
         return {
           ok: false,
@@ -1388,7 +1412,7 @@ export default function ExactVirtualAssistantPM() {
     } catch (parseError) {
       console.error(
         usedDocEndpoint
-          ? "Failed to parse /api/doc/validate response"
+          ? "Failed to parse /api/documents/validate response"
           : "Failed to parse /api/charter/validate response",
         parseError
       );
@@ -1456,7 +1480,7 @@ export default function ExactVirtualAssistantPM() {
   };
 
   const postDocRender = async ({ document, baseName, formats = [] }) => {
-    const docRenderUrl = `/api/doc/render?docType=${encodeURIComponent(requestDocType)}`;
+    const docRenderUrl = `/api/documents/render?docType=${encodeURIComponent(requestDocType)}`;
     const docPayload = {
       docType: requestDocType,
       document,
@@ -1467,6 +1491,17 @@ export default function ExactVirtualAssistantPM() {
     }
     if (requestDocType === "charter") {
       docPayload.charter = document;
+    }
+    if (suggested && typeof suggested?.type === "string") {
+      docPayload.docTypeDetection = {
+        type: suggested.type,
+        confidence:
+          typeof suggested.confidence === "number"
+            ? suggested.confidence
+            : typeof suggestionConfidence === "number"
+            ? suggestionConfidence
+            : undefined,
+      };
     }
 
     const docInit = {
@@ -1502,7 +1537,7 @@ export default function ExactVirtualAssistantPM() {
       }
     } catch (networkError) {
       if (requestDocType !== "charter") {
-        networkError.endpoint = "/api/doc/render";
+        networkError.endpoint = "/api/documents/render";
         throw networkError;
       }
       usedDocEndpoint = false;
@@ -1556,7 +1591,7 @@ export default function ExactVirtualAssistantPM() {
       response = result.response;
       usedDocEndpoint = result.usedDocEndpoint;
     } catch (networkError) {
-      const endpointLabel = networkError?.endpoint || "/api/doc/render";
+      const endpointLabel = networkError?.endpoint || "/api/documents/render";
       console.error(`${endpointLabel} network error`, networkError);
       appendAssistantMessage(
         "Export link error: Unable to create export links right now. Please try again shortly."
@@ -1571,7 +1606,7 @@ export default function ExactVirtualAssistantPM() {
     } catch (parseError) {
       console.error(
         usedDocEndpoint
-          ? "Failed to parse /api/doc/render response"
+          ? "Failed to parse /api/documents/render response"
           : "Failed to parse /api/charter/make-link response",
         parseError
       );
@@ -1668,7 +1703,7 @@ export default function ExactVirtualAssistantPM() {
         response = result.response;
         usedDocEndpoint = result.usedDocEndpoint;
       } catch (networkError) {
-        const endpointLabel = networkError?.endpoint || "/api/doc/render";
+      const endpointLabel = networkError?.endpoint || "/api/documents/render";
         console.error(`${endpointLabel} network error (blank document)`, networkError);
         appendAssistantMessage(
           `Blank ${docTypeDisplayLabel} error: Unable to create download links right now. Please try again shortly.`
@@ -1683,7 +1718,7 @@ export default function ExactVirtualAssistantPM() {
       } catch (parseError) {
         console.error(
           usedDocEndpoint
-            ? "Failed to parse /api/doc/render response (blank document)"
+            ? "Failed to parse /api/documents/render response (blank document)"
             : "Failed to parse /api/charter/make-link response (blank document)",
           parseError
         );

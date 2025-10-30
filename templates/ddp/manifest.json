@@ -1,5 +1,6 @@
 {
   "type": "ddp",
+  "version": "2024.10",
   "label": "Design & Development Plan",
   "preview": {
     "mode": "sections",

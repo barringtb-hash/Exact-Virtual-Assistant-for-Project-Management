@@ -110,7 +110,8 @@ function subscribe(listener) {
 
 function persistDocType(value) {
   const normalized = value && supportedDocTypes.has(value) ? value : null;
-  const toStore = docRouterEnabled ? normalized : DEFAULT_DOC_TYPE;
+  const fallback = docRouterEnabled ? null : DEFAULT_DOC_TYPE;
+  const toStore = normalized ?? fallback;
   mergeStoredSession({
     docType: toStore,
     selectedDocType: toStore,
@@ -129,19 +130,21 @@ export function setDocType(nextValue) {
   const candidate =
     typeof nextValue === "function" ? nextValue(previous) : nextValue;
 
+  const fallback = docRouterEnabled ? null : DEFAULT_DOC_TYPE;
+
   let next;
-  if (!docRouterEnabled) {
-    next = DEFAULT_DOC_TYPE;
-  } else if (typeof candidate !== "string") {
-    next = null;
+  if (typeof candidate !== "string") {
+    next = fallback;
   } else {
     const trimmed = candidate.trim();
     if (!trimmed) {
-      next = null;
+      next = fallback;
     } else if (supportedDocTypes.has(trimmed)) {
       next = trimmed;
+    } else if (docRouterEnabled) {
+      next = previous ?? fallback;
     } else {
-      next = previous ?? null;
+      next = fallback;
     }
   }
 

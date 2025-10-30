@@ -19,7 +19,8 @@ import {
 import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
 import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate } from "./state/docTemplateStore.js";
-import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
+impimport { detectCharterIntent } from "./utils/detectCharterIntent.js";
+ort { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";

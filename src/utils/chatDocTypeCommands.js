@@ -120,7 +120,7 @@ export async function handleSyncCommand({
   isBusy,
   canSyncNow,
   appendAssistantMessage,
-  extractAndPopulate,
+  trigger,
   buildDocTypeConfig,
   parseFallbackMessage = "I couldn’t parse the last turn—keeping your entries.",
   onStart,
@@ -184,8 +184,8 @@ export async function handleSyncCommand({
   }
 
   try {
-    const result = typeof extractAndPopulate === "function"
-      ? await extractAndPopulate({ docType: targetDocType })
+    const result = typeof trigger === "function"
+      ? await trigger({ docType: targetDocType, reason: "manual-sync" })
       : { ok: false, reason: "unavailable" };
 
     if (result?.reason === "parse-fallback") {

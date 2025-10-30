@@ -161,7 +161,7 @@ test("handleSyncCommand triggers extraction and success messaging", async () => 
     docTypeOverride: "charter",
     canSyncNow: true,
     appendAssistantMessage: (text) => messages.push(text),
-    extractAndPopulate: async () => ({ ok: true, draft: { id: 1 } }),
+    trigger: async () => ({ ok: true, draft: { id: 1 } }),
     buildDocTypeConfig: () => ({ label: "Project Charter" }),
     onStart: () => lifecycle.push("start"),
     onSuccess: () => lifecycle.push("success"),
@@ -181,7 +181,7 @@ test("handleSyncCommand surfaces parse fallback", async () => {
     docTypeOverride: "charter",
     canSyncNow: true,
     appendAssistantMessage: (text) => messages.push(text),
-    extractAndPopulate: async () => ({ ok: false, reason: "parse-fallback", data: { raw: true } }),
+    trigger: async () => ({ ok: false, reason: "parse-fallback", data: { raw: true } }),
     onParseFallback: (message, payload) => parseCalls.push({ message, payload }),
   });
 
@@ -199,7 +199,7 @@ test("handleSyncCommand reports extraction errors", async () => {
     docTypeOverride: "charter",
     canSyncNow: true,
     appendAssistantMessage: (text) => messages.push(text),
-    extractAndPopulate: async () => ({ ok: false, reason: "error" }),
+    trigger: async () => ({ ok: false, reason: "error" }),
     onError: (message) => errors.push(message),
   });
 

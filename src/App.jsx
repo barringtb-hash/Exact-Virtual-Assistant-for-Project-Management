@@ -745,7 +745,7 @@ export default function ExactVirtualAssistantPM() {
     isExtracting,
     error: extractError,
     clearError: clearExtractionError,
-    extractAndPopulate,
+    trigger: triggerExtraction,
   } = useBackgroundExtraction({
     docType: effectiveDocType,
     selectedDocType: supportedDocTypes.has(docType)
@@ -1010,7 +1010,7 @@ const resolveDocTypeForManualSync = useCallback(
         isBusy: isCharterSyncInFlight,
         canSyncNow,
         appendAssistantMessage,
-        extractAndPopulate,
+        trigger: triggerExtraction,
         buildDocTypeConfig: (nextType) => buildDocTypeConfig(nextType, metadataMap),
         parseFallbackMessage: MANUAL_PARSE_FALLBACK_MESSAGE,
         onStart: () => {
@@ -1036,7 +1036,7 @@ const resolveDocTypeForManualSync = useCallback(
       canSyncNow,
       clearExtractionError,
       docRouterEnabled,
-      extractAndPopulate,
+      triggerExtraction,
       isCharterSyncInFlight,
       metadataMap,
       pushToast,
@@ -1978,7 +1978,7 @@ const resolveDocTypeForManualSync = useCallback(
       attachments,
       messages,
       voice: voiceTranscripts,
-      extractAndPopulate: async (overrides = {}) => {
+      trigger: async (overrides = {}) => {
         const manualDocType =
           overrides?.docType || resolveDocTypeForManualSync();
         if (!manualDocType) {
@@ -2101,8 +2101,8 @@ const resolveDocTypeForManualSync = useCallback(
               attachments: updatedAttachments,
               messages,
               voice: voiceTranscripts,
-              extractAndPopulate: (overrides = {}) =>
-                extractAndPopulate({
+              trigger: (overrides = {}) =>
+                triggerExtraction({
                   attachments: updatedAttachments,
                   messages,
                   voice: voiceTranscripts,
@@ -2119,7 +2119,7 @@ const resolveDocTypeForManualSync = useCallback(
       }
     },
     [
-      extractAndPopulate,
+      triggerExtraction,
       messages,
       setAttachments,
       setFiles,
@@ -2140,20 +2140,20 @@ const resolveDocTypeForManualSync = useCallback(
       );
       setShowDocTypeModal(false);
       try {
-        await extractAndPopulate({
+        await triggerExtraction({
           docType: normalized,
           attachments,
           messages,
           voice: voiceTranscripts,
         });
       } catch (error) {
-        console.error("extractAndPopulate after confirm failed", error);
+        console.error("triggerExtraction after confirm failed", error);
       }
     },
     [
       attachments,
       defaultDocType,
-      extractAndPopulate,
+      triggerExtraction,
       messages,
       setDocType,
       setShowDocTypeModal,

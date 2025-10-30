@@ -260,4 +260,8 @@ export function suggestDocType({ messages = [], attachments = [], voice = [] } =
   };
 }
 
+export async function routerDetect(context = {}) {
+  return suggestDocType(context);
+}
+
 export default suggestDocType;

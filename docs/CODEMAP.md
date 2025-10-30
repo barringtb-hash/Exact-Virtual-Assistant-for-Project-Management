@@ -2,115 +2,67 @@
 
 ## Repository layout
 - `src/` – React single-page client rendered by Vite + Tailwind.
-- `api/` – Vercel-style serverless functions that power chat, speech, realtime voice, charter automation, PDF rendering, and attachment text extraction.
+- `api/` – Serverless functions (Vercel format) for chat, transcription, charter extraction/rendering, and supporting utilities.
 - `lib/` – Shared utilities (token counting/chunking and charter normalization) consumed by both the frontend and serverless handlers.
 - `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/documents/*` handler.
 - `templates/` – Prompt/schema/template store managed by [`templates/registry.js`](../templates/registry.js). Each manifest exposes prompts, metadata, validation assets, and render helpers for the document router.
-- `public/` – Static assets served verbatim by Vite (currently minimal placeholder content).
+- `docs/demo/` – Canonical acceptance-test artifacts (OncoLiquid ctDNA Assay TPP demo + walkthrough).
+- `public/` – Static assets served verbatim by Vite.
 
 ## Frontend (`src/`)
 - `src/App.jsx`
-  - Owns application state for messages, draft input, attachment metadata, realtime voice, the editable charter preview, and theme preference.
-  - Provides helpers `callLLM`, voice/transcription orchestration, and the Summarize/"Sync now" accelerator that reuses background extraction. `THEME_STORAGE_KEY` persists the light/dark/auto selection while `messagesContainerRef` keeps the transcript pinned to the newest exchange. The chat command router (`handleCommandFromText` plus `exportDocxViaChat`, `exportPdfViaChat`, `shareLinksViaChat`, and `generateBlankCharter`) validates charters and posts signed download links without hitting the LLM when possible.
-  - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer. Assistant replies flow through `AssistantFeedbackTemplate` to normalize headings and Markdown links.
+  - Owns application state for chat messages, voice transcripts, attachment metadata, and the editable charter preview.
+  - Detects charter intent via [`detectCharterIntent`](../src/utils/detectCharterIntent.js) and, when matched, calls [`useBackgroundExtraction.trigger()`](../src/hooks/useBackgroundExtraction.js).
+  - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer.
 - `src/components/PreviewEditable.jsx`
-  - Editable charter form that drives the preview panel. Field edits immediately update the draft and mark the associated path as locked so background extraction cannot overwrite manual values. Includes list editors for scope, risks, assumptions, milestones, success metrics, and core team members.
+  - Editable charter form that drives the preview panel. Field edits immediately update the draft and mark the associated path as locked to prevent overwriting during extraction.
 - `src/hooks/useBackgroundExtraction.js`
-  - Debounced watcher that monitors messages, voice transcripts, and attachment metadata. Posts to `/api/documents/extract` with the active `docType`, normalizes the response, and merges it into the draft while skipping locked fields. Exposes the same merge behavior for the Summarize/"Sync now" action.
+  - Exposes a `trigger()` method that runs charter extraction **only** when called. All automatic/debounced watchers have been removed.
+  - Handles the network request to `/api/documents/extract`, merges unlocked fields into the draft, and surfaces errors in the UI.
+- `src/utils/detectCharterIntent.js`
+  - Parses user text (typed or transcribed) and returns `{ docType: 'charter', action: 'create' | 'update', intentText }` when natural-language intent is detected.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
 - `src/index.css`
-  - Tailwind base layers plus app-specific utility overrides (e.g., scroll containers, font smoothing).
-- `src/components/AssistantFeedbackTemplate.jsx`
-  - Shared assistant bubble layout that renders formatted sections, nested bullet lists, and sanitized Markdown links.
-- `src/utils/`
-  - Houses document helpers (`getBlankDoc`), assistant formatting utilities, and HTML sanitizers used by the feedback template.
+  - Tailwind base layers plus app-specific utility overrides (scroll containers, font smoothing, etc.).
 
 ## Serverless API (`api/`)
-- `api/chat.js`
-  - Validates POST requests, enforces optional token limits, summarizes attachments with map/reduce helpers (`lib/tokenize.js`), and calls the OpenAI Responses or Chat Completions API depending on the configured model.
-- `api/transcribe.js`
-  - Accepts base64 audio, enforces MIME whitelist, converts to a `File`, transcribes with `OPENAI_STT_MODEL` or falls back to Whisper, and returns `{ text, transcript }`.
-- `api/files/text.js`
-  - Normalizes attachment payloads by decoding base64 uploads, extracting text from PDF/DOCX/JSON/plain inputs, trimming to ~20k characters, and reporting truncation state.
-- `api/voice/sdp.js`
-  - Exchanges browser SDP offers with OpenAI Realtime, forwarding environment-selected model/voice and returning the SDP answer payload.
-- `api/charter/extract.js`
-  - Legacy entry point that now forwards to the document router so existing clients continue to work without configuration changes.
 - `api/documents/extract.js`
-  - Resolves the requested doc type, loads prompts/metadata from `lib/doc/registry.js`, and returns structured JSON produced by OpenAI.
-- `api/doc/extract.js`
-  - Maintained as a shorthand import that re-exports the router handler for compatibility with older imports.
-- `api/charter/render.js`
-  - Delegates to the document router while preserving the legacy `/api/charter/render` signature.
-- `api/documents/render.js`
-  - Streams DOCX exports using the doc-type configuration (charter uses `templates/project_charter_tokens.docx.b64`, DDP loads `templates/doc-types/ddp/template.docx.b64`).
-- `api/doc/render.js`
-  - Maintains the legacy export entry point by re-exporting the router handler.
-- `api/export/pdf.js`
-  - Validates charter payloads, builds a pdfmake document definition from `templates/pdf/charter.pdfdef.mjs`, and streams the generated PDF buffer without spawning Chromium so the endpoint contract stays the same without the browser dependency.
-- `api/charter/validate.js`
-  - Backwards-compatible alias that forwards charter payloads into the shared validator.
+  - Guards against missing intent or context and returns HTTP 400/422 respectively. Only proceeds to call OpenAI when intent metadata is present.
+  - Loads prompts and metadata via [`lib/doc/registry.js`](../lib/doc/registry.js) and injects them into the structured extraction request.
 - `api/documents/validate.js`
   - Compiles the schema + field rules for the requested doc type and returns `{ ok: true }` or detailed Ajv errors.
-- `api/doc/validate.js`
-  - Maintains compatibility by re-exporting the router validator.
-- `api/charter/make-link.js`
-  - Generates short-lived, fully-qualified DOCX/PDF download URLs by signing payloads with `FILES_LINK_SECRET` and encoding an expiry timestamp alongside the charter metadata.
-- `api/charter/download.js`
-  - Verifies the signed token, enforces the expiry window, and streams the requested document. Supports DOCX/PDF/JSON responses and returns a `501` placeholder for unimplemented formats like XLSX.
-- `api/documents/download.js`
-  - Router-aware download handler that streams rendered documents for any registered doc type using manifest metadata.
-- `api/charter/health.js`
-  - Lightweight probe that reports whether `FILES_LINK_SECRET` is present so the UI can surface actionable chat guidance when export links are unavailable.
+- `api/documents/render.js`
+  - Streams DOCX exports using the doc-type configuration (charter uses `templates/project_charter_tokens.docx.b64`).
+- `api/chat.js`, `api/transcribe.js`, `api/voice/sdp.js`, `api/files/text.js`
+  - Remain unchanged but feed transcript/context into the client-side intent detection flow.
 
 ## Templates (`templates/`)
-- `extract_prompt.txt` – System prompt directing the model on how to populate charter fields.
+- `extract_prompt.txt` – Charter extraction prompt that returns `{ "result": "no_op" }` when invoked without intent metadata.
 - `field_rules.json` – Field-by-field constraints that guide downstream validation/UX messaging.
 - `charter/schema.json` – JSON schema consumed by Ajv in validation.
 - `project_charter_tokens.docx.b64` – Base64-encoded Docxtemplater template whose tokens match charter field keys.
 - `pdf/charter.pdfdef.mjs` – pdfmake document definition rendered to PDF by the serverless export handler.
 - `renderers.js` – Shared buffer generators for JSON/XLSX downloads (XLSX currently throws a `FormatNotImplementedError`).
-- `charter-validate.mjs` – CLI helper to validate charter JSON offline against the shared schema.
-- `validate-docx-template.mjs`, `sync-charter-template.mjs` – Utilities for decoding, editing, and linting the DOCX template prior to encoding.
-- `pdf/charter.html` – Legacy HTML reference used to design the PDF export layout.
-- `doc-types/ddp/` – Runtime assets (schema, field rules, prompts, encoded DOCX) that allow the document router to serve the Design & Development Plan.
-- `ddp/` – Editor-focused copies of the DDP template, schema, and the `ddp-validate.mjs` CLI so template authors can lint payloads and sync the DOCX outside the runtime folder.
-
-## Public assets (`public/`)
-- `favicon.svg`, `robots.txt`, and other static assets Vite serves without processing. Extend this folder with brand imagery or downloadable resources.
 
 ## Data flow
-### Text chat loop
-1. User enters text in the composer (`src/App.jsx` state `draftInput`).
-2. `sendMessage` pushes the user message into `messages` state and posts `{ messages }` to `POST /api/chat` when live mode is enabled.
-3. `api/chat.js` calls OpenAI and responds with `{ reply }`, which the frontend appends to the transcript.
+### Natural-language intent to charter extraction
+1. User attaches the demo TPP or another charter source document.
+2. User submits a natural-language request such as “Please create a project charter from the attached document.”
+3. `detectCharterIntent` returns `{ docType: 'charter', action: 'create', intentText }`.
+4. `src/App.jsx` calls `useBackgroundExtraction.trigger({ intent, attachments, draft })`.
+5. `useBackgroundExtraction.trigger()` posts to `/api/documents/extract` with intent metadata and the active attachments.
+6. `api/documents/extract.js` verifies intent and context, loads [`templates/extract_prompt.txt`](../templates/extract_prompt.txt), and calls OpenAI.
+7. The prompt short-circuits with `{ "result": "no_op" }` if intent is missing; otherwise it returns structured charter data.
+8. The hook merges unlocked fields into the preview. Manual edits remain untouched.
+9. Optional: `api/documents/validate.js` and `api/documents/render.js` complete the validation and export steps.
 
-### Voice capture + transcription
-1. Microphone button starts a `MediaRecorder`; audio chunks buffer in `src/App.jsx`.
-2. Recording stops → audio is converted to base64 and POSTed to `POST /api/transcribe`.
-3. `api/transcribe.js` validates, transcodes, and requests transcription from OpenAI, returning `{ text, transcript }`.
-4. Frontend inserts the transcript into chat state, then either leaves it queued for review or dispatches it immediately based on the current voice capture settings before continuing with the regular chat loop above.
-
-### Realtime voice session
-1. When realtime mode is toggled, the browser creates an `RTCPeerConnection` and generates an SDP offer.
-2. `src/App.jsx` posts the offer to `POST /api/voice/sdp`.
-3. `api/voice/sdp.js` forwards the offer to OpenAI Realtime and returns the SDP answer.
-4. Frontend applies the answer, enabling bidirectional audio streaming between the user and OpenAI; fallback to transcription occurs if errors arise.
-
-### Document extraction, validation, and rendering
-1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls the generalized `POST /api/documents/extract` (or the charter alias) with the latest transcript, upload metadata, and the current draft as a seed value.
-2. The hook normalizes the response and merges fields that are not locked by manual edits. The Summarize/"Sync now" button triggers the same extractor immediately when project managers want an on-demand refresh.
-3. `api/documents/extract.js` synthesizes structured data using the doc-type-specific prompt and returns normalized JSON when parsing succeeds (falling back to `{ result: ... }` otherwise).
-4. Before exporting, the client can POST the draft to `POST /api/documents/validate` (or `/api/charter/validate`) to ensure schema compliance.
-5. Validated data is sent to `POST /api/documents/render` (or `/api/charter/render`), which merges values into the DOCX template defined by the active document type and responds with the downloadable file.
-6. `/api/export/pdf` converts the charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
-
-### Attachment text normalization
-1. File uploads are routed through `POST /api/files/text` to extract text from PDFs, DOCX, JSON, or plain text while respecting size limits.
-2. The normalized `{ name, mimeType, text, truncated }` payload is cached in frontend state and passed to chat/extraction endpoints as needed.
-3. `lib/tokenize.js` helpers summarize or chunk attachments when constructing chat prompts so the LLM stays within token budgets.
+### Non-intent flows (no-op)
+- Uploading files without intent leaves the preview unchanged and never calls `/api/documents/extract`.
+- Speaking without a charter request produces transcripts but `detectCharterIntent` returns `null`, so extraction is skipped.
+- Idle prompt invocations (e.g., automated cron jobs) must expect `{ "result": "no_op" }` when intent or context is missing.
 
 ## Companion references
-- [API endpoints](./API.md) – Request/response schemas, environment variables, and notable behaviors for every serverless route.
-- [Document workflows](./document-workflow.md) – Detailed guidance on customizing prompts, templates, and validation assets for each supported doc type.
+- [README](../README.md) – Quick start, behavioral contract, testing guidance, and migration notes.
+- [docs/demo/README.md](./demo/README.md) – Acceptance path using the OncoLiquid ctDNA Assay (Demo) TPP.
+- [docs/document-workflow.md](./document-workflow.md) – Detailed guidance on customizing prompts, templates, and validation assets for each supported document type.

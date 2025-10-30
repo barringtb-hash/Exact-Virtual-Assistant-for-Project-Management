@@ -7,14 +7,13 @@ import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankCharter from "./utils/getBlankCharter";
 import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
-import useBackgroundExtraction, { mergeExtractedDraft } from "./hooks/useBackgroundExtraction";
+import useBackgroundExtraction, {
+  mergeExtractedDraft,
+  onFileAttached,
+} from "./hooks/useBackgroundExtraction";
 import { loadDocTypeSchema } from "./utils/loadDocTypeSchema";
 import { loadDocTypeManifest } from "./utils/loadDocTypeManifest";
-import {
-  areDocTypeSuggestionsEqual,
-  isDocTypeConfirmed,
-  normalizeDocTypeSuggestion,
-} from "./utils/docTypeRouter";
+import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
 import { useDocType } from "./state/docType.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 
@@ -458,7 +457,6 @@ export default function ExactVirtualAssistantPM() {
     return [];
   });
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
-  const pendingFilesRef = useRef([]);
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const suggestionType = suggested?.type;
   const hasSuggestedDocType =
@@ -789,13 +787,14 @@ export default function ExactVirtualAssistantPM() {
     isExtracting,
     error: extractError,
     clearError: clearExtractionError,
-    suggestedDocType: inferredDocTypeSuggestion,
+    extractAndPopulate,
   } = useBackgroundExtraction({
     docType: effectiveDocType,
     selectedDocType: supportedDocTypes.has(docType)
       ? docType
       : null,
     suggestedDocType: suggested,
+    allowedDocTypes: supportedDocTypes,
     messages,
     voice: voiceTranscripts,
     attachments,
@@ -806,18 +805,9 @@ export default function ExactVirtualAssistantPM() {
     normalize: normalizeDraft,
     isUploadingAttachments,
     onNotify: pushToast,
-    enabled: hasConfirmedDocType,
     docTypeRoutingEnabled: docRouterEnabled,
+    requireDocType: () => setShowDocTypeModal(true),
   });
-  useEffect(() => {
-    const normalized = normalizeDocTypeSuggestion(inferredDocTypeSuggestion);
-    setSuggested((prev) => {
-      if (areDocTypeSuggestionsEqual(prev, normalized)) {
-        return prev;
-      }
-      return normalized;
-    });
-  }, [inferredDocTypeSuggestion]);
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;
@@ -2262,22 +2252,49 @@ export default function ExactVirtualAssistantPM() {
     appendAssistantMessage(reply || "");
   };
 
-  const handleSyncNow = useCallback(() => {
-    const manualDocType = resolveDocTypeForManualSync();
-    if (!manualDocType) {
-      if (docRouterEnabled) {
-        setShowDocTypeModal(true);
+  const handleSyncNow = useCallback(async () => {
+    const result = await onFileAttached({
+      attachments,
+      messages,
+      voice: voiceTranscripts,
+      extractAndPopulate: async (overrides = {}) => {
+        const manualDocType =
+          overrides?.docType || resolveDocTypeForManualSync();
+        if (!manualDocType) {
+          if (docRouterEnabled) {
+            setShowDocTypeModal(true);
+          }
+          pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+          return { ok: false, reason: "docTypeRequired" };
+        }
+        return syncDocFromChat(manualDocType);
+      },
+      requireConfirmation: () => {
+        if (docRouterEnabled) {
+          setShowDocTypeModal(true);
+        }
+        pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
+      },
+    });
+
+    if (!result) {
+      const manualDocType = resolveDocTypeForManualSync();
+      if (!manualDocType) {
+        return { ok: false, reason: "docTypeRequired" };
       }
-      pushToast({ tone: "warning", message: MANUAL_SYNC_DOC_TYPE_PROMPT });
-      return Promise.resolve({ ok: false, reason: "docTypeRequired" });
+      return syncDocFromChat(manualDocType);
     }
-    return syncDocFromChat(manualDocType);
+
+    return result;
   }, [
+    attachments,
     docRouterEnabled,
+    messages,
     pushToast,
     resolveDocTypeForManualSync,
     setShowDocTypeModal,
     syncDocFromChat,
+    voiceTranscripts,
   ]);
 
   const processPickedFiles = useCallback(
@@ -2287,39 +2304,58 @@ export default function ExactVirtualAssistantPM() {
       try {
         const pickedFiles = Array.from(list);
         const baseTimestamp = Date.now();
-      const newFiles = pickedFiles.map((f, index) => ({
-        id: `${baseTimestamp}-${index}`,
-        name: f.name,
-        size: prettyBytes(f.size),
-        file: f,
-      }));
+        const newFiles = pickedFiles.map((f, index) => ({
+          id: `${baseTimestamp}-${index}`,
+          name: f.name,
+          size: prettyBytes(f.size),
+          file: f,
+        }));
 
-      setFiles((prev) => [...prev, ...newFiles]);
+        setFiles((prev) => [...prev, ...newFiles]);
 
-      const processedAttachments = [];
+        const processedAttachments = [];
 
-      for (const file of pickedFiles) {
-        try {
-          const base64 = await fileToBase64(file);
-          const response = await fetch("/api/files/text", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: file.name,
-              mimeType: file.type,
-              base64,
-            }),
-          });
-
-          let payload = {};
+        for (const file of pickedFiles) {
           try {
-            payload = await response.json();
-          } catch (err) {
-            console.error("Failed to parse /api/files/text response", err);
-          }
+            const base64 = await fileToBase64(file);
+            const response = await fetch("/api/files/text", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: file.name,
+                mimeType: file.type,
+                base64,
+              }),
+            });
 
-          if (!response.ok || payload?.ok === false) {
-            const message = payload?.error || `Unable to process ${file.name}`;
+            let payload = {};
+            try {
+              payload = await response.json();
+            } catch (err) {
+              console.error("Failed to parse /api/files/text response", err);
+            }
+
+            if (!response.ok || payload?.ok === false) {
+              const message = payload?.error || `Unable to process ${file.name}`;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "assistant",
+                  text: `Attachment error (${file.name}): ${message}`,
+                },
+              ]);
+              continue;
+            }
+
+            processedAttachments.push({
+              name: payload?.name || file.name,
+              mimeType: payload?.mimeType || file.type,
+              text: payload?.text || "",
+            });
+          } catch (error) {
+            const message = error?.message || "Unknown error";
+            console.error("processPickedFiles error", error);
             setMessages((prev) => [
               ...prev,
               {
@@ -2328,58 +2364,49 @@ export default function ExactVirtualAssistantPM() {
                 text: `Attachment error (${file.name}): ${message}`,
               },
             ]);
-            continue;
           }
-
-          processedAttachments.push({
-            name: payload?.name || file.name,
-            mimeType: payload?.mimeType || file.type,
-            text: payload?.text || "",
-          });
-        } catch (error) {
-          const message = error?.message || "Unknown error";
-          console.error("processPickedFiles error", error);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now() + Math.random(),
-              role: "assistant",
-              text: `Attachment error (${file.name}): ${message}`,
-            },
-          ]);
         }
-      }
 
-      if (processedAttachments.length) {
-        setAttachments((prev) => [...prev, ...processedAttachments]);
-        setExtractionSeed(Date.now());
+        if (processedAttachments.length) {
+          let updatedAttachments = [];
+          setAttachments((prev) => {
+            updatedAttachments = [...prev, ...processedAttachments];
+            return updatedAttachments;
+          });
+          setExtractionSeed(Date.now());
+
+          try {
+            await onFileAttached({
+              attachments: updatedAttachments,
+              messages,
+              voice: voiceTranscripts,
+              extractAndPopulate: (overrides = {}) =>
+                extractAndPopulate({
+                  attachments: updatedAttachments,
+                  messages,
+                  voice: voiceTranscripts,
+                  ...overrides,
+                }),
+              requireConfirmation: () => setShowDocTypeModal(true),
+            });
+          } catch (error) {
+            console.error("onFileAttached failed", error);
+          }
+        }
+      } finally {
+        setIsUploadingAttachments(false);
       }
-    } finally {
-      setIsUploadingAttachments(false);
-    }
     },
     [
-      clearExtractionError,
-      createBlankDraft,
-      setCharterSyncError,
-      applyCharterDraft,
+      extractAndPopulate,
+      messages,
+      setAttachments,
+      setFiles,
+      setIsUploadingAttachments,
+      setMessages,
+      setShowDocTypeModal,
+      voiceTranscripts,
     ]
-  );
-  const queuePickedFiles = useCallback(
-    async (list) => {
-      if (!list || !list.length) {
-        return;
-      }
-
-      if (docRouterEnabled && !hasConfirmedDocType) {
-        pendingFilesRef.current = Array.from(list);
-        setShowDocTypeModal(true);
-        return;
-      }
-
-      await processPickedFiles(list);
-    },
-    [docRouterEnabled, hasConfirmedDocType, processPickedFiles]
   );
   const handleDocTypeConfirm = useCallback(
     async (nextValue) => {
@@ -2391,22 +2418,30 @@ export default function ExactVirtualAssistantPM() {
         normalizeDocTypeSuggestion({ type: normalized, confidence: 1 })
       );
       setShowDocTypeModal(false);
-      const pending = pendingFilesRef.current;
-      pendingFilesRef.current = [];
-      if (pending.length) {
-        await processPickedFiles(pending);
+      try {
+        await extractAndPopulate({
+          docType: normalized,
+          attachments,
+          messages,
+          voice: voiceTranscripts,
+        });
+      } catch (error) {
+        console.error("extractAndPopulate after confirm failed", error);
       }
     },
     [
+      attachments,
       defaultDocType,
-      processPickedFiles,
+      extractAndPopulate,
+      messages,
       setDocType,
+      setShowDocTypeModal,
       setSuggested,
       supportedDocTypes,
+      voiceTranscripts,
     ]
   );
   const handleDocTypeCancel = useCallback(() => {
-    pendingFilesRef.current = [];
     setShowDocTypeModal(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -2417,7 +2452,7 @@ export default function ExactVirtualAssistantPM() {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];
     if (e.target) e.target.value = "";
     if (fileList.length) {
-      await queuePickedFiles(fileList);
+      await processPickedFiles(fileList);
     }
   };
 
@@ -2477,7 +2512,7 @@ export default function ExactVirtualAssistantPM() {
       ? Array.from(event.dataTransfer.files)
       : [];
     if (droppedFiles.length) {
-      await queuePickedFiles(droppedFiles);
+      await processPickedFiles(droppedFiles);
     }
   };
 

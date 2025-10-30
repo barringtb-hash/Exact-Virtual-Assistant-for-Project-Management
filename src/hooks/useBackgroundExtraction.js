@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import suggestDocType, {
+import {
   areDocTypeSuggestionsEqual,
+  isDocTypeConfirmed,
   normalizeDocTypeSuggestion,
+  routerDetect,
 } from "../utils/docTypeRouter.js";
+import {
+  getDocTypeSnapshot,
+  setDocType,
+  setSuggested,
+} from "../state/docType.js";
 
 const DEFAULT_DEBOUNCE_MS = 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
+const AUTO_ROUTER_THRESHOLD = 0.7;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -162,10 +170,133 @@ function sanitizeSuggestion(candidate) {
   return normalizeDocTypeSuggestion(candidate);
 }
 
+export async function onFileAttached({
+  attachments = [],
+  messages = [],
+  voice = [],
+  extractAndPopulate,
+  autoThreshold = AUTO_ROUTER_THRESHOLD,
+  requireConfirmation,
+  router = routerDetect,
+  store,
+} = {}) {
+  const {
+    getSnapshot = getDocTypeSnapshot,
+    setDocType: applyDocType = setDocType,
+    setSuggested: applySuggested = setSuggested,
+  } = store || {};
+
+  const snapshot = typeof getSnapshot === "function" ? getSnapshot() : getDocTypeSnapshot();
+  const {
+    docRouterEnabled,
+    supportedDocTypes = new Set(),
+    selectedDocType,
+    suggestedDocType,
+    effectiveDocType,
+  } = snapshot;
+
+  const allowedTypes =
+    supportedDocTypes instanceof Set
+      ? supportedDocTypes
+      : new Set(Array.isArray(supportedDocTypes) ? supportedDocTypes : []);
+
+  const hasConfirmedDocType = !docRouterEnabled
+    ? true
+    : isDocTypeConfirmed({
+        selectedDocType,
+        suggestion: suggestedDocType,
+        threshold: autoThreshold,
+        allowedTypes,
+      });
+
+  if (!docRouterEnabled || hasConfirmedDocType) {
+    if (typeof extractAndPopulate === "function") {
+      return extractAndPopulate({
+        docType: docRouterEnabled
+          ? effectiveDocType
+          : selectedDocType ?? effectiveDocType,
+        attachments,
+        messages,
+        voice,
+      });
+    }
+    return { ok: false, reason: "idle" };
+  }
+
+  const sanitizedMessages = sanitizeMessages(messages);
+  const sanitizedAttachments = sanitizeAttachments(attachments);
+  const sanitizedVoice = sanitizeVoiceEvents(voice);
+
+  if (
+    sanitizedAttachments.length === 0 &&
+    sanitizedMessages.length === 0 &&
+    sanitizedVoice.length === 0
+  ) {
+    if (typeof requireConfirmation === "function") {
+      requireConfirmation();
+    }
+    return { ok: false, reason: "insufficient-context" };
+  }
+
+  let routedSuggestion = null;
+  try {
+    const detected = await router({
+      messages: sanitizedMessages,
+      attachments: sanitizedAttachments,
+      voice: sanitizedVoice,
+    });
+    routedSuggestion = sanitizeSuggestion(detected);
+  } catch (error) {
+    console.error("Doc type router detection failed", error);
+  }
+
+  if (!routedSuggestion || !allowedTypes.has(routedSuggestion.type)) {
+    if (typeof applySuggested === "function") {
+      applySuggested(null);
+    }
+    if (typeof requireConfirmation === "function") {
+      requireConfirmation();
+    }
+    return { ok: false, reason: "no-match" };
+  }
+
+  if (typeof applySuggested === "function") {
+    applySuggested((previous) => {
+      if (areDocTypeSuggestionsEqual(previous, routedSuggestion)) {
+        return previous;
+      }
+      return routedSuggestion;
+    });
+  }
+
+  if (routedSuggestion.confidence >= autoThreshold) {
+    const appliedDocType =
+      (typeof applyDocType === "function"
+        ? applyDocType(routedSuggestion.type)
+        : setDocType(routedSuggestion.type)) || routedSuggestion.type;
+    if (typeof extractAndPopulate === "function") {
+      return extractAndPopulate({
+        docType: appliedDocType,
+        attachments,
+        messages,
+        voice,
+      });
+    }
+    return { ok: true, docType: appliedDocType, suggestion: routedSuggestion };
+  }
+
+  if (typeof requireConfirmation === "function") {
+    requireConfirmation(routedSuggestion);
+  }
+
+  return { ok: false, reason: "needs-confirmation", suggestion: routedSuggestion };
+}
+
 export default function useBackgroundExtraction({
   docType = "charter",
   selectedDocType,
   suggestedDocType,
+  allowedDocTypes,
   messages = [],
   voice = [],
   attachments = [],
@@ -177,12 +308,13 @@ export default function useBackgroundExtraction({
   debounceMs = DEFAULT_DEBOUNCE_MS,
   isUploadingAttachments = false,
   onNotify,
-  enabled = true,
   docTypeRoutingEnabled = false,
+  requireDocType,
 } = {}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState(null);
   const [docTypeSuggestion, setDocTypeSuggestion] = useState(() => sanitizeSuggestion(suggestedDocType));
+  const [autoExtractAllowed, setAutoExtractAllowed] = useState(true);
 
   const latestStateRef = useRef({
     docType,
@@ -204,6 +336,15 @@ export default function useBackgroundExtraction({
   const isUploadingRef = useRef(Boolean(isUploadingAttachments));
   const routerEnabledRef = useRef(Boolean(docTypeRoutingEnabled));
   const suggestionRef = useRef(docTypeSuggestion);
+  const autoExtractAllowedRef = useRef(true);
+  const allowedDocTypesRef = useRef(
+    allowedDocTypes instanceof Set
+      ? allowedDocTypes
+      : new Set(Array.isArray(allowedDocTypes) ? allowedDocTypes : [])
+  );
+  const requireDocTypeRef = useRef(
+    typeof requireDocType === "function" ? requireDocType : null
+  );
 
   useEffect(() => {
     return () => {
@@ -264,6 +405,22 @@ export default function useBackgroundExtraction({
   }, [docTypeSuggestion]);
 
   useEffect(() => {
+    allowedDocTypesRef.current =
+      allowedDocTypes instanceof Set
+        ? allowedDocTypes
+        : new Set(Array.isArray(allowedDocTypes) ? allowedDocTypes : []);
+  }, [allowedDocTypes]);
+
+  useEffect(() => {
+    requireDocTypeRef.current =
+      typeof requireDocType === "function" ? requireDocType : null;
+  }, [requireDocType]);
+
+  useEffect(() => {
+    autoExtractAllowedRef.current = Boolean(autoExtractAllowed);
+  }, [autoExtractAllowed]);
+
+  useEffect(() => {
     const normalized = sanitizeSuggestion(suggestedDocType);
     setDocTypeSuggestion((prev) => {
       if (areDocTypeSuggestionsEqual(prev, normalized)) {
@@ -272,6 +429,22 @@ export default function useBackgroundExtraction({
       return normalized;
     });
   }, [suggestedDocType]);
+
+  useEffect(() => {
+    if (!routerEnabledRef.current) {
+      setAutoExtractAllowed(true);
+      return;
+    }
+
+    const allowedTypes = allowedDocTypesRef.current;
+    const canExtract = isDocTypeConfirmed({
+      selectedDocType,
+      suggestion: suggestionRef.current,
+      threshold: AUTO_ROUTER_THRESHOLD,
+      allowedTypes,
+    });
+    setAutoExtractAllowed(canExtract);
+  }, [selectedDocType, docTypeSuggestion]);
 
   useEffect(() => {
     if (!selectedDocType) {
@@ -296,25 +469,59 @@ export default function useBackgroundExtraction({
       return undefined;
     }
 
-    const runRouting = () => {
+    let canceled = false;
+
+    const runRouting = async () => {
       const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
       const sanitizedMessages = sanitizeMessages(latestMessages);
       const sanitizedAttachments = sanitizeAttachments(latestAttachments);
       const sanitizedVoice = sanitizeVoiceEvents(latestVoice);
-      const routed = sanitizeSuggestion(
-        suggestDocType({ messages: sanitizedMessages, attachments: sanitizedAttachments, voice: sanitizedVoice })
-      );
-      setDocTypeSuggestion((prev) => {
-        if (areDocTypeSuggestionsEqual(prev, routed)) {
-          return prev;
+
+      try {
+        const detected = await routerDetect({
+          messages: sanitizedMessages,
+          attachments: sanitizedAttachments,
+          voice: sanitizedVoice,
+        });
+        const routed = sanitizeSuggestion(detected);
+        if (canceled) {
+          return;
         }
-        return routed;
-      });
+
+        setDocTypeSuggestion((prev) => {
+          if (areDocTypeSuggestionsEqual(prev, routed)) {
+            return prev;
+          }
+          if (
+            routed &&
+            routed.confidence < AUTO_ROUTER_THRESHOLD &&
+            typeof requireDocTypeRef.current === "function"
+          ) {
+            try {
+              requireDocTypeRef.current(routed);
+            } catch (error) {
+              console.error("Doc type modal trigger failed", error);
+            }
+          }
+          return routed;
+        });
+
+        setSuggested((previous) => {
+          if (areDocTypeSuggestionsEqual(previous, routed)) {
+            return previous;
+          }
+          return routed;
+        });
+      } catch (error) {
+        console.error("Doc type routing failed", error);
+      }
     };
 
     runRouting();
 
-    return undefined;
+    return () => {
+      canceled = true;
+    };
   }, [docTypeRoutingEnabled, selectedDocType, messages, attachments, voice, seed]);
 
   const clearPendingTimer = useCallback(() => {
@@ -329,13 +536,19 @@ export default function useBackgroundExtraction({
     setError(null);
   }, []);
 
-  const performExtraction = useCallback(async () => {
+  const extractAndPopulate = useCallback(async (overrides = {}) => {
     if (isUploadingRef.current) {
       return { ok: false, reason: "attachments-uploading" };
     }
 
-    const { docType: latestDocType, messages: latestMessages, voice: latestVoice, attachments: latestAttachments, seed: latestSeed } =
-      latestStateRef.current;
+    const state = { ...latestStateRef.current, ...overrides };
+    const {
+      docType: latestDocType,
+      messages: latestMessages,
+      voice: latestVoice,
+      attachments: latestAttachments,
+      seed: latestSeed,
+    } = state;
 
     const formattedAttachments = sanitizeAttachments(latestAttachments);
     const formattedVoice = sanitizeVoiceEvents(latestVoice);
@@ -521,29 +734,29 @@ export default function useBackgroundExtraction({
 
   const scheduleExtraction = useCallback(() => {
     clearPendingTimer();
-    if (!enabled || isUploadingRef.current) {
+    if (!autoExtractAllowedRef.current || isUploadingRef.current) {
       return;
     }
     timerRef.current = setTimeout(() => {
-      if (!isUploadingRef.current) {
-        performExtraction();
+      if (!isUploadingRef.current && autoExtractAllowedRef.current) {
+        extractAndPopulate();
       }
     }, Math.max(0, debounceMs || DEFAULT_DEBOUNCE_MS));
-  }, [clearPendingTimer, debounceMs, enabled, performExtraction]);
+  }, [clearPendingTimer, debounceMs, extractAndPopulate]);
 
   const syncNow = useCallback(
     (force = false) => {
       clearPendingTimer();
-      if (!enabled && !force) {
-        return Promise.resolve({ ok: false, reason: "disabled" });
+      if (!autoExtractAllowedRef.current && !force) {
+        return Promise.resolve({ ok: false, reason: "docType-unconfirmed" });
       }
-      return performExtraction();
+      return extractAndPopulate();
     },
-    [clearPendingTimer, enabled, performExtraction]
+    [clearPendingTimer, extractAndPopulate]
   );
 
   useEffect(() => {
-    if (enabled) {
+    if (autoExtractAllowed) {
       return undefined;
     }
 
@@ -552,10 +765,10 @@ export default function useBackgroundExtraction({
       setIsExtracting(false);
     }
     return undefined;
-  }, [enabled, clearPendingTimer]);
+  }, [autoExtractAllowed, clearPendingTimer]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!autoExtractAllowed) {
       return undefined;
     }
 
@@ -590,8 +803,15 @@ export default function useBackgroundExtraction({
     isUploadingAttachments,
     scheduleExtraction,
     clearPendingTimer,
-    enabled,
+    autoExtractAllowed,
   ]);
 
-  return { isExtracting, error, syncNow, clearError, suggestedDocType: docTypeSuggestion };
+  return {
+    isExtracting,
+    error,
+    syncNow,
+    clearError,
+    suggestedDocType: docTypeSuggestion,
+    extractAndPopulate,
+  };
 }

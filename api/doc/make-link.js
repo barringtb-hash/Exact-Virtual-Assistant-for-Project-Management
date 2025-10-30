@@ -10,6 +10,7 @@ import {
   validateDocument,
 } from "../../lib/doc/validation.js";
 import { getFormatHandlersForDocType } from "./download.js";
+import { normalizeDocumentDetection } from "../../lib/doc/audit.js";
 
 export const config = {
   api: {
@@ -49,6 +50,9 @@ export async function handleDocMakeLink(req, res, options = {}) {
     await ensureValidationAssets(docType, config);
 
     const payload = extractDocumentPayload(body);
+    const normalizedDetection = normalizeDocumentDetection(
+      body?.docTypeDetection ?? body?.detectedDocType ?? null
+    );
     const { isValid, errors, normalized } = await validateDocument(
       docType,
       config,
@@ -86,6 +90,10 @@ export async function handleDocMakeLink(req, res, options = {}) {
 
     if (typeof config.type === "string" && config.type) {
       tokenPayload[config.type] = normalized;
+    }
+
+    if (normalizedDetection) {
+      tokenPayload.docTypeDetection = normalizedDetection;
     }
 
     const token = encodeBase64Url(JSON.stringify(tokenPayload));
@@ -220,7 +228,7 @@ function resolveDownloadPath(url, overridePath) {
     }
   }
 
-  return "/api/doc/download";
+  return "/api/documents/download";
 }
 
 function sanitizePath(pathname) {

@@ -5,11 +5,12 @@ import { promises as fs } from "fs";
 
 import Docxtemplater from "docxtemplater";
 
-import extractHandler from "../api/doc/extract.js";
-import validateHandler from "../api/doc/validate.js";
-import renderHandler, { __clearDocTemplateCache } from "../api/doc/render.js";
+import extractHandler from "../api/documents/extract.js";
+import validateHandler from "../api/documents/validate.js";
+import renderHandler, { __clearDocTemplateCache } from "../api/documents/render.js";
 import { __clearValidationCaches } from "../lib/doc/validation.js";
 import { MINIMAL_VALID_DDP, MINIMAL_INVALID_DDP } from "./fixtures/doc/ddp.js";
+import { computeDocumentHash } from "../lib/doc/audit.js";
 
 const projectRoot = process.cwd();
 const templatesDir = path.join(projectRoot, "templates");
@@ -63,9 +64,20 @@ async function withStubbedReadFile(override, run) {
   }
 }
 
-test("/api/doc/extract falls back to charter prompt and loads metadata", async () => {
+test("/api/documents/extract falls back to charter prompt, loads metadata, and records audit", async () => {
   const promptCalls = [];
   const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+  const infoLogs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => {
+    infoLogs.push(args);
+  };
+
   await withStubbedReadFile(async (filePath, encoding) => {
     if (encoding !== "utf8") {
       return originalReadFile(filePath, encoding);
@@ -93,11 +105,19 @@ test("/api/doc/extract falls back to charter prompt and loads metadata", async (
       {
         method: "POST",
         query: { docType: "charter" },
-        body: { docType: "charter", attachments: [], messages: [] },
+        body: {
+          docType: "charter",
+          attachments: [],
+          messages: [],
+          docTypeDetection: { type: "charter", confidence: 0.92 },
+        },
       },
       res
     );
   });
+
+  console.info = originalInfo;
+  globalThis.__analyticsHook__ = originalHook;
 
   assert.equal(res.statusCode, 200);
   const expectedPromptPaths = [
@@ -109,9 +129,17 @@ test("/api/doc/extract falls back to charter prompt and loads metadata", async (
     promptCalls.filter((entry) => entry.includes("extract_prompt")),
     expectedPromptPaths
   );
+
+  const expectedHash = computeDocumentHash(res.body);
+  assert(infoLogs.some((entry) => entry[0] === "[documents:audit]"));
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
+  assert(auditEvent, "expected documents.extract audit event");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.detectedType, "charter");
+  assert.equal(auditEvent.payload.finalType, "charter");
 });
 
-test("/api/doc/extract loads ddp assets first", async () => {
+test("/api/documents/extract loads ddp assets first", async () => {
   const readCalls = [];
   const res = createMockResponse();
   await withStubbedReadFile(async (filePath, encoding) => {
@@ -135,7 +163,7 @@ test("/api/doc/extract loads ddp assets first", async () => {
   assert(readCalls.some((entry) => entry === metadataPath));
 });
 
-test("/api/doc/extract rejects unsupported doc types", async () => {
+test("/api/documents/extract rejects unsupported doc types", async () => {
   const res = createMockResponse();
   await extractHandler(
     {
@@ -150,7 +178,7 @@ test("/api/doc/extract rejects unsupported doc types", async () => {
   assert.match(res.body?.error || "", /Extraction is not available/);
 });
 
-test("/api/doc/validate returns normalized payload for ddp", async () => {
+test("/api/documents/validate returns normalized payload for ddp", async () => {
   const readCalls = [];
   const res = createMockResponse();
   await withStubbedReadFile(async (filePath, encoding) => {
@@ -174,7 +202,7 @@ test("/api/doc/validate returns normalized payload for ddp", async () => {
   assert(readCalls.some((entry) => entry === schemaPath));
 });
 
-test("/api/doc/validate propagates Ajv errors", async () => {
+test("/api/documents/validate propagates Ajv errors", async () => {
   const res = createMockResponse();
   await validateHandler(
     {
@@ -191,7 +219,7 @@ test("/api/doc/validate propagates Ajv errors", async () => {
   assert.equal(res.body?.normalized?.project_name, MINIMAL_INVALID_DDP.project_name);
 });
 
-test("/api/doc/validate rejects unsupported types", async () => {
+test("/api/documents/validate rejects unsupported types", async () => {
   const res = createMockResponse();
   await validateHandler(
     {
@@ -206,10 +234,21 @@ test("/api/doc/validate rejects unsupported types", async () => {
   assert.match(res.body?.error || "", /Validation is not available/);
 });
 
-test("/api/doc/render returns docx buffer for ddp", async () => {
+test("/api/documents/render returns docx buffer for ddp and records audit", async () => {
   Docxtemplater.__setDocumentXmlFactory?.(() => "<w:document></w:document>");
   const readCalls = [];
   const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+  const infoLogs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => {
+    infoLogs.push(args);
+  };
+
   await withStubbedReadFile(async (filePath, encoding) => {
     readCalls.push(filePath);
     return originalReadFile(filePath, encoding);
@@ -218,11 +257,18 @@ test("/api/doc/render returns docx buffer for ddp", async () => {
       {
         method: "POST",
         query: { docType: "ddp" },
-        body: { document: MINIMAL_VALID_DDP },
+        body: {
+          docType: "ddp",
+          document: MINIMAL_VALID_DDP,
+          docTypeDetection: { type: "ddp", confidence: 0.87 },
+        },
       },
       res
     );
   });
+
+  console.info = originalInfo;
+  globalThis.__analyticsHook__ = originalHook;
 
   assert.equal(res.statusCode, 200);
   assert(Buffer.isBuffer(res.body));
@@ -230,11 +276,16 @@ test("/api/doc/render returns docx buffer for ddp", async () => {
   assert(readCalls.some((entry) => entry === docxPath));
   const disposition = res.headers["content-disposition"];
   assert.match(disposition, /design_development_plan\.docx/);
-  const parsed = JSON.parse(res.body.toString("utf8"));
-  assert.equal(parsed.project_name, MINIMAL_VALID_DDP.project_name);
+  const expectedHash = computeDocumentHash(res.body);
+  assert(infoLogs.some((entry) => entry[0] === "[documents:audit]"));
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.render");
+  assert(auditEvent, "expected documents.render audit event");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.detectedType, "ddp");
+  assert.equal(auditEvent.payload.finalType, "ddp");
 });
 
-test("/api/doc/render surfaces validation failures", async () => {
+test("/api/documents/render surfaces validation failures", async () => {
   const res = createMockResponse();
   await renderHandler(
     {
@@ -249,7 +300,7 @@ test("/api/doc/render surfaces validation failures", async () => {
   assert.match(res.body?.error?.code || "", /invalid_ddp_payload/);
 });
 
-test("/api/doc/render rejects unsupported doc types", async () => {
+test("/api/documents/render rejects unsupported doc types", async () => {
   const res = createMockResponse();
   await renderHandler(
     {
@@ -264,7 +315,7 @@ test("/api/doc/render rejects unsupported doc types", async () => {
   assert.match(res.body?.error || "", /Rendering is not available/);
 });
 
-test("/api/doc/render reports missing templates", async () => {
+test("/api/documents/render reports missing templates", async () => {
   __clearDocTemplateCache();
   const templatePath = path.join(templatesDir, "doc-types", "ddp", "template.docx.b64");
   const res = createMockResponse();
@@ -290,7 +341,7 @@ test("/api/doc/render reports missing templates", async () => {
   assert.equal(res.body?.assetType, "docx template");
 });
 
-test("/api/doc/validate surfaces missing schema", async () => {
+test("/api/documents/validate surfaces missing schema", async () => {
   __clearValidationCaches();
   const schemaPath = path.join(templatesDir, "doc-types", "ddp", "schema.json");
   const res = createMockResponse();

@@ -589,6 +589,17 @@ export default function useBackgroundExtraction({
       attachments: formattedAttachments,
     };
 
+    const suggestion = suggestionRef.current;
+    if (suggestion && typeof suggestion?.type === "string") {
+      payload.docTypeDetection = {
+        type: suggestion.type,
+        confidence:
+          typeof suggestion.confidence === "number"
+            ? suggestion.confidence
+            : undefined,
+      };
+    }
+
     if (!payload.seed) {
       delete payload.seed;
     }
@@ -603,7 +614,7 @@ export default function useBackgroundExtraction({
     };
 
     const fetchWithFallback = async () => {
-      const docEndpoint = `/api/doc/extract?docType=${encodeURIComponent(normalizedDocType)}`;
+      const docEndpoint = `/api/documents/extract?docType=${encodeURIComponent(normalizedDocType)}`;
 
       try {
         const response = await fetch(docEndpoint, requestOptions);

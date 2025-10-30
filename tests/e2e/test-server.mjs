@@ -113,7 +113,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/doc/extract") {
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/extract" || url.pathname === "/api/doc/extract")
+    ) {
       const body = await readJsonBody(req);
       const nextReq = {
         method: req.method,
@@ -130,7 +133,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/doc/validate") {
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/validate" || url.pathname === "/api/doc/validate")
+    ) {
       const body = await readJsonBody(req);
       const nextReq = {
         method: req.method,
@@ -147,7 +153,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/doc/render") {
+    if (
+      req.method === "POST" &&
+      (url.pathname === "/api/documents/render" || url.pathname === "/api/doc/render")
+    ) {
       const body = await readJsonBody(req);
       const nextReq = {
         method: req.method,

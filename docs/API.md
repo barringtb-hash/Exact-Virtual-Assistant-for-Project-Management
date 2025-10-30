@@ -94,7 +94,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Voice defaults to `OPENAI_REALTIME_VOICE` or `alloy`.
   - Adds `OpenAI-Beta: realtime=v1` automatically when the model name contains `preview`.
 
-## Document extraction – `POST /api/doc/extract`
+## Document extraction – `POST /api/documents/extract`
 - **Body**
   ```json
   {
@@ -127,7 +127,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - `voice` is optional and should include the consolidated transcript of the latest recording.
   - **Legacy alias:** `POST /api/charter/extract` proxies to this handler with `docType=charter`.
 
-## Document validation – `POST /api/doc/validate`
+## Document validation – `POST /api/documents/validate`
 - **Body** – JSON object that matches the schema for the requested document type (pass `docType` as a query string or property in the body).
 - **Response**
   ```json
@@ -146,7 +146,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Suitable for frontend validation and offline CLI workflows alike.
   - **Legacy alias:** `POST /api/charter/validate` forwards to this route with `docType=charter`.
 
-## Document rendering – `POST /api/doc/render`
+## Document rendering – `POST /api/documents/render`
 - **Body** – Validated JSON payload for the requested doc type.
 - **Response** – Binary DOCX buffer streamed with a filename defined by the doc-type configuration (for example, `project_charter.docx`, `design_development_plan.docx`).
 - **Notes**
@@ -215,6 +215,6 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 - **Size guardrails** – File uploads larger than 10 MB are rejected; after parsing, text is trimmed to roughly 20k characters. Downstream charter extraction expects callers to honor those limits (surface truncation warnings to users if `truncated: true`).
 - **Suggested client flow**
   1. Upload each supporting document to `POST /api/files/text` to normalize MIME types and capture the extracted, trimmed text payload.
-  2. Pass the resulting `{ name, mimeType, text }` objects as the `attachments` array when calling `POST /api/doc/extract` (or the charter alias) alongside any chat transcript messages.
-  3. Feed the structured JSON into `/api/doc/validate` and `/api/doc/render` (or the `/api/charter/*` aliases) as needed.
+  2. Pass the resulting `{ name, mimeType, text }` objects as the `attachments` array when calling `POST /api/documents/extract` (or the charter alias) alongside any chat transcript messages.
+  3. Feed the structured JSON into `/api/documents/validate` and `/api/documents/render` (or the `/api/charter/*` aliases) as needed.
   4. Persist attachments/charters on the client or in external storage—these endpoints do not store state between requests.

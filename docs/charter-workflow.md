@@ -1,6 +1,6 @@
 # Document workflows
 
-The document router shares a single extract → validate → render pipeline across every supported doc type. Charter flows continue to work through the legacy `/api/charter/*` aliases, while the generalized `/api/doc/*` endpoints read doc-specific configuration from [`lib/doc/registry.js`](../lib/doc/registry.js). Use this guide when editing prompts, schemas, or DOCX assets so the router and its offline tooling stay in sync.
+The document router shares a single extract → validate → render pipeline across every supported doc type. Charter flows continue to work through the legacy `/api/charter/*` aliases, while the generalized `/api/documents/*` endpoints read doc-specific configuration from [`lib/doc/registry.js`](../lib/doc/registry.js). Use this guide when editing prompts, schemas, or DOCX assets so the router and its offline tooling stay in sync.
 
 ## Charter workflow (Project Charter template)
 
@@ -36,17 +36,17 @@ The document router shares a single extract → validate → render pipeline acr
 
 ### Extract
 - Runtime asset: [`templates/extract_prompt.txt`](../templates/extract_prompt.txt)
-- Optional overrides: place prompt variants inside `templates/doc-types/charter/` and add metadata files as needed so `/api/doc/extract` can load the latest instructions.
+- Optional overrides: place prompt variants inside `templates/doc-types/charter/` and add metadata files as needed so `/api/documents/extract` can load the latest instructions.
 
 ### Validate
 - Runtime schema: [`templates/charter.schema.json`](../templates/charter.schema.json)
 - Field guidance: [`templates/field_rules.json`](../templates/field_rules.json)
 - CLI: `node templates/charter-validate.mjs ./path/to/charter.json`
-- Validation API: `POST /api/doc/validate?docType=charter` (aliases: `/api/charter/validate`)
+- Validation API: `POST /api/documents/validate?docType=charter` (aliases: `/api/charter/validate`)
 
 ### Render
 - Runtime template: [`templates/project_charter_tokens.docx.b64`](../templates/project_charter_tokens.docx.b64)
-- Rendering API: `POST /api/doc/render?docType=charter` (alias: `/api/charter/render`)
+- Rendering API: `POST /api/documents/render?docType=charter` (alias: `/api/charter/render`)
 - Smoke test: `npm run docx:smoke`
 
 ### Post-edit checklist
@@ -76,17 +76,17 @@ The DDP flow follows the same extract → validate → render pattern. Runtime a
 ### Extract
 - Prompts: [`templates/doc-types/ddp/extract_prompt.txt`](../templates/doc-types/ddp/extract_prompt.txt) (fallbacks can be added beside the charter prompts if needed)
 - Metadata: optional helpers in [`templates/doc-types/ddp/metadata.json`](../templates/doc-types/ddp/metadata.json) inform the extractor about document nuances.
-- API: `POST /api/doc/extract?docType=ddp`
+- API: `POST /api/documents/extract?docType=ddp`
 
 ### Validate
 - Schema: [`templates/doc-types/ddp/schema.json`](../templates/doc-types/ddp/schema.json)
 - Field rules: [`templates/doc-types/ddp/field_rules.json`](../templates/doc-types/ddp/field_rules.json)
 - CLI: `node templates/ddp/ddp-validate.mjs ./path/to/ddp.json`
-- API: `POST /api/doc/validate?docType=ddp`
+- API: `POST /api/documents/validate?docType=ddp`
 
 ### Render
 - Template: [`templates/doc-types/ddp/template.docx.b64`](../templates/doc-types/ddp/template.docx.b64) (decode/edit via the copies in [`templates/ddp/`](../templates/ddp/))
-- API: `POST /api/doc/render?docType=ddp`
+- API: `POST /api/documents/render?docType=ddp`
 - Output filename: `design_development_plan.docx`
 
 ### Maintenance tips

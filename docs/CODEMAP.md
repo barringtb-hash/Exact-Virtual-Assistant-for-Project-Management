@@ -4,7 +4,7 @@
 - `src/` – React single-page client rendered by Vite + Tailwind.
 - `api/` – Vercel-style serverless functions that power chat, speech, realtime voice, charter automation, PDF rendering, and attachment text extraction.
 - `lib/` – Shared utilities (token counting/chunking and charter normalization) consumed by both the frontend and serverless handlers.
-- `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/doc/*` handler.
+- `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/documents/*` handler.
 - `templates/` – Prompts, schema, charter templates, and renderer helpers used by the charter export pipeline.
 - `public/` – Static assets served verbatim by Vite (currently minimal placeholder content).
 
@@ -91,11 +91,11 @@
 4. Frontend applies the answer, enabling bidirectional audio streaming between the user and OpenAI; fallback to transcription occurs if errors arise.
 
 ### Document extraction, validation, and rendering
-1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls the generalized `POST /api/doc/extract` (or the charter alias) with the latest transcript, upload metadata, and the current draft as a seed value.
+1. `useBackgroundExtraction` watches chat, voice, and attachment updates; after a short debounce it calls the generalized `POST /api/documents/extract` (or the charter alias) with the latest transcript, upload metadata, and the current draft as a seed value.
 2. The hook normalizes the response and merges fields that are not locked by manual edits. The Summarize/"Sync now" button triggers the same extractor immediately when project managers want an on-demand refresh.
 3. `api/doc/extract.js` synthesizes structured data using the doc-type-specific prompt and returns normalized JSON when parsing succeeds (falling back to `{ result: ... }` otherwise).
-4. Before exporting, the client can POST the draft to `POST /api/doc/validate` (or `/api/charter/validate`) to ensure schema compliance.
-5. Validated data is sent to `POST /api/doc/render` (or `/api/charter/render`), which merges values into the DOCX template defined by the active document type and responds with the downloadable file.
+4. Before exporting, the client can POST the draft to `POST /api/documents/validate` (or `/api/charter/validate`) to ensure schema compliance.
+5. Validated data is sent to `POST /api/documents/render` (or `/api/charter/render`), which merges values into the DOCX template defined by the active document type and responds with the downloadable file.
 6. `/api/export/pdf` converts the charter payload into a styled PDF, while `/api/charter/make-link` + `/api/charter/download` sign and serve DOCX/PDF/JSON (with an XLSX placeholder) to end users.
 
 ### Attachment text normalization

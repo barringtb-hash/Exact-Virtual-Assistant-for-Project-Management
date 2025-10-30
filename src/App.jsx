@@ -416,6 +416,13 @@ export default function ExactVirtualAssistantPM() {
     effectiveDocType,
     defaultDocType,
   } = useDocType();
+  const docType = typeof selectedDocType === "string" ? selectedDocType : null;
+  const setDocType = setSelectedDocType;
+  const suggested =
+    suggestedDocType && typeof suggestedDocType === "object"
+      ? suggestedDocType
+      : null;
+  const setSuggested = setSuggestedDocType;
   const {
     docType: templateDocType,
     templateLabel: activeTemplateLabel,

@@ -1,6 +1,6 @@
 import React from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
-import { useDocTypeContext } from "../context/DocTypeContext.jsx";
+import { useDocType } from "../state/docType.js";
 
 const CUSTOM_EDITORS = {};
 
@@ -485,7 +485,7 @@ export default function PreviewEditable({
   schema,
   manifest,
 }) {
-  const { previewDocType, previewDocTypeLabel } = useDocTypeContext();
+  const { previewDocType, previewDocTypeLabel } = useDocType();
   const safeDraft =
     draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
   const isLocked = (path) => Boolean(locks && locks[path]);

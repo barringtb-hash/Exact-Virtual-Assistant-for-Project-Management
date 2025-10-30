@@ -3,9 +3,9 @@ import test from "node:test";
 
 import { listDocTypeMetadata } from "../lib/doc/typesMetadata.js";
 import {
-  mergeStoredDocContext,
-  readStoredDocContext,
-} from "../src/context/DocTypeContextCore.js";
+  mergeStoredSession,
+  readStoredSession,
+} from "../src/utils/storage.js";
 import { normalizeDocTypeSuggestion } from "../src/utils/docTypeRouter.js";
 
 function computePreviewDocType({
@@ -27,7 +27,7 @@ function computePreviewDocType({
   return null;
 }
 
-test("setSelectedDocType persists to storage via merge helper", () => {
+test("merge helper persists doc type selection", () => {
   if (typeof window === "undefined") {
     const store = new Map();
     globalThis.window = {
@@ -41,8 +41,8 @@ test("setSelectedDocType persists to storage via merge helper", () => {
   }
 
   window.localStorage.clear();
-  mergeStoredDocContext({ docType: "ddp", selectedDocType: "ddp" });
-  const stored = readStoredDocContext();
+  mergeStoredSession({ docType: "ddp", selectedDocType: "ddp" });
+  const stored = readStoredSession();
   assert.equal(stored.docType, "ddp");
   assert.equal(stored.selectedDocType, "ddp");
 });

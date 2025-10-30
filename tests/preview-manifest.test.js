@@ -6,8 +6,12 @@ import { fileURLToPath } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import PreviewEditable from "../src/components/PreviewEditable.jsx";
-import DocTypeContext from "../src/context/DocTypeContextCore.js";
+globalThis.__DOC_ROUTER_ENABLED__ = true;
+
+const { setDocType, setSuggested } = await import("../src/state/docType.js");
+const { default: PreviewEditable } = await import(
+  "../src/components/PreviewEditable.jsx"
+);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,14 +27,10 @@ const [charterManifest, ddpManifest, ddpSchema] = await Promise.all([
   loadJson("../templates/doc-types/ddp/schema.json"),
 ]);
 
-function renderWithContext(contextValue, props) {
-  return renderToStaticMarkup(
-    React.createElement(
-      DocTypeContext.Provider,
-      { value: contextValue },
-      React.createElement(PreviewEditable, props)
-    )
-  );
+function renderWithDocType(type, props) {
+  setDocType(type);
+  setSuggested(null);
+  return renderToStaticMarkup(React.createElement(PreviewEditable, props));
 }
 
 test("charter manifest renders defined sections and lock badges", () => {
@@ -46,17 +46,14 @@ test("charter manifest renders defined sections and lock badges", () => {
   const fieldStates = {
     project_name: { source: "User" },
   };
-  const html = renderWithContext(
-    { previewDocType: "charter", previewDocTypeLabel: "Charter" },
-    {
-      draft,
-      locks,
-      fieldStates,
-      onDraftChange: () => {},
-      onLockField: () => {},
-      manifest: charterManifest,
-    }
-  );
+  const html = renderWithDocType("charter", {
+    draft,
+    locks,
+    fieldStates,
+    onDraftChange: () => {},
+    onLockField: () => {},
+    manifest: charterManifest,
+  });
 
   assert.ok(html.includes("Project Charter"), "section heading should render");
   assert.ok(html.includes("Project Title"), "scalar label should render");
@@ -78,22 +75,16 @@ test("ddp manifest drives schema preview and retains metadata", () => {
   const fieldStates = {
     project_name: { source: "LLM" },
   };
-  const html = renderWithContext(
-    {
-      previewDocType: "ddp",
-      previewDocTypeLabel: "Design & Development Plan",
-    },
-    {
-      draft,
-      locks,
-      fieldStates,
-      onDraftChange: () => {},
-      onLockField: () => {},
-      isLoading: false,
-      schema: ddpSchema,
-      manifest: ddpManifest,
-    }
-  );
+  const html = renderWithDocType("ddp", {
+    draft,
+    locks,
+    fieldStates,
+    onDraftChange: () => {},
+    onLockField: () => {},
+    isLoading: false,
+    schema: ddpSchema,
+    manifest: ddpManifest,
+  });
 
 
   assert.ok(

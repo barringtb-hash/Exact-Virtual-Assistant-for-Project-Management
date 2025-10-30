@@ -24,7 +24,7 @@
 - `src/components/AssistantFeedbackTemplate.jsx`
   - Shared assistant bubble layout that renders formatted sections, nested bullet lists, and sanitized Markdown links.
 - `src/utils/`
-  - Houses charter helpers (`getBlankCharter`), assistant formatting utilities, and HTML sanitizers used by the feedback template.
+  - Houses document helpers (`getBlankDoc`), assistant formatting utilities, and HTML sanitizers used by the feedback template.
 
 ## Serverless API (`api/`)
 - `api/chat.js`

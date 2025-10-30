@@ -4,8 +4,15 @@ import {
   areDocTypeSuggestionsEqual,
   isDocTypeConfirmed,
   normalizeDocTypeSuggestion,
-  routerDetect,
 } from "../utils/docTypeRouter.js";
+import { routerDetect } from "../utils/routerDetect.js";
+import {
+  extractAndPopulate as runDocumentExtraction,
+  sanitizeAttachments,
+  sanitizeMessages,
+  sanitizeVoiceEvents,
+  PARSE_FALLBACK_MESSAGE,
+} from "../utils/extractAndPopulate.js";
 import {
   getDocTypeSnapshot,
   setDocType,
@@ -15,7 +22,6 @@ import {
 const DEFAULT_DEBOUNCE_MS = 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
-const PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
 const AUTO_ROUTER_THRESHOLD = 0.7;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,51 +114,6 @@ export function mergeExtractedDraft(currentDraft, extractedDraft, locks = {}) {
   const baseDraft = isPlainObject(currentDraft) || Array.isArray(currentDraft) ? currentDraft : {};
   const merged = mergeRecursive(baseDraft, extractedDraft, [], locks);
   return merged;
-}
-
-function sanitizeMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages
-    .map((entry) => {
-      const role = entry?.role === "assistant" ? "assistant" : "user";
-      const text = typeof entry?.text === "string" ? entry.text : typeof entry?.content === "string" ? entry.content : "";
-      const trimmed = text.trim();
-      return {
-        role,
-        content: trimmed,
-        text: trimmed,
-      };
-    })
-    .filter((entry) => entry.text);
-}
-
-function sanitizeAttachments(attachments) {
-  if (!Array.isArray(attachments)) return [];
-  return attachments
-    .map((item) => ({
-      name: typeof item?.name === "string" ? item.name : undefined,
-      mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
-      text: typeof item?.text === "string" ? item.text : "",
-    }))
-    .filter((item) => item.text);
-}
-
-function sanitizeVoiceEvents(voice) {
-  if (!Array.isArray(voice)) return [];
-  return voice
-    .map((event) => {
-      const text = typeof event?.text === "string" ? event.text.trim() : "";
-      if (!text) {
-        return null;
-      }
-      const timestamp = typeof event?.timestamp === "number" ? event.timestamp : Date.now();
-      return {
-        id: event?.id ?? `${timestamp}`,
-        text,
-        timestamp,
-      };
-    })
-    .filter(Boolean);
 }
 
 function hasUserInput(messages) {
@@ -581,131 +542,43 @@ export default function useBackgroundExtraction({
         ? latestDocType.trim()
         : "charter";
 
-    const payload = {
-      docType: normalizedDocType,
-      seed: latestSeed,
-      messages: formattedMessages,
-      voice: formattedVoice,
-      attachments: formattedAttachments,
-    };
-
-    const suggestion = suggestionRef.current;
-    if (suggestion && typeof suggestion?.type === "string") {
-      payload.docTypeDetection = {
-        type: suggestion.type,
-        confidence:
-          typeof suggestion.confidence === "number"
-            ? suggestion.confidence
-            : undefined,
-      };
-    }
-
-    if (!payload.seed) {
-      delete payload.seed;
-    }
-
-    const applyDraft = setDraftRef.current;
-
-    const requestOptions = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    };
-
-    const fetchWithFallback = async () => {
-      const docEndpoint = `/api/documents/extract?docType=${encodeURIComponent(normalizedDocType)}`;
-
-      try {
-        const response = await fetch(docEndpoint, requestOptions);
-        if (
-          response &&
-          !response.ok &&
-          normalizedDocType === "charter" &&
-          (response.status === 404 || response.status === 405)
-        ) {
-          return fetch("/api/charter/extract", requestOptions);
-        }
-        return response;
-      } catch (networkError) {
-        if (normalizedDocType !== "charter") {
-          throw networkError;
-        }
-        return fetch("/api/charter/extract", requestOptions);
-      }
-    };
-
     try {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
         try {
-          const response = await fetchWithFallback();
+          const result = await runDocumentExtraction({
+            docType: normalizedDocType,
+            messages: formattedMessages,
+            attachments: formattedAttachments,
+            voice: formattedVoice,
+            seed: latestSeed,
+            suggestion: suggestionRef.current,
+            normalize: normalizeRef.current,
+            applyDraft: setDraftRef.current,
+            signal: controller.signal,
+            parseFallbackMessage: PARSE_FALLBACK_MESSAGE,
+          });
 
-          if (!response.ok) {
-            const errorPayload = await response.json().catch(() => ({}));
-            const isUnsupported = response.status === 400;
-            const message =
-              errorPayload?.error ||
-              errorPayload?.message ||
-              (isUnsupported
-                ? `Extraction is not available for "${normalizedDocType}" documents.`
-                : `Extraction failed with status ${response.status}`);
-            const errorInstance = new Error(message);
-            errorInstance.status = response.status;
-            errorInstance.payload = errorPayload;
-            if (isUnsupported) {
-              errorInstance.code = "unsupported-doc-type";
-            }
-            if (attempt < MAX_ATTEMPTS && shouldRetryStatus(response.status)) {
-              await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
-              continue;
-            }
-            throw errorInstance;
-          }
-
-          const data = await response.json();
-          if (!data || typeof data !== "object" || Array.isArray(data)) {
-            throw new Error("Extractor returned unexpected payload");
-          }
-
-          if (Object.prototype.hasOwnProperty.call(data, "result")) {
+          if (result?.reason === "parse-fallback") {
             const notify = notifyRef.current;
             if (typeof notify === "function") {
-              notify({ tone: "warning", message: PARSE_FALLBACK_MESSAGE });
+              notify({ tone: "warning", message: result.message || PARSE_FALLBACK_MESSAGE });
             }
             if (isMountedRef.current) {
               setIsExtracting(false);
-              setError(PARSE_FALLBACK_MESSAGE);
+              setError(result.message || PARSE_FALLBACK_MESSAGE);
             }
-            return { ok: false, reason: "parse-fallback", data };
+            return { ok: false, reason: "parse-fallback", data: result.data };
           }
 
-          const normalizeFn = normalizeRef.current;
-          let normalizedDraft;
-          try {
-            normalizedDraft = normalizeFn(data);
-          } catch (normalizeError) {
-            console.error("Background extraction normalize error", normalizeError);
-            normalizedDraft = data;
-          }
-
-          let finalDraft = normalizedDraft;
-          if (typeof applyDraft === "function") {
-            try {
-              const maybeDraft = await applyDraft(normalizedDraft);
-              if (typeof maybeDraft !== "undefined") {
-                finalDraft = maybeDraft;
-              }
-            } catch (applyError) {
-              console.error("Background extraction apply error", applyError);
+          if (result?.ok) {
+            if (isMountedRef.current) {
+              setIsExtracting(false);
+              setError(null);
             }
+            return { ok: true, draft: result.draft };
           }
 
-          if (isMountedRef.current) {
-            setIsExtracting(false);
-            setError(null);
-          }
-
-          return { ok: true, draft: finalDraft };
+          throw new Error("Unexpected extraction outcome");
         } catch (errorInstance) {
           if (errorInstance?.name === "AbortError") {
             throw errorInstance;

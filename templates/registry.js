@@ -1,3 +1,5 @@
+import { createBlankCharter } from "../lib/charter/normalize.js";
+
 export function createModuleReference(moduleId, { exportName = null, fallbacks = [], defaultExport = true } = {}) {
   if (!moduleId || typeof moduleId !== "string") {
     return null;
@@ -29,6 +31,7 @@ function createDocTypeManifest({
   validation,
   enabled = true,
   notes,
+  blank,
 }) {
   return {
     id,
@@ -46,6 +49,7 @@ function createDocTypeManifest({
     validation,
     enabled,
     notes,
+    blank,
   };
 }
 
@@ -95,6 +99,7 @@ export const templateRegistry = {
       errorName: "CharterValidationError",
       errorMessage: "Charter payload failed validation.",
     },
+    blank: () => createBlankCharter(),
   }),
   ddp: createDocTypeManifest({
     id: "ddp",
@@ -140,6 +145,7 @@ export const templateRegistry = {
       errorName: "DDPValidationError",
       errorMessage: "DDP payload failed validation.",
     },
+    blank: () => ({}),
   }),
   sow: createDocTypeManifest({
     id: "sow",
@@ -163,6 +169,7 @@ export const templateRegistry = {
     validation: null,
     enabled: false,
     notes: "Placeholder manifest for future Statement of Work templates.",
+    blank: () => ({}),
   }),
 };
 

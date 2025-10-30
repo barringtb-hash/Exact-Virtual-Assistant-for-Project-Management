@@ -5,8 +5,9 @@ import AssistantFeedbackTemplate, {
 import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
-import getBlankCharter from "./utils/getBlankCharter";
-import normalizeCharter, { coerceAliasesToSchemaKeys } from "../lib/charter/normalize.js";
+import getBlankDoc from "./utils/getBlankDoc.js";
+import extractDocumentAndPopulate from "./utils/extractAndPopulate.js";
+import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, {
   mergeExtractedDraft,
   onFileAttached,
@@ -34,7 +35,7 @@ function buildDocTypeConfig(docType, metadataMap = new Map()) {
       type: null,
       label: "Document",
       normalize: GENERIC_DOC_NORMALIZER,
-      createBlank: () => ({}),
+      createBlank: () => getBlankDoc(null),
       requiredFieldsHeading: "Document required fields",
       defaultBaseName: "Project_Document_v1.0",
       previewKind: "generic",
@@ -49,7 +50,7 @@ function buildDocTypeConfig(docType, metadataMap = new Map()) {
       type: "charter",
       label,
       normalize: normalizeCharterDraft,
-      createBlank: () => normalizeCharterDraft(getBlankCharter()),
+      createBlank: () => normalizeCharterDraft(getBlankDoc("charter")),
       requiredFieldsHeading: "Charter required fields",
       defaultBaseName: "Project_Charter_v1.0",
       previewKind: "charter",
@@ -62,7 +63,7 @@ function buildDocTypeConfig(docType, metadataMap = new Map()) {
       type: "ddp",
       label,
       normalize: GENERIC_DOC_NORMALIZER,
-      createBlank: () => ({}),
+      createBlank: () => getBlankDoc("ddp"),
       requiredFieldsHeading: `${label} required fields`,
       defaultBaseName: `Project_${label.replace(/\s+/g, "_")}_v1.0`,
       previewKind: "generic",
@@ -74,7 +75,7 @@ function buildDocTypeConfig(docType, metadataMap = new Map()) {
     type: normalized,
     label: fallbackLabel,
     normalize: GENERIC_DOC_NORMALIZER,
-    createBlank: () => ({}),
+    createBlank: () => getBlankDoc(normalized),
     requiredFieldsHeading: `${fallbackLabel} required fields`,
     defaultBaseName: `Project_${fallbackLabel.replace(/\s+/g, "_")}_v1.0`,
     previewKind: "generic",
@@ -1006,144 +1007,32 @@ export default function ExactVirtualAssistantPM() {
     setIsCharterSyncing(true);
     setCharterSyncError(null);
 
-    const sanitizeMessages = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((entry) => {
-          const role = entry?.role === "assistant" ? "assistant" : "user";
-          const text =
-            typeof entry?.text === "string"
-              ? entry.text
-              : typeof entry?.content === "string"
-              ? entry.content
-              : "";
-          const trimmed = text.trim();
-          if (!trimmed) return null;
-          return { role, text: trimmed, content: trimmed };
-        })
-        .filter(Boolean);
-    };
-
-    const sanitizeAttachments = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((item) => {
-          const text = typeof item?.text === "string" ? item.text : "";
-          const trimmed = text.trim();
-          if (!trimmed) return null;
-          return {
-            name: typeof item?.name === "string" ? item.name : undefined,
-            mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
-            text: trimmed,
-          };
-        })
-        .filter(Boolean);
-    };
-
-    const sanitizeVoice = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list
-        .map((entry) => {
-          const text = typeof entry?.text === "string" ? entry.text.trim() : "";
-          if (!text) return null;
-          const timestamp = typeof entry?.timestamp === "number" ? entry.timestamp : Date.now();
-          return { id: entry?.id ?? `${timestamp}`, text, timestamp };
-        })
-        .filter(Boolean);
-    };
-
     try {
-      const payload = {
+      const result = await extractDocumentAndPopulate({
         docType: targetDocType,
-        messages: sanitizeMessages(messages),
-        attachments: sanitizeAttachments(attachments),
-        voice: sanitizeVoice(voiceTranscripts),
-      };
+        messages,
+        attachments,
+        voice: voiceTranscripts,
+        suggestion: suggested,
+        suggestionConfidence,
+        seed: getCurrentDraft(),
+        normalize: normalizeDraft,
+        applyDraft: applyNormalizedDraft,
+        parseFallbackMessage: MANUAL_PARSE_FALLBACK_MESSAGE,
+      });
 
-      if (suggested && typeof suggested?.type === "string") {
-        payload.docTypeDetection = {
-          type: suggested.type,
-          confidence:
-            typeof suggested.confidence === "number"
-              ? suggested.confidence
-              : typeof suggestionConfidence === "number"
-              ? suggestionConfidence
-              : undefined,
-        };
+      if (result?.reason === "parse-fallback") {
+        const fallbackMessage = result.message || MANUAL_PARSE_FALLBACK_MESSAGE;
+        setCharterSyncError(fallbackMessage);
+        appendAssistantMessage(`${fallbackMessage}`);
+        return { ok: false, reason: "parse-fallback", data: result.data };
       }
 
-      const seedDraft = getCurrentDraft();
-      if (seedDraft && typeof seedDraft === "object") {
-        payload.seed = seedDraft;
+      if (!result?.ok) {
+        throw new Error(`Unable to update the ${targetPreviewLabel}. Please try again.`);
       }
 
-      const requestBody = JSON.stringify(payload);
-      const requestOptions = {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: requestBody,
-      };
-
-      const docEndpoint = `/api/documents/extract?docType=${encodeURIComponent(targetDocType)}`;
-      let response;
-      try {
-        response = await fetch(docEndpoint, requestOptions);
-        if (
-          response &&
-          !response.ok &&
-          targetDocType === "charter" &&
-          (response.status === 404 || response.status === 405)
-        ) {
-          response = await fetch("/api/charter/extract", requestOptions);
-        }
-      } catch (networkError) {
-        if (targetDocType !== "charter") {
-          throw networkError;
-        }
-        response = await fetch("/api/charter/extract", requestOptions);
-      }
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        const isUnsupported = response.status === 400;
-        const message =
-          typeof errorPayload?.error === "string" && errorPayload.error.trim()
-            ? errorPayload.error.trim()
-            : typeof errorPayload?.message === "string" && errorPayload.message.trim()
-            ? errorPayload.message.trim()
-            : isUnsupported
-            ? `Extraction is not available for "${targetDocType}" documents.`
-            : `Extraction failed with status ${response.status}`;
-        throw new Error(message);
-      }
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (error) {
-        throw new Error("Failed to parse extractor response.");
-      }
-
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Extractor returned unexpected payload.");
-      }
-
-      if (Object.prototype.hasOwnProperty.call(data, "result")) {
-        throw new Error(MANUAL_PARSE_FALLBACK_MESSAGE);
-      }
-
-      const coercedData =
-        targetDocType === "charter" ? coerceAliasesToSchemaKeys(data) : data;
-
-      let normalizedDraft;
-      try {
-        normalizedDraft = normalizeDraft(coercedData);
-      } catch (normalizeError) {
-        console.error("Manual document sync normalize error", normalizeError);
-        normalizedDraft = coercedData;
-      }
-
-      const finalDraft = await applyNormalizedDraft(normalizedDraft);
+      const finalDraft = result.draft;
       clearExtractionError();
       setCharterSyncError(null);
       appendAssistantMessage(
@@ -1180,6 +1069,8 @@ export default function ExactVirtualAssistantPM() {
     messages,
     setCharterSyncError,
     voiceTranscripts,
+    suggested,
+    suggestionConfidence,
   ]);
 
   const formatValidationErrorsForChat = (errors = []) => {

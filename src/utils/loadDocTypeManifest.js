@@ -1,7 +1,6 @@
-const manifestLoaders = {
-  charter: () => import("../../templates/charter/manifest.json"),
-  ddp: () => import("../../templates/ddp/manifest.json"),
-};
+import templateRegistry from "../../templates/registry.js";
+
+const manifestCache = new Map();
 
 function normalizeManifestModule(module) {
   if (!module) {
@@ -13,22 +12,45 @@ function normalizeManifestModule(module) {
   return module;
 }
 
+function resolveTemplateSpecifier(relativePath) {
+  if (!relativePath || typeof relativePath !== "string") {
+    return null;
+  }
+  return `../../templates/${relativePath}`;
+}
+
 export async function loadDocTypeManifest(type) {
   const normalized = typeof type === "string" ? type.trim() : "";
   if (!normalized) {
     return null;
   }
-  const loader = manifestLoaders[normalized];
-  if (typeof loader !== "function") {
+
+  if (manifestCache.has(normalized)) {
+    return manifestCache.get(normalized);
+  }
+
+  const manifestEntry = templateRegistry[normalized];
+  const manifestPath = manifestEntry?.manifestPath;
+  if (!manifestPath) {
+    manifestCache.set(normalized, null);
     return null;
   }
-  try {
-    const module = await loader();
-    return normalizeManifestModule(module);
-  } catch (error) {
-    console.error("Failed to load manifest for doc type", normalized, error);
+
+  const specifier = resolveTemplateSpecifier(manifestPath);
+  if (!specifier) {
+    manifestCache.set(normalized, null);
     return null;
   }
+
+  const promise = import(/* @vite-ignore */ specifier)
+    .then((module) => normalizeManifestModule(module))
+    .catch((error) => {
+      console.error("Failed to load manifest for doc type", normalized, error);
+      return null;
+    });
+
+  manifestCache.set(normalized, promise);
+  return promise;
 }
 
 export default loadDocTypeManifest;

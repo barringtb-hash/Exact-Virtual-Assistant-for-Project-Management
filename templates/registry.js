@@ -61,7 +61,7 @@ export const templateRegistry = {
     schemaId: "charter",
     manifestPath: "charter/manifest.json",
     schema: {
-      path: "charter.schema.json",
+      path: "charter/schema.json",
       fieldRules: "field_rules.json",
     },
     extract: {

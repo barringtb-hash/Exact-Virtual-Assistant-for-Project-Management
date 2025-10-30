@@ -59,7 +59,7 @@
 ## Templates (`templates/`)
 - `extract_prompt.txt` – System prompt directing the model on how to populate charter fields.
 - `field_rules.json` – Field-by-field constraints that guide downstream validation/UX messaging.
-- `charter.schema.json` – JSON schema consumed by Ajv in validation.
+- `charter/schema.json` – JSON schema consumed by Ajv in validation.
 - `project_charter_tokens.docx.b64` – Base64-encoded Docxtemplater template whose tokens match charter field keys.
 - `pdf/charter.pdfdef.mjs` – pdfmake document definition rendered to PDF by the serverless export handler.
 - `renderers.js` – Shared buffer generators for JSON/XLSX downloads (XLSX currently throws a `FormatNotImplementedError`).

@@ -39,7 +39,7 @@ The document router shares a single extract → validate → render pipeline acr
 - Optional overrides: place prompt variants inside `templates/doc-types/charter/` and add metadata files as needed so `/api/documents/extract` can load the latest instructions.
 
 ### Validate
-- Runtime schema: [`templates/charter.schema.json`](../templates/charter.schema.json)
+- Runtime schema: [`templates/charter/schema.json`](../templates/charter/schema.json)
 - Field guidance: [`templates/field_rules.json`](../templates/field_rules.json)
 - CLI: `node templates/charter-validate.mjs ./path/to/charter.json`
 - Validation API: `POST /api/documents/validate?docType=charter` (aliases: `/api/charter/validate`)

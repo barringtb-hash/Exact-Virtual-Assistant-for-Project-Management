@@ -11,10 +11,9 @@ import useBackgroundExtraction, {
   mergeExtractedDraft,
   onFileAttached,
 } from "./hooks/useBackgroundExtraction";
-import { loadDocTypeSchema } from "./utils/loadDocTypeSchema";
-import { loadDocTypeManifest } from "./utils/loadDocTypeManifest";
 import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
 import { useDocType } from "./state/docType.js";
+import { useDocTemplate } from "./state/docTemplateStore.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
@@ -416,6 +415,17 @@ export default function ExactVirtualAssistantPM() {
     effectiveDocType,
     defaultDocType,
   } = useDocType();
+  const {
+    docType: templateDocType,
+    templateLabel: activeTemplateLabel,
+    templateVersion: activeTemplateVersion,
+    schemaId: activeSchemaId,
+    manifestMetadata: activeManifestMetadata,
+    manifestStatus,
+    manifest: activeDocManifest,
+    schemaStatus,
+    schema: activeDocSchema,
+  } = useDocTemplate();
   const storedContextRef = useRef(readStoredSession());
   const [messages, setMessages] = useState(() => {
     const stored = storedContextRef.current;
@@ -479,10 +489,13 @@ export default function ExactVirtualAssistantPM() {
     suggested,
     supportedDocTypes,
   ]);
-  const docTypeConfig = useMemo(
-    () => buildDocTypeConfig(previewDocType, metadataMap),
-    [metadataMap, previewDocType]
-  );
+  const docTypeConfig = useMemo(() => {
+    const baseConfig = buildDocTypeConfig(previewDocType, metadataMap);
+    if (activeTemplateLabel && baseConfig.label !== activeTemplateLabel) {
+      return { ...baseConfig, label: activeTemplateLabel };
+    }
+    return baseConfig;
+  }, [activeTemplateLabel, metadataMap, previewDocType]);
   const docTypeDisplayLabel = docTypeConfig.label;
   const docPreviewLabel = previewDocType
     ? `${docTypeDisplayLabel} preview`
@@ -502,6 +515,15 @@ export default function ExactVirtualAssistantPM() {
       : null;
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
+  const hasPreviewDocType = Boolean(previewDocType);
+  const manifestLoading =
+    hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
+  const schemaLoading =
+    hasPreviewDocType && (schemaStatus === "loading" || schemaStatus === "idle");
+  const templateLoading = manifestLoading || schemaLoading;
+  const templateError =
+    hasPreviewDocType &&
+    (manifestStatus === "error" || schemaStatus === "error");
   const createBlankDraft = useCallback(() => {
     if (!previewDocType) {
       return {};
@@ -526,10 +548,6 @@ export default function ExactVirtualAssistantPM() {
     const now = Date.now();
     return synchronizeFieldStates(draft, {}, { touchedPaths: paths, source: "Auto", timestamp: now, locks: {} });
   });
-  const docManifestCacheRef = useRef(new Map());
-  const docSchemaCacheRef = useRef(new Map());
-  const [activeDocManifest, setActiveDocManifest] = useState(null);
-  const [activeDocSchema, setActiveDocSchema] = useState(null);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
@@ -586,74 +604,6 @@ export default function ExactVirtualAssistantPM() {
 
   useEffect(() => {
     if (!previewDocType) {
-      setActiveDocManifest(null);
-      return;
-    }
-
-    const cache = docManifestCacheRef.current;
-    if (cache.has(previewDocType)) {
-      setActiveDocManifest(cache.get(previewDocType));
-      return;
-    }
-
-    setActiveDocManifest(null);
-
-    let cancelled = false;
-    loadDocTypeManifest(previewDocType)
-      .then((manifest) => {
-        const normalized = manifest && typeof manifest === "object" ? manifest : null;
-        cache.set(previewDocType, normalized);
-        if (!cancelled) {
-          setActiveDocManifest(normalized);
-        }
-      })
-      .catch(() => {
-        cache.set(previewDocType, null);
-        if (!cancelled) {
-          setActiveDocManifest(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [previewDocType]);
-
-  useEffect(() => {
-    if (!previewDocType || previewDocType === "charter") {
-      setActiveDocSchema(null);
-      return;
-    }
-
-    const cache = docSchemaCacheRef.current;
-    if (cache.has(previewDocType)) {
-      setActiveDocSchema(cache.get(previewDocType));
-      return;
-    }
-
-    let cancelled = false;
-    loadDocTypeSchema(previewDocType)
-      .then((schema) => {
-        const normalized = schema && typeof schema === "object" ? schema : null;
-        cache.set(previewDocType, normalized);
-        if (!cancelled) {
-          setActiveDocSchema(normalized);
-        }
-      })
-      .catch(() => {
-        cache.set(previewDocType, null);
-        if (!cancelled) {
-          setActiveDocSchema(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [previewDocType]);
-
-  useEffect(() => {
-    if (!previewDocType) {
       initialDraftRef.current = null;
       charterDraftRef.current = null;
       if (charterPreview !== null) {
@@ -664,7 +614,6 @@ export default function ExactVirtualAssistantPM() {
         setLocks({});
       }
       setFieldStates((prev) => (prev && Object.keys(prev).length === 0 ? prev : {}));
-      setActiveDocManifest(null);
       return;
     }
 
@@ -2686,17 +2635,57 @@ export default function ExactVirtualAssistantPM() {
                 </div>
               }
             >
-              <div className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
-                <PreviewEditable
-                  draft={charterPreview}
-                  locks={locks}
-                  fieldStates={fieldStates}
-                  isLoading={isCharterSyncInFlight}
-                  onDraftChange={handleDraftChange}
-                  onLockField={handleLockField}
-                  manifest={activeDocManifest}
-                  schema={activeDocSchema}
-                />
+              <div
+                className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60"
+                data-doc-type={templateDocType || undefined}
+                data-doc-schema={activeSchemaId || undefined}
+                data-template-version={activeTemplateVersion || undefined}
+                data-has-manifest-metadata={
+                  activeManifestMetadata ? "true" : undefined
+                }
+              >
+                {!hasPreviewDocType ? (
+                  <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-medium text-slate-700 dark:text-slate-100">
+                      Choose a document template to get started.
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      The preview will appear once you pick a document type.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDocTypeModal(true)}
+                      className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:bg-sky-500 dark:hover:bg-sky-400 dark:focus-visible:ring-offset-slate-900"
+                    >
+                      Choose document type
+                    </button>
+                  </div>
+                ) : templateLoading ? (
+                  <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-medium">Loading {docTypeDisplayLabel} template…</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Hang tight while we fetch the schema and layout.
+                    </p>
+                  </div>
+                ) : templateError ? (
+                  <div className="space-y-2 text-sm text-red-600 dark:text-red-300">
+                    <p className="font-medium">Unable to load template metadata.</p>
+                    <p className="text-xs text-red-500 dark:text-red-400">
+                      Retry selecting the document type or refresh the page.
+                    </p>
+                  </div>
+                ) : (
+                  <PreviewEditable
+                    draft={charterPreview}
+                    locks={locks}
+                    fieldStates={fieldStates}
+                    isLoading={isCharterSyncInFlight}
+                    onDraftChange={handleDraftChange}
+                    onLockField={handleLockField}
+                    manifest={activeDocManifest}
+                    schema={activeDocSchema}
+                  />
+                )}
               </div>
               {isCharterSyncInFlight && (
                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating {docPreviewLabel}…</div>

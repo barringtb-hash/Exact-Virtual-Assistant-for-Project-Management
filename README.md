@@ -48,6 +48,104 @@ Examples that **do not** trigger extraction:
 - [`api/documents/extract.js`](api/documents/extract.js) enforces explicit intent plus contextual attachments/text before calling OpenAI.
 - [`templates/extract_prompt.txt`](templates/extract_prompt.txt) short-circuits with `{ "result": "no_op" }` when called without intent, ensuring downstream tools remain idle.
 
+## API usage
+
+### Chat completions – `POST /api/chat`
+- **Non-streaming request**
+  ```bash
+  curl -X POST http://localhost:5173/api/chat \
+    -H "Content-Type: application/json" \
+    -d '{
+      "messages": [
+        { "role": "user", "content": "Summarize the current risks." }
+      ],
+      "attachments": [
+        { "name": "Risk Log", "text": "Escalation owners and deadlines..." }
+      ]
+    }'
+  ```
+- **Non-streaming response**
+  ```json
+  {
+    "reply": "Here are the active risks and owners..."
+  }
+  ```
+- **Body toggle for SSE streaming** – pass `"stream": true` together with a unique `clientStreamId`/`threadId` pair to receive server-sent events (SSE) from the same route.
+  ```json
+  {
+    "messages": [
+      { "role": "user", "content": "Draft the next project update." }
+    ],
+    "stream": true,
+    "clientStreamId": "composer-123",
+    "threadId": "run-abc"
+  }
+  ```
+  Events arrive as `event: token` with JSON `{ "delta": "partial text" }` chunks, followed by `event: done` when the assistant finishes.
+
+### Chat streaming edge endpoint – `POST /api/chat/stream`
+- **Enablement** – set `CHAT_STREAMING=true` (or append `?stream=1` to the URL) to allow the dedicated Edge runtime handler to respond. The route requires `threadId`, `clientStreamId`, and the same JSON body as `/api/chat`.
+- **Request example**
+  ```bash
+  curl -N -X POST "https://your-host/api/chat/stream?stream=1" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "threadId": "run-abc",
+      "clientStreamId": "composer-123",
+      "messages": [
+        { "role": "user", "content": "List the open action items." }
+      ]
+    }'
+  ```
+- **Response stream** – the handler emits SSE frames such as:
+  ```text
+  event: token
+  data: {"delta":"Action item 1:"}
+
+  event: token
+  data: {"delta":" Assign owners"}
+
+  event: done
+  data: {}
+  ```
+
+### Document extraction – `POST /api/documents/extract`
+- **Request**
+  ```bash
+  curl -X POST http://localhost:5173/api/documents/extract \
+    -H "Content-Type: application/json" \
+    -d '{
+      "docType": "charter",
+      "messages": [
+        { "role": "user", "content": "Create a project charter from the attachment." }
+      ],
+      "attachments": [
+        {
+          "id": "file_123",
+          "name": "Onboarding Plan",
+          "mimeType": "application/pdf",
+          "text": "Trimmed excerpt..."
+        }
+      ]
+    }'
+  ```
+- **Response**
+  ```json
+  {
+    "project_name": "Data Platform Modernization",
+    "sponsor": "Emily Carter",
+    "objectives": ["Unify analytics", "Retire legacy ETL"],
+    "risks": [
+      { "description": "Vendor integration backlog", "owner": "PMO" }
+    ]
+  }
+  ```
+
+### Streaming considerations
+- **Hosting** – `/api/chat/stream` runs on the Vercel Edge runtime and streams with `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, and periodic keep-alives. Disable proxy buffering (for example, `proxy_buffering off;` in Nginx or AWS ALB idle timeout tweaks) so tokens flush immediately.
+- **Client behaviour** – browsers use SSE when available; the app automatically falls back to `fetch` + streaming readers to support environments without `EventSource` (for example, React Native or constrained browsers). Both paths expect newline-delimited events that end with `event: done`.
+- **Configuration & rollback** – set `CHAT_STREAMING=true` to route `/api/chat/stream` traffic; unset or set it to `false`/`0` to revert to the non-streaming `/api/chat` flow. You can also opt individual requests out by omitting `stream` in the body or the `?stream=1` query parameter.
+
 ## Testing
 - **Upload-only regression**: Use [`tests/onFileAttached.test.js`](tests/onFileAttached.test.js) (or create an equivalent) to assert that attaching files alone does **not** issue a network call to `/api/documents/extract`.
 - **Intent + upload flow**: Add or update a test (for example `tests/intentExtraction.test.js`) to simulate attaching the demo TPP and sending “Please create a project charter from the attached document,” then assert exactly one call to `/api/documents/extract` with `intent: 'create_charter'`.

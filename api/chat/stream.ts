@@ -1,12 +1,4 @@
 import OpenAI from "openai";
-import {
-  buildChatMessages,
-  CHAT_MODEL,
-  ChatRequestError,
-  USES_RESPONSES_PATTERN,
-  formatMessagesForResponses,
-  mapChatOpenAIError,
-} from "../chat.js";
 
 interface ControllerEntry {
   threadId: string;
@@ -15,6 +7,534 @@ interface ControllerEntry {
 
 const activeControllers = new Map<string, ControllerEntry>();
 const encoder = new TextEncoder();
+
+class ChatRequestError extends Error {
+  status: number;
+  code: string;
+
+  constructor(message: string, status = 400, code = "bad_request") {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const runtimeEnv: Record<string, string | undefined> =
+  typeof globalThis !== "undefined" &&
+  typeof (globalThis as any)?.process?.env !== "undefined"
+    ? ((globalThis as any).process.env as Record<string, string | undefined>)
+    : {};
+
+const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
+const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
+
+function resolveChatModel(): string {
+  const env = runtimeEnv;
+  const candidates = [
+    env.chat_model,
+    env.CHAT_MODEL,
+    env.OPENAI_MODEL,
+    env.OPENAI_CHAT_MODEL,
+    env.OPENAI_STT_MODEL,
+    env.OPENAI_REALTIME_MODEL,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+
+    if (!INVALID_CHAT_MODEL_PATTERN.test(trimmed)) {
+      return trimmed;
+    }
+
+    const fallbackMatch = trimmed.match(
+      /^(.*?)(?:[-_](?:realtime|preview|transcribe|stt))+$/i
+    );
+    const fallback = fallbackMatch?.[1]?.trim();
+    if (fallback && !INVALID_CHAT_MODEL_PATTERN.test(fallback)) {
+      return fallback;
+    }
+  }
+
+  return "gpt-4o";
+}
+
+const CHAT_MODEL = resolveChatModel();
+
+function parsePositiveInt(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 ? Math.floor(value) : fallback;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+const CHAT_PROMPT_TOKEN_LIMIT = parsePositiveInt(
+  runtimeEnv.CHAT_PROMPT_TOKEN_LIMIT,
+  0
+);
+const ATTACHMENT_CHUNK_TOKENS = parsePositiveInt(
+  runtimeEnv.ATTACHMENT_CHUNK_TOKENS,
+  700
+);
+const ATTACHMENT_SUMMARY_TOKENS = parsePositiveInt(
+  runtimeEnv.ATTACHMENT_SUMMARY_TOKENS,
+  250
+);
+const ATTACHMENT_PARALLELISM = parsePositiveInt(
+  runtimeEnv.ATTACHMENT_PARALLELISM,
+  3
+);
+const SMALL_ATTACHMENTS_TOKEN_BUDGET = parsePositiveInt(
+  runtimeEnv.SMALL_ATTACHMENTS_TOKEN_BUDGET,
+  1200
+);
+
+const BASE_SYSTEM_PROMPT =
+  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.";
+
+const MAP_SYSTEM_PROMPT =
+  "You summarize project attachments. Capture key decisions, owners, deadlines, blockers, and metrics in crisp language. Use bullets only when multiple points exist.";
+
+const REDUCE_SYSTEM_PROMPT =
+  "Combine multiple attachment summaries into one concise project-management briefing. Remove redundancy and highlight outcomes, owners, blockers, and next steps.";
+
+const DEFAULT_TOKEN_DIVISOR = 4;
+
+function estimateWordTokens(word: unknown): number {
+  if (!word) return 0;
+  const trimmed = String(word).trim();
+  if (!trimmed) return 0;
+  return Math.max(1, Math.ceil(trimmed.length / DEFAULT_TOKEN_DIVISOR));
+}
+
+function estimateTokens(text: unknown): number {
+  if (typeof text !== "string") return 0;
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed
+    .split(/\s+/)
+    .reduce((total, word) => total + estimateWordTokens(word), 0);
+}
+
+interface ChunkOptions {
+  overlap?: number;
+}
+
+function fallbackChunkByTokens(
+  text: unknown,
+  tokensPerChunk: unknown,
+  options: ChunkOptions = {}
+): { text: string; tokenCount: number }[] {
+  const limit =
+    Number.isFinite(tokensPerChunk as number) && (tokensPerChunk as number) > 0
+      ? Math.floor(tokensPerChunk as number)
+      : 1;
+  const overlap =
+    Number.isFinite(options.overlap) && (options.overlap ?? 0) > 0
+      ? Math.floor(options.overlap ?? 0)
+      : 0;
+
+  if (typeof text !== "string") return [];
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const words = trimmed.split(/\s+/);
+  const chunks: { text: string; tokenCount: number }[] = [];
+  let start = 0;
+
+  while (start < words.length) {
+    let end = start;
+    let tokenCount = 0;
+
+    while (end < words.length) {
+      const tokenEstimate = estimateWordTokens(words[end]);
+      if (end > start && tokenCount + tokenEstimate > limit) {
+        break;
+      }
+      tokenCount += tokenEstimate;
+      end += 1;
+      if (tokenCount >= limit) {
+        break;
+      }
+    }
+
+    if (end === start) {
+      tokenCount = estimateWordTokens(words[end]);
+      end += 1;
+    }
+
+    const chunkWords = words.slice(start, end);
+    const chunkText = chunkWords.join(" ").trim();
+    if (chunkText) {
+      chunks.push({
+        text: chunkText,
+        tokenCount:
+          tokenCount || estimateTokens(chunkText) || chunkWords.length,
+      });
+    }
+
+    if (end >= words.length) {
+      break;
+    }
+
+    if (overlap > 0) {
+      start = Math.max(0, end - overlap);
+    } else {
+      start = end;
+    }
+  }
+
+  return chunks;
+}
+
+function collectStrings(
+  value: unknown,
+  bucket: string[],
+  seen: Set<unknown>
+): void {
+  if (value == null) return;
+  if (typeof value === "string") {
+    bucket.push(value);
+    return;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    bucket.push(String(value));
+    return;
+  }
+  if (typeof value !== "object") {
+    return;
+  }
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStrings(item, bucket, seen);
+    }
+    return;
+  }
+
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    try {
+      collectStrings((value as Record<string, unknown>)[key], bucket, seen);
+    } catch {
+      // ignore getter errors
+    }
+  }
+}
+
+function countTokens(input: unknown): number {
+  const strings: string[] = [];
+  collectStrings(input, strings, new Set());
+  if (!strings.length) {
+    return 0;
+  }
+  return strings.reduce((sum, str) => sum + estimateTokens(str), 0);
+}
+
+function chunkByTokens(
+  text: string,
+  tokensPerChunk: number,
+  options: ChunkOptions = {}
+): { text: string; tokenCount: number }[] {
+  return fallbackChunkByTokens(text, tokensPerChunk, options);
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (!Array.isArray(items) || !items.length) return [];
+  const safeLimit = Math.max(
+    1,
+    Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1
+  );
+  const results = new Array<R>(items.length);
+  let index = 0;
+
+  const runners = Array.from({ length: Math.min(safeLimit, items.length) }, () =>
+    (async () => {
+      while (true) {
+        const currentIndex = index;
+        if (currentIndex >= items.length) break;
+        index += 1;
+        const value = await worker(items[currentIndex], currentIndex);
+        results[currentIndex] = value;
+      }
+    })()
+  );
+
+  await Promise.all(runners);
+  return results;
+}
+
+function formatMessagesForResponses(messages: any[]): string {
+  return (messages || [])
+    .map((message: any) => {
+      const role = (message?.role || "user").toUpperCase();
+      const content =
+        typeof message?.content === "string"
+          ? message.content
+          : JSON.stringify(message?.content ?? "");
+      return `${role}: ${content}`;
+    })
+    .join("\n\n");
+}
+
+async function requestChatText(
+  client: OpenAI,
+  params: { messages: any[]; temperature: number; maxTokens: number }
+): Promise<string> {
+  const { messages, temperature, maxTokens } = params;
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+  if (useResponses) {
+    const prompt = formatMessagesForResponses(messages);
+    const response = await client.responses.create({
+      model: CHAT_MODEL,
+      temperature,
+      input: prompt,
+      ...(Number.isFinite(maxTokens) && maxTokens > 0
+        ? { max_output_tokens: maxTokens }
+        : {}),
+    } as any);
+    return (response as any).output_text ?? "";
+  }
+
+  const completion = await client.chat.completions.create({
+    model: CHAT_MODEL,
+    temperature,
+    messages,
+    ...(Number.isFinite(maxTokens) && maxTokens > 0
+      ? { max_tokens: maxTokens }
+      : {}),
+  });
+  return completion.choices?.[0]?.message?.content ?? "";
+}
+
+async function summarizeText(
+  client: OpenAI,
+  attachment: { name: string; text: string }
+): Promise<string> {
+  const name = attachment?.name || "Attachment";
+  const text = typeof attachment?.text === "string" ? attachment.text.trim() : "";
+  if (!text) return "";
+
+  const chunks = chunkByTokens(text, ATTACHMENT_CHUNK_TOKENS);
+  const totalTokens = chunks.reduce((sum, chunk) => sum + (chunk.tokenCount || 0), 0);
+
+  if (!chunks.length) {
+    return "";
+  }
+
+  if (totalTokens <= SMALL_ATTACHMENTS_TOKEN_BUDGET) {
+    return text;
+  }
+
+  const limitedChunks = await runWithConcurrency(
+    chunks,
+    ATTACHMENT_PARALLELISM,
+    async (chunk, index) => {
+      try {
+        const summary = await requestChatText(client, {
+          messages: [
+            { role: "system", content: MAP_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `Attachment: ${name}\nChunk ${index + 1} of ${chunks.length}\n\n${chunk.text}`,
+            },
+          ],
+          temperature: 0.2,
+          maxTokens: ATTACHMENT_SUMMARY_TOKENS,
+        });
+        return summary.trim();
+      } catch (error) {
+        console.error("map step failed", { name, chunkIndex: index, error });
+        return "";
+      }
+    }
+  );
+
+  const mapSummaries = limitedChunks.filter(Boolean);
+  if (!mapSummaries.length) {
+    return "";
+  }
+
+  if (mapSummaries.length === 1) {
+    return mapSummaries[0];
+  }
+
+  const reducePrompt = mapSummaries
+    .map((summary, index) => `(${index + 1}) ${summary}`)
+    .join("\n\n");
+
+  try {
+    const reduction = await requestChatText(client, {
+      messages: [
+        { role: "system", content: REDUCE_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Attachment: ${name}\n\nChunk summaries:\n${reducePrompt}\n\nDeliver a single consolidated summary.`,
+        },
+      ],
+      temperature: 0.2,
+      maxTokens: ATTACHMENT_SUMMARY_TOKENS,
+    });
+
+    return reduction.trim() || mapSummaries.join("\n\n");
+  } catch (error) {
+    console.error("reduce step failed", { name, error });
+    return mapSummaries.join("\n\n");
+  }
+}
+
+interface BuildChatMessagesResult {
+  messages: any[];
+}
+
+async function buildChatMessages(
+  client: OpenAI,
+  body: unknown
+): Promise<BuildChatMessagesResult> {
+  const payload = body && typeof body === "object" ? (body as any) : {};
+  const incoming = Array.isArray(payload.messages) ? payload.messages : [];
+  const rawAttachments = Array.isArray(payload.attachments)
+    ? payload.attachments
+    : [];
+
+  const attachments = rawAttachments.map((item: any, index: number) => {
+    if (!item || typeof item !== "object") {
+      throw new ChatRequestError(
+        `Attachment at index ${index} must be an object.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    const name =
+      typeof item.name === "string" && item.name.trim()
+        ? item.name.trim()
+        : `Attachment ${index + 1}`;
+    if (typeof item.text !== "string") {
+      throw new ChatRequestError(
+        `Attachment "${name}" is missing required text.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    const text = item.text.trim();
+    if (!text) {
+      throw new ChatRequestError(
+        `Attachment "${name}" must include non-empty text.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    return { name, text };
+  });
+
+  if (INVALID_CHAT_MODEL_PATTERN.test(CHAT_MODEL)) {
+    throw new ChatRequestError(
+      `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Use a non-realtime model.`,
+      400,
+      "invalid_model"
+    );
+  }
+
+  const attachmentSummaries = await Promise.all(
+    attachments.map((attachment) => summarizeText(client, attachment))
+  );
+
+  const attachmentsBlock = attachments
+    .map((att, index) => {
+      const summary = attachmentSummaries[index];
+      if (!summary) return "";
+      return `### ${att.name}\n${summary}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  const systemContent = attachmentsBlock
+    ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
+    : BASE_SYSTEM_PROMPT;
+
+  const system = {
+    role: "system",
+    content: systemContent,
+  };
+
+  const historyLimit = 17;
+  const trimmedIncoming = incoming.slice(-historyLimit);
+  const messages = [system, ...trimmedIncoming];
+
+  if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
+    const promptTokens = countTokens(messages);
+    if (promptTokens > CHAT_PROMPT_TOKEN_LIMIT) {
+      throw new ChatRequestError(
+        `Message payload exceeds ${CHAT_PROMPT_TOKEN_LIMIT} token limit (approx ${promptTokens}).`,
+        400,
+        "prompt_too_large"
+      );
+    }
+  }
+
+  return { messages };
+}
+
+function mapChatOpenAIError(
+  status: number,
+  rawMessage: string
+): { status: number; message: string; code: string } | null {
+  const normalizedStatus = Number.isFinite(status)
+    ? status
+    : Number.parseInt(String(status), 10) || 0;
+  const message = (rawMessage || "") + "";
+
+  if (
+    normalizedStatus === 400 ||
+    /model .*does not exist|unsupported|invalid/i.test(message)
+  ) {
+    return {
+      status: 400,
+      message: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
+      code: "invalid_model",
+    };
+  }
+
+  if (normalizedStatus === 404) {
+    return {
+      status: 400,
+      message: `Model "${CHAT_MODEL}" not found for this key.`,
+      code: "invalid_model",
+    };
+  }
+
+  if (normalizedStatus === 429) {
+    return {
+      status: 429,
+      message: "Rate limit reached. Please retry shortly.",
+      code: "rate_limited",
+    };
+  }
+
+  if (normalizedStatus === 503) {
+    return {
+      status: 503,
+      message: "OpenAI service unavailable. Please retry shortly.",
+      code: "service_unavailable",
+    };
+  }
+
+  return null;
+}
 
 export const config = { runtime: "edge" };
 

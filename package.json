@@ -10,6 +10,7 @@
     "test": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:e2e": "playwright test",
+    "e2e:ci": "npx --yes cypress run --config-file cypress.config.ts",
     "validate:charter-docx": "node templates/validate-docx-template.mjs",
     "docx:encode": "node templates/tools/encode-docx.mjs",
     "docx:lint": "node templates/tools/lint-tokens.mjs",
@@ -37,7 +38,10 @@
     "tailwindcss": "^3.4.13",
     "vite": "^5.4.8",
     "@vitejs/plugin-react": "^4.3.1",
-    "@playwright/test": "^1.48.2"
+    "@playwright/test": "^1.48.2",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "jsdom": "^24.0.0"
   },
   "engines": {
     "node": "22.x"

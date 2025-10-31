@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm install
+        env:
+          CI: true
+      - name: Lint
+        run: npm run lint --if-present
+        env:
+          CI: true
+      - name: Unit and integration tests
+        run: npm test --if-present
+        env:
+          CI: true
+      - name: Cypress end-to-end tests
+        run: npm run e2e:ci --if-present
+        env:
+          CI: true

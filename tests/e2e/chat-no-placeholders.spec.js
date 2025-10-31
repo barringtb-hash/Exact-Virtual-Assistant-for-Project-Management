@@ -17,6 +17,9 @@ test.describe("assistant chat", () => {
 
     await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
 
+    const micButton = page.getByRole("button", { name: "Ready" });
+    await expect(micButton).toHaveAttribute("aria-label", "Ready");
+
     for (const text of PLACEHOLDER_TEXTS) {
       await expect(page.getByText(text, { exact: true })).toHaveCount(0);
     }

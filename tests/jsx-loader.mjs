@@ -2,12 +2,20 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { transform } from "esbuild";
 
+const LOADERS = [
+  [".tsx", "tsx"],
+  [".ts", "ts"],
+  [".jsx", "jsx"],
+];
+
 export async function load(url, context, defaultLoad) {
-  if (url.endsWith(".jsx")) {
+  const entry = LOADERS.find(([extension]) => url.endsWith(extension));
+  if (entry) {
+    const [, loader] = entry;
     const fileUrl = url.startsWith("file:") ? url : pathToFileURL(url).href;
     const source = await readFile(new URL(fileUrl), "utf8");
     const result = await transform(source, {
-      loader: "jsx",
+      loader,
       format: "esm",
       jsx: "automatic",
       sourcemap: false,

@@ -154,7 +154,6 @@ export function ChatComposer({
     [providedClientStreamId],
   );
 
-  const disableComposer = disabled || isStreaming;
 
   const resetDraft = useCallback(() => {
     setDraft("");
@@ -346,19 +345,24 @@ export function ChatComposer({
   );
 
   return (
-    <form className={className} onSubmit={handleSubmit}>
+    <form
+      className={className}
+      onSubmit={handleSubmit}
+      aria-busy={isStreaming}
+      data-streaming={isStreaming || undefined}
+    >
       <input
         ref={inputRef}
         value={draft}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        disabled={disableComposer}
+        disabled={disabled}
         autoFocus={autoFocus}
         className="eva-chat-composer-input"
         aria-label="Chat composer"
       />
-      <button type="submit" disabled={disableComposer} className="eva-chat-composer-send">
+      <button type="submit" disabled={disabled} className="eva-chat-composer-send">
         Send
       </button>
     </form>

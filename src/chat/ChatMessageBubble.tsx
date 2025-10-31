@@ -21,9 +21,10 @@ export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
   message,
   typingIndicatorLabel = "Assistant is typing…",
 }) => {
-  const { role, content, pending, error } = message;
+  const { role, content, pending, error, onRetry } = message;
   const isAssistant = role === "assistant";
   const isSystem = role === "system";
+  const canRetry = typeof onRetry === "function";
 
   return (
     <div className={`eva-chat-message eva-chat-message--${role}`}>
@@ -32,7 +33,21 @@ export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
           {content}
           {isAssistant && pending ? <TypingIndicator label={typingIndicatorLabel} /> : null}
         </div>
-        {error ? <div className="eva-chat-message-error">{error}</div> : null}
+        {error ? (
+          <div className="eva-chat-message-error">
+            <span>{error}</span>
+            {canRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="eva-chat-message-retry"
+                aria-label="Retry assistant response"
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {isSystem ? <div className="eva-chat-message-meta">System</div> : null}
       </div>
     </div>

@@ -21,7 +21,19 @@ import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import { isIntentOnlyExtractionEnabled } from "../config/featureFlags.js";
-import { useDraftStore, recordDraftMetadata } from "./state/draftStore.js";
+import {
+  useDraftStore,
+  recordDraftMetadata,
+  lockDraftPaths,
+  resetDraftLocks,
+  clearDraftHighlights,
+} from "./state/draftStore.js";
+import {
+  pathToPointer,
+  pointerMapToPathMap,
+  pointerMapToPathObject,
+  pointerSetToPathSet,
+} from "./utils/jsonPointer.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -589,7 +601,6 @@ export default function ExactVirtualAssistantPM() {
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
   const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
-  const [locks, setLocks] = useState(() => ({}));
   const [fieldStates, setFieldStates] = useState(() => {
     const draft = initialDraftRef.current;
     const paths = expandPathsWithAncestors(collectPaths(draft));
@@ -607,6 +618,23 @@ export default function ExactVirtualAssistantPM() {
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftSnapshot = useDraftStore();
   const isDraftSyncing = draftSnapshot?.isSyncing ?? false;
+  const pointerLocks =
+    draftSnapshot?.locks instanceof Map ? draftSnapshot.locks : new Map();
+  const pointerMetadata =
+    draftSnapshot?.metadataByPath instanceof Map ? draftSnapshot.metadataByPath : new Map();
+  const pointerHighlights =
+    draftSnapshot?.highlightedPaths instanceof Set
+      ? draftSnapshot.highlightedPaths
+      : new Set();
+  const locks = useMemo(() => pointerMapToPathObject(pointerLocks), [pointerLocks]);
+  const highlightedPaths = useMemo(
+    () => pointerSetToPathSet(pointerHighlights),
+    [pointerHighlights]
+  );
+  const aiMetadataByPath = useMemo(
+    () => pointerMapToPathMap(pointerMetadata),
+    [pointerMetadata]
+  );
   const [charterSyncError, setCharterSyncError] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -642,6 +670,7 @@ export default function ExactVirtualAssistantPM() {
   }, []);
   const charterDraftRef = useRef(initialDraftRef.current);
   const locksRef = useRef(locks);
+  const pointerLocksRef = useRef(pointerLocks);
   const toastTimersRef = useRef(new Map());
   const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
   useEffect(() => {
@@ -653,15 +682,34 @@ export default function ExactVirtualAssistantPM() {
   }, [locks]);
 
   useEffect(() => {
+    pointerLocksRef.current = pointerLocks;
+  }, [pointerLocks]);
+
+  useEffect(() => {
+    if (!pointerHighlights || pointerHighlights.size === 0) {
+      return undefined;
+    }
+    const pointers = Array.from(pointerHighlights).filter((entry) => typeof entry === "string");
+    if (pointers.length === 0) {
+      return undefined;
+    }
+    const timeoutId = setTimeout(() => {
+      clearDraftHighlights(pointers);
+    }, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [pointerHighlights]);
+
+  useEffect(() => {
     if (!previewDocType) {
       initialDraftRef.current = null;
       charterDraftRef.current = null;
       if (charterPreview !== null) {
         setCharterPreview(null);
       }
-      if (locksRef.current && Object.keys(locksRef.current).length > 0) {
+      if (pointerLocksRef.current && pointerLocksRef.current.size > 0) {
+        pointerLocksRef.current = new Map();
         locksRef.current = {};
-        setLocks({});
+        resetDraftLocks();
       }
       setFieldStates((prev) => (prev && Object.keys(prev).length === 0 ? prev : {}));
       return;
@@ -757,30 +805,38 @@ export default function ExactVirtualAssistantPM() {
       }
 
       const locksSnapshot = locksRef.current || {};
+      const pointerLocksSnapshot =
+        pointerLocksRef.current instanceof Map ? pointerLocksRef.current : new Map();
       const baseDraft = charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
       const {
         draft: finalDraft,
-        updatedPaths: touchedPaths,
-      } = mergeIntoDraftWithLocks(baseDraft, normalizedDraft, locksSnapshot);
+        updatedPaths,
+        metadataByPointer,
+        updatedAt: mergedAt,
+      } = mergeIntoDraftWithLocks(baseDraft, normalizedDraft, pointerLocksSnapshot, {
+        source: "AI",
+        updatedAt: Date.now(),
+      });
 
       charterDraftRef.current = finalDraft;
       setCharterPreview(finalDraft);
 
-      const now = Date.now();
+      const timestamp =
+        typeof mergedAt === "number" && !Number.isNaN(mergedAt) ? mergedAt : Date.now();
 
       setFieldStates((prevStates) =>
         synchronizeFieldStates(finalDraft, prevStates, {
-          touchedPaths,
+          touchedPaths: updatedPaths,
           source: "AI",
-          timestamp: now,
+          timestamp,
           locks: locksSnapshot,
         })
       );
 
       recordDraftMetadata({
-        paths: touchedPaths,
+        paths: metadataByPointer,
         source: "AI",
-        updatedAt: now,
+        updatedAt: timestamp,
       });
 
       return finalDraft;
@@ -880,8 +936,9 @@ export default function ExactVirtualAssistantPM() {
       const locksSnapshot = resetLocks ? {} : locksRef.current || {};
 
       if (resetLocks) {
+        pointerLocksRef.current = new Map();
         locksRef.current = {};
-        setLocks({});
+        resetDraftLocks();
       }
 
       charterDraftRef.current = draft;
@@ -958,20 +1015,34 @@ export default function ExactVirtualAssistantPM() {
     [createBlankDraft, previewDocType]
   );
 
-  const handleLockField = useCallback((path) => {
-    if (!path) return;
-    if (!previewDocType) return;
-    setLocks((prev) => {
-      if (prev[path]) {
-        return prev;
+  const handleLockField = useCallback(
+    (path) => {
+      if (!path) return;
+      if (!previewDocType) return;
+      if (locksRef.current?.[path]) {
+        return;
       }
-      const nextLocks = { ...prev, [path]: true };
+
+      const nextLocks = { ...(locksRef.current || {}), [path]: true };
       locksRef.current = nextLocks;
+
+      const pointer = pathToPointer(path);
+      if (pointer) {
+        const nextPointerLocks =
+          pointerLocksRef.current instanceof Map
+            ? new Map(pointerLocksRef.current)
+            : new Map();
+        nextPointerLocks.set(pointer, true);
+        pointerLocksRef.current = nextPointerLocks;
+        lockDraftPaths(pointer);
+      }
+
       const touchedPaths = getPathsToUpdate(path);
       setFieldStates((prevStates) => {
         const prevEntry = prevStates?.[path];
         const source = prevEntry?.source ?? "Manual";
-        const updatedAt = typeof prevEntry?.updatedAt === "number" ? prevEntry.updatedAt : Date.now();
+        const updatedAt =
+          typeof prevEntry?.updatedAt === "number" ? prevEntry.updatedAt : Date.now();
         return synchronizeFieldStates(charterDraftRef.current, prevStates, {
           touchedPaths,
           source,
@@ -979,9 +1050,9 @@ export default function ExactVirtualAssistantPM() {
           locks: nextLocks,
         });
       });
-      return nextLocks;
-    });
-  }, [previewDocType]);
+    },
+    [previewDocType]
+  );
 
   const draftHasContent = useMemo(() => hasDraftContent(charterPreview), [charterPreview]);
 
@@ -2652,6 +2723,8 @@ const resolveDocTypeForManualSync = useCallback(
                     draft={charterPreview}
                     locks={locks}
                     fieldStates={fieldStates}
+                    highlightedPaths={highlightedPaths}
+                    metadata={aiMetadataByPath}
                     isLoading={isCharterSyncInFlight}
                     onDraftChange={handleDraftChange}
                     onLockField={handleLockField}

@@ -1,17 +1,21 @@
 import { useSyncExternalStore } from "react";
 
+import { normalizePointerInput } from "../utils/jsonPointer.js";
+
 const DEFAULT_STATE = {
   isSyncing: false,
   pendingSyncCount: 0,
   lastSyncAt: null,
   highlightedPaths: new Set(),
   metadataByPath: new Map(),
+  locks: new Map(),
 };
 
 let state = {
   ...DEFAULT_STATE,
   highlightedPaths: new Set(DEFAULT_STATE.highlightedPaths),
   metadataByPath: new Map(DEFAULT_STATE.metadataByPath),
+  locks: new Map(DEFAULT_STATE.locks),
 };
 
 const listeners = new Set();
@@ -31,7 +35,7 @@ function applyState(partial) {
   let changed = false;
 
   Object.entries(partial).forEach(([key, value]) => {
-    if (key === "highlightedPaths" || key === "metadataByPath") {
+    if (key === "highlightedPaths" || key === "metadataByPath" || key === "locks") {
       if (state[key] !== value) {
         nextState[key] = value;
         changed = true;
@@ -64,40 +68,6 @@ function subscribe(listener) {
   };
 }
 
-function normalizePaths(paths) {
-  const result = [];
-  if (!paths) return result;
-  if (typeof paths === "string") {
-    const trimmed = paths.trim();
-    if (trimmed) {
-      result.push(trimmed);
-    }
-    return result;
-  }
-  if (paths instanceof Set) {
-    paths.forEach((entry) => {
-      if (typeof entry === "string") {
-        const trimmed = entry.trim();
-        if (trimmed) {
-          result.push(trimmed);
-        }
-      }
-    });
-    return result;
-  }
-  if (Array.isArray(paths)) {
-    paths.forEach((entry) => {
-      if (typeof entry === "string") {
-        const trimmed = entry.trim();
-        if (trimmed) {
-          result.push(trimmed);
-        }
-      }
-    });
-  }
-  return result;
-}
-
 export function beginDraftSync() {
   const nextCount = state.pendingSyncCount + 1;
   applyState({
@@ -119,24 +89,47 @@ export function resetDraftSync() {
 }
 
 export function recordDraftMetadata({ paths, source = "AI", updatedAt } = {}) {
-  const normalizedPaths = normalizePaths(paths);
-  if (normalizedPaths.length === 0) {
-    return;
-  }
-
   const timestamp =
     typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
 
   const metadataByPath = new Map(state.metadataByPath);
   const highlightedPaths = new Set(state.highlightedPaths);
 
-  normalizedPaths.forEach((path) => {
-    metadataByPath.set(path, {
-      source,
-      updatedAt: timestamp,
+  let applied = false;
+
+  if (paths instanceof Map) {
+    paths.forEach((value, pointer) => {
+      if (typeof pointer !== "string") {
+        return;
+      }
+      const entry = value && typeof value === "object" ? value : {};
+      const entrySource = entry.source || source;
+      const entryUpdatedAt =
+        typeof entry.updatedAt === "number" && !Number.isNaN(entry.updatedAt)
+          ? entry.updatedAt
+          : timestamp;
+      metadataByPath.set(pointer, {
+        source: entrySource,
+        updatedAt: entryUpdatedAt,
+      });
+      highlightedPaths.add(pointer);
+      applied = true;
     });
-    highlightedPaths.add(path);
-  });
+  } else {
+    const normalizedPaths = normalizePointerInput(paths);
+    normalizedPaths.forEach((pointer) => {
+      metadataByPath.set(pointer, {
+        source,
+        updatedAt: timestamp,
+      });
+      highlightedPaths.add(pointer);
+      applied = true;
+    });
+  }
+
+  if (!applied) {
+    return;
+  }
 
   applyState({
     metadataByPath,
@@ -150,7 +143,7 @@ export function clearDraftHighlights(paths) {
     return;
   }
 
-  const normalizedPaths = normalizePaths(paths);
+  const normalizedPaths = normalizePointerInput(paths);
   if (normalizedPaths.length === 0) {
     return;
   }
@@ -174,11 +167,44 @@ export function clearDraftMetadata() {
     metadataByPath: new Map(),
     highlightedPaths: new Set(),
     lastSyncAt: null,
+    locks: new Map(),
   });
 }
 
 export function getDraftSnapshot() {
   return state;
+}
+
+export function lockDraftPaths(paths) {
+  const normalizedPaths = normalizePointerInput(paths);
+  if (normalizedPaths.length === 0) {
+    return;
+  }
+
+  const locks = new Map(state.locks);
+  let changed = false;
+
+  normalizedPaths.forEach((pointer) => {
+    if (!locks.has(pointer)) {
+      locks.set(pointer, true);
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    applyState({ locks });
+  }
+}
+
+export function resetDraftLocks() {
+  if (state.locks.size === 0) {
+    return;
+  }
+  applyState({ locks: new Map() });
+}
+
+export function getDraftLocksSnapshot() {
+  return state.locks;
 }
 
 export function useDraftStore(selector = (snapshot) => snapshot) {
@@ -197,5 +223,8 @@ export default {
   clearDraftHighlights,
   clearDraftMetadata,
   getDraftSnapshot,
+  lockDraftPaths,
+  resetDraftLocks,
+  getDraftLocksSnapshot,
   useDraftStore,
 };

@@ -26,7 +26,17 @@ jobs:
         run: npm test --if-present
         env:
           CI: true
+                # Build and serve the app for Cypress tests
+      - name: Build Vite app
+        run: npm run build
+      - name: Start preview server
+        run: npm run preview -- --port 5173 &
+        env:
+          NODE_ENV: production
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:5173
+
       - name: Cypress end-to-end tests
-        run: npm run e2e:ci --if-present
+        run: npm run e2e:ci -
         env:
           CI: true

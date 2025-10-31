@@ -2,6 +2,14 @@
 import OpenAI from "openai";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
 
+export class ChatRequestError extends Error {
+  constructor(message, status = 400, code = "bad_request") {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export const config = {
   api: {
     bodyParser: {
@@ -25,8 +33,8 @@ if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
   config.api.maxDuration = chatMaxDuration;
 }
 
-const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
-const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
+export const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
+export const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
 
 function resolveChatModel() {
   const env = process?.env ?? {};
@@ -162,7 +170,7 @@ async function summarizeText(client, attachment) {
   }
 }
 
-function formatMessagesForResponses(messages) {
+export function formatMessagesForResponses(messages) {
   return (messages || [])
     .map((message) => {
       const role = (message?.role || "user").toUpperCase();
@@ -199,6 +207,45 @@ async function requestChatText(client, { messages, temperature, maxTokens }) {
   return completion.choices?.[0]?.message?.content ?? "";
 }
 
+export function mapChatOpenAIError(status, rawMessage) {
+  const normalizedStatus = Number.isFinite(status) ? status : Number.parseInt(status, 10) || 0;
+  const message = (rawMessage || "") + "";
+
+  if (normalizedStatus === 400 || /model .*does not exist|unsupported|invalid/i.test(message)) {
+    return {
+      status: 400,
+      message: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
+      code: "invalid_model",
+    };
+  }
+
+  if (normalizedStatus === 404) {
+    return {
+      status: 400,
+      message: `Model "${CHAT_MODEL}" not found for this key.`,
+      code: "invalid_model",
+    };
+  }
+
+  if (normalizedStatus === 429) {
+    return {
+      status: 429,
+      message: "Rate limit reached. Please retry shortly.",
+      code: "rate_limited",
+    };
+  }
+
+  if (normalizedStatus === 503) {
+    return {
+      status: 503,
+      message: "OpenAI service unavailable. Please retry shortly.",
+      code: "service_unavailable",
+    };
+  }
+
+  return null;
+}
+
 async function runWithConcurrency(items, limit, worker) {
   if (!Array.isArray(items) || !items.length) return [];
   const safeLimit = Math.max(1, Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1);
@@ -219,77 +266,111 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
+export async function buildChatMessages(client, body) {
+  const payload = body && typeof body === "object" ? body : {};
+  const incoming = Array.isArray(payload.messages) ? payload.messages : [];
+  const rawAttachments = Array.isArray(payload.attachments)
+    ? payload.attachments
+    : [];
+
+  const attachments = rawAttachments.map((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new ChatRequestError(
+        `Attachment at index ${index} must be an object.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    const name =
+      typeof item.name === "string" && item.name.trim()
+        ? item.name.trim()
+        : `Attachment ${index + 1}`;
+    if (typeof item.text !== "string") {
+      throw new ChatRequestError(
+        `Attachment "${name}" is missing required text.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    const text = item.text.trim();
+    if (!text) {
+      throw new ChatRequestError(
+        `Attachment "${name}" must include non-empty text.`,
+        400,
+        "invalid_attachment"
+      );
+    }
+    return { name, text };
+  });
+
+  if (INVALID_CHAT_MODEL_PATTERN.test(CHAT_MODEL)) {
+    throw new ChatRequestError(
+      `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Use a non-realtime model.`,
+      400,
+      "invalid_model"
+    );
+  }
+
+  const attachmentSummaries = await Promise.all(
+    attachments.map((attachment) => summarizeText(client, attachment))
+  );
+
+  const attachmentsBlock = attachments
+    .map((att, index) => {
+      const summary = attachmentSummaries[index];
+      if (!summary) return "";
+      return `### ${att.name}\n${summary}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  const systemContent = attachmentsBlock
+    ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
+    : BASE_SYSTEM_PROMPT;
+
+  const system = {
+    role: "system",
+    content: systemContent,
+  };
+
+  const historyLimit = 17;
+  const trimmedIncoming = incoming.slice(-historyLimit);
+  const messages = [system, ...trimmedIncoming];
+
+  if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
+    const promptTokens = countTokens(messages, { model: CHAT_MODEL });
+    if (promptTokens > CHAT_PROMPT_TOKEN_LIMIT) {
+      throw new ChatRequestError(
+        `Message payload exceeds ${CHAT_PROMPT_TOKEN_LIMIT} token limit (approx ${promptTokens}).`,
+        400,
+        "prompt_too_large"
+      );
+    }
+  }
+
+  return { messages };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;
   }
   try {
-    const body = req.body || {};
-    // Expect: { messages: [{role, content}, ...], attachments?: [{ name, text }] }
-    const incoming = Array.isArray(body.messages) ? body.messages : [];
-    const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
-
-    const attachments = rawAttachments.map((item, index) => {
-      if (!item || typeof item !== "object") {
-        throw new Error(`Attachment at index ${index} must be an object.`);
-      }
-      const name = typeof item.name === "string" && item.name.trim()
-        ? item.name.trim()
-        : `Attachment ${index + 1}`;
-      if (typeof item.text !== "string") {
-        throw new Error(`Attachment "${name}" is missing required text.`);
-      }
-      const text = item.text.trim();
-      if (!text) {
-        throw new Error(`Attachment "${name}" must include non-empty text.`);
-      }
-      return { name, text };
-    });
-
-    if (INVALID_CHAT_MODEL_PATTERN.test(CHAT_MODEL)) {
-      res.status(400).json({
-        error: `Model "${CHAT_MODEL}" is incompatible with the chat endpoint. Use a non-realtime model.`,
-      });
-      return;
-    }
-
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const body = req.body || {};
 
-    const attachmentSummaries = await Promise.all(
-      attachments.map((attachment) => summarizeText(client, attachment))
-    );
-
-    const attachmentsBlock = attachments
-      .map((att, index) => {
-        const summary = attachmentSummaries[index];
-        if (!summary) return "";
-        return `### ${att.name}\n${summary}`;
-      })
-      .filter(Boolean)
-      .join("\n\n");
-
-    const systemContent = attachmentsBlock
-      ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
-      : BASE_SYSTEM_PROMPT;
-
-    const system = {
-      role: "system",
-      content: systemContent,
-    };
-
-    const historyLimit = 17; // keep total messages (including system) at roughly 18
-    const trimmedIncoming = incoming.slice(-historyLimit);
-    const messages = [system, ...trimmedIncoming];
-
-    if (CHAT_PROMPT_TOKEN_LIMIT > 0) {
-      const promptTokens = countTokens(messages, { model: CHAT_MODEL });
-      if (promptTokens > CHAT_PROMPT_TOKEN_LIMIT) {
-        res.status(400).json({
-          error: `Message payload exceeds ${CHAT_PROMPT_TOKEN_LIMIT} token limit (approx ${promptTokens}).`,
-        });
+    let messages;
+    try {
+      ({ messages } = await buildChatMessages(client, body));
+    } catch (prepErr) {
+      if (prepErr instanceof ChatRequestError) {
+        res
+          .status(prepErr.status)
+          .json({ error: prepErr.message, code: prepErr.code });
         return;
       }
+      throw prepErr;
     }
 
     let reply = "";
@@ -306,22 +387,9 @@ export default async function handler(req, res) {
         apiErr?.message ||
         "OpenAI request failed";
 
-      if (status === 400 || /model .*does not exist|unsupported|invalid/i.test(message)) {
-        res.status(400).json({
-          error: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
-        });
-        return;
-      }
-      if (status === 404) {
-        res.status(400).json({ error: `Model "${CHAT_MODEL}" not found for this key.` });
-        return;
-      }
-      if (status === 429) {
-        res.status(429).json({ error: "Rate limit reached. Please retry shortly." });
-        return;
-      }
-      if (status === 503) {
-        res.status(503).json({ error: "OpenAI service unavailable. Please retry shortly." });
+      const mapped = mapChatOpenAIError(status, message);
+      if (mapped) {
+        res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         return;
       }
 

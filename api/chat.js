@@ -18,12 +18,19 @@ export const config = {
   },
 };
 
-const envSizeLimit = process.env.CHAT_MAX_BODY;
+const runtimeEnv =
+  typeof process !== "undefined"
+    ? process.env ?? {}
+    : typeof globalThis !== "undefined" && globalThis.process?.env
+      ? globalThis.process.env
+      : {};
+
+const envSizeLimit = runtimeEnv.CHAT_MAX_BODY;
 if (typeof envSizeLimit === "string" && envSizeLimit.trim().length > 0) {
   config.api.bodyParser.sizeLimit = envSizeLimit;
 }
 
-const rawChatMaxDuration = process.env.CHAT_MAX_DURATION;
+const rawChatMaxDuration = runtimeEnv.CHAT_MAX_DURATION;
 const durationSource =
   typeof rawChatMaxDuration === "string" && rawChatMaxDuration.trim().length > 0
     ? rawChatMaxDuration
@@ -37,7 +44,7 @@ export const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
 export const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
 
 function resolveChatModel() {
-  const env = process?.env ?? {};
+  const env = runtimeEnv;
   const candidates = [
     env.chat_model,
     env.CHAT_MODEL,
@@ -70,14 +77,14 @@ function resolveChatModel() {
 
 export const CHAT_MODEL = resolveChatModel();
 const CHAT_PROMPT_TOKEN_LIMIT = parsePositiveInt(
-  process.env.CHAT_PROMPT_TOKEN_LIMIT,
+  runtimeEnv.CHAT_PROMPT_TOKEN_LIMIT,
   0
 );
-const ATTACHMENT_CHUNK_TOKENS = parsePositiveInt(process.env.ATTACHMENT_CHUNK_TOKENS, 700);
-const ATTACHMENT_SUMMARY_TOKENS = parsePositiveInt(process.env.ATTACHMENT_SUMMARY_TOKENS, 250);
-const ATTACHMENT_PARALLELISM = parsePositiveInt(process.env.ATTACHMENT_PARALLELISM, 3);
+const ATTACHMENT_CHUNK_TOKENS = parsePositiveInt(runtimeEnv.ATTACHMENT_CHUNK_TOKENS, 700);
+const ATTACHMENT_SUMMARY_TOKENS = parsePositiveInt(runtimeEnv.ATTACHMENT_SUMMARY_TOKENS, 250);
+const ATTACHMENT_PARALLELISM = parsePositiveInt(runtimeEnv.ATTACHMENT_PARALLELISM, 3);
 const SMALL_ATTACHMENTS_TOKEN_BUDGET = parsePositiveInt(
-  process.env.SMALL_ATTACHMENTS_TOKEN_BUDGET,
+  runtimeEnv.SMALL_ATTACHMENTS_TOKEN_BUDGET,
   1200
 );
 
@@ -357,7 +364,7 @@ export default async function handler(req, res) {
     return;
   }
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({ apiKey: runtimeEnv.OPENAI_API_KEY });
     const body = req.body || {};
 
     let messages;

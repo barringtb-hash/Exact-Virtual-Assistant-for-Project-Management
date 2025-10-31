@@ -1,3 +1,0 @@
-You are generating a Design & Development Plan (DDP) for a product team.
-Extract structured fields such as project_name, phases, requirements, and risks.
-Return valid JSON that matches the DDP schema.

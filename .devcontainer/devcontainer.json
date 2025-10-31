@@ -1,9 +1,0 @@
-{
-  "name": "EVSPM",
-  "postCreateCommand": "npm ci && bash scripts/install-cypress-deps.sh",
-  "customizations": {
-    "vscode": {
-      "extensions": ["ms-vscode.vscode-typescript-next"]
-    }
-  }
-}

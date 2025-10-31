@@ -1,4 +1,0 @@
-Project: Launch Initiative
-Sponsor: Casey Example
-Project Lead: Alex Example
-Timeline: 2024-03-15 to 2024-06-30

@@ -30,9 +30,6 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: Install Cypress system deps
-        run: bash scripts/install-cypress-deps.sh
-
       - name: Lint
         run: npm run lint --if-present
         env:
@@ -43,15 +40,12 @@ jobs:
         env:
           CI: true
 
-      - name: Build Vite app
-        run: npm run build
-
-      - name: Start preview on strict port
-        run: |
-          npm run preview -- --host --port 5173 --strictPort &
-          npx --yes wait-on http://127.0.0.1:5173
-
-      - name: Cypress E2E (headless via Xvfb)
-        run: xvfb-run -a npm run e2e:ci
+      - name: Cypress end-to-end tests
+        uses: cypress-io/github-action@v6
+        with:
+          build: npm run build
+          start: npm run preview -- --host --port 5173 --strictPort
+          wait-on: http://127.0.0.1:5173
+          browser: electron
         env:
           CI: true

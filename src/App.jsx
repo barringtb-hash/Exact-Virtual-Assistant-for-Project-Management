@@ -486,12 +486,16 @@ export default function ExactVirtualAssistantPM() {
   const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const [pendingIntentExtraction, setPendingIntentExtraction] = useState(null);
   const messagesRef = useRef(messages);
+  const attachmentsRef = useRef(attachments);
   const voiceTranscriptsRef = useRef(voiceTranscripts);
   const pendingIntentRef = useRef(null);
   const chatExtractionTimerRef = useRef(null);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
@@ -1066,6 +1070,9 @@ export default function ExactVirtualAssistantPM() {
         const latestMessages = Array.isArray(messagesRef.current)
           ? messagesRef.current
           : [];
+        const latestAttachments = Array.isArray(attachmentsRef.current)
+          ? attachmentsRef.current
+          : [];
         const latestVoice = Array.isArray(voiceTranscriptsRef.current)
           ? voiceTranscriptsRef.current
           : [];
@@ -1076,7 +1083,7 @@ export default function ExactVirtualAssistantPM() {
             docType: effectiveDocType,
             draft: latestDraft,
             messages: latestMessages,
-            attachments,
+            attachments: latestAttachments,
             voice: latestVoice,
             reason,
           });
@@ -1097,7 +1104,7 @@ export default function ExactVirtualAssistantPM() {
         }
       }, CHAT_EXTRACTION_DEBOUNCE_MS);
     },
-    [attachments, effectiveDocType, pushToast, triggerExtraction]
+    [effectiveDocType, pushToast, triggerExtraction]
   );
 
   const appendUserMessageToChat = useCallback((text) => {

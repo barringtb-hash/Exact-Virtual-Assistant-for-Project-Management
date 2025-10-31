@@ -611,7 +611,6 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [listening, setListening] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
@@ -1958,7 +1957,6 @@ const resolveDocTypeForManualSync = useCallback(
 
       recorder.onstop = async () => {
         try {
-          setIsTranscribing(true);
           const blob = new Blob(chunks, { type: recorder.mimeType || preferredMime || "audio/webm" });
           const audioBase64 = await blobToBase64(blob);
           const res = await fetch("/api/transcribe", {
@@ -1978,7 +1976,6 @@ const resolveDocTypeForManualSync = useCallback(
         } catch (error) {
           console.error("Transcription failed", error);
         } finally {
-          setIsTranscribing(false);
           if (stream) {
             stream.getTracks().forEach((track) => track.stop());
           }

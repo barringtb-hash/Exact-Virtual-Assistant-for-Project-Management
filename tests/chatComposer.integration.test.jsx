@@ -24,9 +24,11 @@ test("ChatComposer streams tokens into the transcript", async (t) => {
     };
   };
 
-  const restore = await t.mock.module("../src/chat/api.js", () => ({
-    openChatStreamFetch: mockStream,
-  }));
+  const apiModule = await import("../src/chat/api.js");
+  const streamMock = t.mock.method(apiModule, "openChatStreamFetch", mockStream);
+  t.after(() => {
+    streamMock.mock.restore();
+  });
 
   const { ChatComposer } = await import("../src/chat/ChatComposer.tsx");
   const { ChatTranscript } = await import("../src/chat/ChatTranscript.tsx");
@@ -72,7 +74,6 @@ test("ChatComposer streams tokens into the transcript", async (t) => {
 
   cleanup();
   cleanupDom();
-  restore();
 });
 
 test("ChatComposer onComplete callback receives merged history for extraction", async (t) => {
@@ -87,9 +88,11 @@ test("ChatComposer onComplete callback receives merged history for extraction", 
     return () => {};
   };
 
-  const restore = await t.mock.module("../src/chat/api.js", () => ({
-    openChatStreamFetch: mockStream,
-  }));
+  const apiModule = await import("../src/chat/api.js");
+  const streamMock = t.mock.method(apiModule, "openChatStreamFetch", mockStream);
+  t.after(() => {
+    streamMock.mock.restore();
+  });
 
   const { ChatComposer } = await import("../src/chat/ChatComposer.tsx");
   const { ChatProvider, useChatSession } = await import("../src/chat/ChatContext.tsx");
@@ -138,5 +141,4 @@ test("ChatComposer onComplete callback receives merged history for extraction", 
 
   cleanup();
   cleanupDom();
-  restore();
 });

@@ -22,12 +22,21 @@ import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import { isIntentOnlyExtractionEnabled } from "../config/featureFlags.js";
 import {
-  useDraftStore,
+  useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
   lockDraftPaths,
   resetDraftLocks,
   clearDraftHighlights,
 } from "./state/draftStore.js";
+import {
+  chatActions,
+  chatStoreApi,
+  useChatMessages,
+  useComposerDraft,
+  useIsStreaming,
+} from "./state/chatStore.ts";
+import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
+import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
 import {
   pathToPointer,
   pointerMapToPathMap,
@@ -421,6 +430,13 @@ const seedMessages = [
   },
 ];
 
+function createTempId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function ExactVirtualAssistantPM() {
   const initialDraftRef = useRef(null);
   const intentOnlyExtractionEnabled = INTENT_ONLY_EXTRACTION_ENABLED;
@@ -455,13 +471,15 @@ export default function ExactVirtualAssistantPM() {
     schema: activeDocSchema,
   } = useDocTemplate();
   const storedContextRef = useRef(readStoredSession());
-  const [messages, setMessages] = useState(() => {
-    const stored = storedContextRef.current;
-    if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
-      return stored.messages;
-    }
-    return seedMessages;
-  });
+  const chatHydratedRef = useRef(false);
+  const voiceHydratedRef = useRef(false);
+  const draftHydratedRef = useRef(false);
+  const messages = useChatMessages();
+  const composerDraft = useComposerDraft();
+  const isAssistantThinking = useIsStreaming();
+  const voiceStatus = useVoiceStatus();
+  const voiceTranscripts = useTranscript();
+  const listening = voiceStatus === "listening";
   const visibleMessages = useMemo(() => {
     if (!Array.isArray(messages)) {
       return [];
@@ -469,7 +487,6 @@ export default function ExactVirtualAssistantPM() {
 
     return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
   }, [messages]);
-  const [input, setInput] = useState("");
   const [files, setFiles] = useState(() => {
     const stored = storedContextRef.current;
     return restoreFilesFromStoredAttachments(stored?.attachments);
@@ -495,7 +512,6 @@ export default function ExactVirtualAssistantPM() {
     return [];
   });
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
-  const [voiceTranscripts, setVoiceTranscripts] = useState([]);
   const [pendingIntentExtraction, setPendingIntentExtraction] = useState(null);
   const messagesRef = useRef(messages);
   const attachmentsRef = useRef(attachments);
@@ -511,6 +527,44 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
+  const initialDraftValue = initialDraftRef.current;
+  useEffect(() => {
+    if (chatHydratedRef.current) {
+      return;
+    }
+    const stored = storedContextRef.current;
+    const storedMessages = Array.isArray(stored?.messages) ? stored.messages : null;
+    const baseMessages = storedMessages && storedMessages.length > 0 ? storedMessages : seedMessages;
+    const normalized = baseMessages.map((entry) => ({
+      id: String(entry?.id ?? createTempId()),
+      role: entry?.role === "assistant" || entry?.role === "system" ? entry.role : "user",
+      text:
+        typeof entry?.text === "string"
+          ? entry.text
+          : typeof entry?.content === "string"
+          ? entry.content
+          : "",
+      runId: typeof entry?.runId === "string" ? entry.runId : undefined,
+    }));
+    chatActions.hydrate(normalized);
+    chatHydratedRef.current = true;
+  }, []);
+  useEffect(() => {
+    if (voiceHydratedRef.current) {
+      return;
+    }
+    voiceActions.setTranscripts(Array.isArray(voiceTranscripts) ? voiceTranscripts : []);
+    voiceHydratedRef.current = true;
+  }, [voiceTranscripts]);
+  useEffect(() => {
+    if (draftHydratedRef.current) {
+      return;
+    }
+    if (initialDraftValue) {
+      draftActions.hydrate(initialDraftValue);
+      draftHydratedRef.current = true;
+    }
+  }, [initialDraftValue]);
   useEffect(() => {
     return () => {
       if (chatExtractionTimerRef.current) {
@@ -600,7 +654,8 @@ export default function ExactVirtualAssistantPM() {
   const requestDocType = previewDocType || defaultDocType || DEFAULT_DOC_TYPE;
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
-  const [charterPreview, setCharterPreview] = useState(initialDraftRef.current);
+  const draftState = useDraft();
+  const charterPreview = draftState ?? initialDraftRef.current;
   const [fieldStates, setFieldStates] = useState(() => {
     const draft = initialDraftRef.current;
     const paths = expandPathsWithAncestors(collectPaths(draft));
@@ -610,20 +665,21 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
-  const [listening, setListening] = useState(false);
   const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
-  const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
-  const draftSnapshot = useDraftStore();
-  const isDraftSyncing = draftSnapshot?.isSyncing ?? false;
+  const draftStatus = useDraftStatus();
+  const isDraftSyncing = draftStatus === "merging";
+  const legacyDraftSnapshot = useLegacyDraftStore();
   const pointerLocks =
-    draftSnapshot?.locks instanceof Map ? draftSnapshot.locks : new Map();
+    legacyDraftSnapshot?.locks instanceof Map ? legacyDraftSnapshot.locks : new Map();
   const pointerMetadata =
-    draftSnapshot?.metadataByPath instanceof Map ? draftSnapshot.metadataByPath : new Map();
+    legacyDraftSnapshot?.metadataByPath instanceof Map
+      ? legacyDraftSnapshot.metadataByPath
+      : new Map();
   const pointerHighlights =
-    draftSnapshot?.highlightedPaths instanceof Set
-      ? draftSnapshot.highlightedPaths
+    legacyDraftSnapshot?.highlightedPaths instanceof Set
+      ? legacyDraftSnapshot.highlightedPaths
       : new Set();
   const locks = useMemo(() => pointerMapToPathObject(pointerLocks), [pointerLocks]);
   const highlightedPaths = useMemo(
@@ -703,7 +759,7 @@ export default function ExactVirtualAssistantPM() {
       initialDraftRef.current = null;
       charterDraftRef.current = null;
       if (charterPreview !== null) {
-        setCharterPreview(null);
+        draftActions.resetDraft();
       }
       if (pointerLocksRef.current && pointerLocksRef.current.size > 0) {
         pointerLocksRef.current = new Map();
@@ -721,7 +777,7 @@ export default function ExactVirtualAssistantPM() {
     if (charterPreview === null) {
       const baseDraft = initialDraftRef.current ?? createBlankDraft();
       charterDraftRef.current = baseDraft;
-      setCharterPreview(baseDraft);
+      draftActions.setDraft(baseDraft);
       const touchedPaths = expandPathsWithAncestors(collectPaths(baseDraft));
       const now = Date.now();
       setFieldStates((prev) =>
@@ -818,7 +874,7 @@ export default function ExactVirtualAssistantPM() {
       });
 
       charterDraftRef.current = finalDraft;
-      setCharterPreview(finalDraft);
+      draftActions.setDraft(finalDraft);
 
       const timestamp =
         typeof mergedAt === "number" && !Number.isNaN(mergedAt) ? mergedAt : Date.now();
@@ -941,7 +997,7 @@ export default function ExactVirtualAssistantPM() {
       }
 
       charterDraftRef.current = draft;
-      setCharterPreview(draft);
+      draftActions.setDraft(draft);
 
       const touchedPaths = expandPathsWithAncestors(collectPaths(draft));
       const now = Date.now();
@@ -988,28 +1044,30 @@ export default function ExactVirtualAssistantPM() {
       const segments = path.split(".").filter(Boolean);
       if (segments.length === 0) return;
 
-      setCharterPreview((prev) => {
-        const base = prev ?? createBlankDraft();
-        const next = setNestedValue(base, segments, value);
-        charterDraftRef.current = next;
-        const touchedPaths = getPathsToUpdate(path);
-        const subtreeValue = getValueAtPath(next, segments);
-        if (typeof subtreeValue !== "undefined") {
-          walkDraft(subtreeValue, (subPath) => {
+      const base = draftStoreApi.getState().draft ?? createBlankDraft();
+      const next = setNestedValue(base, segments, value);
+      charterDraftRef.current = next;
+      const touchedPaths = getPathsToUpdate(path);
+      const subtreeValue = getValueAtPath(next, segments);
+      if (typeof subtreeValue !== "undefined") {
+        walkDraft(
+          subtreeValue,
+          (subPath) => {
             touchedPaths.add(subPath);
-          }, path);
-        }
-        const now = Date.now();
-        setFieldStates((prevStates) =>
-          synchronizeFieldStates(next, prevStates, {
-            touchedPaths,
-            source: "Manual",
-            timestamp: now,
-            locks: locksRef.current,
-          })
+          },
+          path,
         );
-        return next;
-      });
+      }
+      const now = Date.now();
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(next, prevStates, {
+          touchedPaths,
+          source: "Manual",
+          timestamp: now,
+          locks: locksRef.current,
+        }),
+      );
+      draftActions.setDraft(next);
     },
     [createBlankDraft, previewDocType]
   );
@@ -1112,7 +1170,7 @@ export default function ExactVirtualAssistantPM() {
   const appendAssistantMessage = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return;
-    setMessages((prev) => [
+    chatActions.setMessages((prev) => [
       ...prev,
       { id: Date.now() + Math.random(), role: "assistant", text: safeText },
     ]);
@@ -1174,7 +1232,7 @@ export default function ExactVirtualAssistantPM() {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return null;
     const entry = { id: Date.now() + Math.random(), role: "user", text: safeText };
-    setMessages((prev) => [...prev, entry]);
+    chatActions.setMessages((prev) => [...prev, entry]);
     return entry;
   }, []);
 
@@ -1970,7 +2028,10 @@ const resolveDocTypeForManualSync = useCallback(
           if (trimmedTranscript) {
             const handled = await handleCommandFromText(trimmedTranscript);
             if (!handled) {
-              setInput((prev) => (prev ? `${prev} ${trimmedTranscript}` : trimmedTranscript));
+              const currentDraft = chatStoreApi.getState().composerDraft;
+              chatActions.setComposerDraft(
+                currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
+              );
             }
           }
         } catch (error) {
@@ -1980,20 +2041,20 @@ const resolveDocTypeForManualSync = useCallback(
             stream.getTracks().forEach((track) => track.stop());
           }
           setRec(null);
-          setListening(false);
+          voiceActions.setStatus("idle");
         }
       };
 
       recorder.start();
       setRec(recorder);
-      setListening(true);
+      voiceActions.setStatus("listening");
     } catch (error) {
       console.error("Microphone access denied", error);
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
       setRec(null);
-      setListening(false);
+      voiceActions.setStatus("idle");
     }
   };
 
@@ -2006,7 +2067,7 @@ const resolveDocTypeForManualSync = useCallback(
       console.error("Error stopping recorder", error);
     } finally {
       setRec(null);
-      setListening(false);
+      voiceActions.setStatus("idle");
     }
   };
   const handleCommandFromText = useCallback(
@@ -2155,13 +2216,13 @@ const resolveDocTypeForManualSync = useCallback(
         : [];
       const nextVoice = [...baseVoice, entry].slice(-20);
       voiceTranscriptsRef.current = nextVoice;
-      setVoiceTranscripts(nextVoice);
+      voiceActions.setTranscripts(nextVoice);
 
       const userMsg = { id: Date.now() + Math.random(), role: "user", text: trimmed };
       const baseHistory = Array.isArray(messagesRef.current) ? messagesRef.current : [];
       const nextHistory = [...baseHistory, userMsg];
       messagesRef.current = nextHistory;
-      setMessages(nextHistory);
+      chatActions.setMessages(nextHistory);
 
       if (intentOnlyExtractionEnabled) {
         const intent = detectCharterIntent(trimmed);
@@ -2185,20 +2246,18 @@ const resolveDocTypeForManualSync = useCallback(
       attemptIntentExtraction,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
-      setMessages,
-      setVoiceTranscripts,
+      chatActions,
     ]
   );
 
   const handleSend = async () => {
-    const text = input.trim();
+    const text = composerDraft.trim();
     if (!text) return;
     if (isAssistantThinking) return;
-    const userMsg = { id: Date.now() + Math.random(), role: "user", text };
-    const nextHistory = [...messages, userMsg];
-    setMessages(nextHistory);
+    chatActions.pushUser(text);
+    const nextHistory = chatStoreApi.getState().messages;
     messagesRef.current = nextHistory;
-    setInput("");
+    chatActions.clearComposerDraft();
 
     if (intentOnlyExtractionEnabled) {
       const intent = detectCharterIntent(text);
@@ -2218,15 +2277,17 @@ const resolveDocTypeForManualSync = useCallback(
       return;
     }
     let reply = "";
-    setIsAssistantThinking(true);
+    const runId = createTempId();
+    chatActions.lockField("composer");
+    chatActions.startAssistant(runId);
     try {
       reply = await callLLM(text, nextHistory, attachments);
     } catch (e) {
       reply = "LLM error (demo): " + (e?.message || "unknown");
     } finally {
-      setIsAssistantThinking(false);
+      chatActions.unlockField("composer");
     }
-    appendAssistantMessage(reply || "");
+    chatActions.endAssistant(runId, reply || "");
     scheduleChatPreviewSync({ reason: "chat-completion" });
   };
 
@@ -2270,7 +2331,7 @@ const resolveDocTypeForManualSync = useCallback(
 
             if (!response.ok || payload?.ok === false) {
               const message = payload?.error || `Unable to process ${file.name}`;
-              setMessages((prev) => [
+              chatActions.setMessages((prev) => [
                 ...prev,
                 {
                   id: Date.now() + Math.random(),
@@ -2289,7 +2350,7 @@ const resolveDocTypeForManualSync = useCallback(
           } catch (error) {
             const message = error?.message || "Unknown error";
             console.error("processPickedFiles error", error);
-            setMessages((prev) => [
+            chatActions.setMessages((prev) => [
               ...prev,
               {
                 id: Date.now() + Math.random(),
@@ -2341,7 +2402,6 @@ const resolveDocTypeForManualSync = useCallback(
       setFiles,
       setExtractionSeed,
       setIsUploadingAttachments,
-      setMessages,
       setShowDocTypeModal,
       voiceTranscripts,
     ]
@@ -2556,14 +2616,10 @@ const resolveDocTypeForManualSync = useCallback(
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
                   <Composer
-                    draft={input}
-                    onDraftChange={setInput}
                     onSend={handleSend}
                     onUploadClick={() => fileInputRef.current?.click()}
                     onStartRecording={!realtimeEnabled ? startRecording : undefined}
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
-                    recording={listening}
-                    sendDisabled={isAssistantThinking}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}

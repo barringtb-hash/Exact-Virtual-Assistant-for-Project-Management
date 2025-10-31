@@ -37,6 +37,6 @@ jobs:
         run: npx wait-on http://localhost:5173
 
       - name: Cypress end-to-end tests
-        run: npm run e2e:ci -
+        run: npm run e2e:ci
         env:
           CI: true

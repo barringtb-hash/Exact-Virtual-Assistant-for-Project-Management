@@ -392,130 +392,145 @@ function handleOpenAIEvent(rawEvent, useResponses, send, status) {
   }
 }
 
-async function streamFromOpenAI({ apiKey, messages, signal, send }) {
+async function streamFromOpenAI({ client, messages, signal, send }) {
   const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-  const endpoint = useResponses
-    ? "https://api.openai.com/v1/responses"
-    : "https://api.openai.com/v1/chat/completions";
-  const payload = useResponses
-    ? {
-        model: CHAT_MODEL,
-        temperature: 0.3,
-        input: formatMessagesForResponses(messages),
-        stream: true,
+
+  const firstNonEmpty = (...candidates) => {
+    for (const value of candidates) {
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
       }
-    : {
+    }
+    return "";
+  };
+
+  try {
+    if (useResponses) {
+      const stream = await client.responses.create(
+        {
+          model: CHAT_MODEL,
+          temperature: 0.3,
+          input: formatMessagesForResponses(messages),
+          stream: true,
+        },
+        { signal }
+      );
+
+      for await (const event of stream) {
+        if (!event) continue;
+
+        if (event.type === "response.output_text.delta") {
+          const delta = firstNonEmpty(event.delta);
+          if (delta) {
+            send("token", { delta });
+          }
+          continue;
+        }
+
+        if (event.type === "response.completed") {
+          return;
+        }
+
+        if (event.type === "error") {
+          const message = firstNonEmpty(
+            event.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(event.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.failed") {
+          const errorInfo = event.response?.error;
+          const message = firstNonEmpty(
+            errorInfo?.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(errorInfo?.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.incomplete") {
+          const reason = firstNonEmpty(event.response?.incomplete_details?.reason);
+          const message =
+            reason === "max_output_tokens"
+              ? "OpenAI stopped early because max_output_tokens was reached."
+              : reason === "content_filter"
+                ? "OpenAI stopped the response due to content filtering."
+                : "OpenAI response ended prematurely.";
+          const code = reason || "openai_incomplete";
+          throw new OpenAIStreamError(message, 500, code);
+        }
+      }
+
+      return;
+    }
+
+    const stream = await client.chat.completions.create(
+      {
         model: CHAT_MODEL,
         temperature: 0.3,
         messages,
         stream: true,
-      };
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  if (!response.ok) {
-    let message = `OpenAI request failed (${response.status})`;
-    let code = "openai_error";
-    try {
-      const raw = await response.json();
-      const errorMessage = raw?.error?.message;
-      const errorCode = raw?.error?.code;
-      if (typeof errorMessage === "string" && errorMessage.trim()) {
-        message = errorMessage.trim();
-      }
-      if (typeof errorCode === "string" && errorCode.trim()) {
-        code = errorCode.trim();
-      }
-    } catch {
-      // ignore JSON parsing failures
-    }
-    throw new OpenAIStreamError(message, response.status, code);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new OpenAIStreamError(
-      "OpenAI response missing body",
-      response.status,
-      "empty_response"
+      },
+      { signal }
     );
-  }
 
-  const decoder = new TextDecoder();
-  let buffer = "";
+    for await (const chunk of stream) {
+      const choices = chunk?.choices;
+      if (!Array.isArray(choices)) continue;
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
-
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const rawEvent = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      let outcome;
-      try {
-        outcome = handleOpenAIEvent(
-          rawEvent,
-          useResponses,
-          send,
-          response.status
-        );
-      } catch (error) {
-        try {
-          await reader.cancel(error);
-        } catch {
-          // ignore reader cancellation failures
+      for (const choice of choices) {
+        const text = extractDeltaFromChoice(choice);
+        if (typeof text === "string" && text) {
+          send("token", { delta: text });
         }
-        throw error;
-      }
-      if (outcome === "done") {
-        try {
-          await reader.cancel();
-        } catch {
-          // ignore reader cancellation failures
+        if (choice?.finish_reason === "stop") {
+          return;
         }
-        return;
       }
-      boundary = buffer.indexOf("\n\n");
     }
-  }
-
-  if (buffer.trim()) {
-    let outcome;
-    try {
-      outcome = handleOpenAIEvent(
-        buffer,
-        useResponses,
-        send,
-        response.status
-      );
-    } catch (error) {
-      try {
-        await reader.cancel(error);
-      } catch {
-        // ignore reader cancellation failures
-      }
+  } catch (error) {
+    if (signal?.aborted && error?.name === "AbortError") {
       throw error;
     }
-    if (outcome === "done") {
-      try {
-        await reader.cancel();
-      } catch {
-        // ignore reader cancellation failures
-      }
-      return;
+
+    if (error instanceof OpenAIStreamError) {
+      throw error;
     }
+
+    const status = (() => {
+      if (Number.isFinite(error?.status) && error.status > 0) {
+        return error.status;
+      }
+      if (Number.isFinite(error?.statusCode) && error.statusCode > 0) {
+        return error.statusCode;
+      }
+      if (Number.isFinite(error?.response?.status) && error.response.status > 0) {
+        return error.response.status;
+      }
+      return 500;
+    })();
+
+    const message =
+      firstNonEmpty(
+        error?.error?.message,
+        error?.response?.error?.message,
+        error?.message,
+        "OpenAI request failed"
+      ) || "OpenAI request failed";
+
+    const code =
+      firstNonEmpty(
+        error?.error?.code,
+        error?.response?.error?.code,
+        error?.code,
+        "openai_error"
+      ) || "openai_error";
+
+    throw new OpenAIStreamError(message, status, code);
   }
 }
 
@@ -809,7 +824,7 @@ export default async function handler(req, res) {
 
       try {
         await streamFromOpenAI({
-          apiKey,
+          client,
           messages,
           signal: abortController.signal,
           send,

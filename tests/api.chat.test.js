@@ -109,29 +109,28 @@ test("/api/chat returns JSON reply when stream disabled", async () => {
 test("/api/chat streams token events when stream is true", async () => {
   class MockOpenAI {
     constructor() {
-      this.chat = { completions: { create: async () => ({}) } };
+      this.chat = {
+        completions: {
+          create: async () => ({
+            async *[Symbol.asyncIterator]() {
+              yield { choices: [{ delta: { content: "Hello" } }] };
+              yield {
+                choices: [
+                  {
+                    delta: { content: " world" },
+                    finish_reason: "stop",
+                  },
+                ],
+              };
+            },
+          }),
+        },
+      };
       this.responses = { create: async () => ({}) };
     }
   }
 
   __setOpenAIClient(MockOpenAI);
-
-  const encoder = new TextEncoder();
-  globalThis.fetch = async () => {
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(
-          encoder.encode('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n')
-        );
-        controller.enqueue(
-          encoder.encode('data: {"choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}\n\n')
-        );
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
-      },
-    });
-    return new Response(stream, { status: 200 });
-  };
 
   const req = createStreamingRequest({
     stream: true,
@@ -154,48 +153,61 @@ test("/api/chat streams token events when stream is true", async () => {
 });
 
 test("/api/chat aborts previous stream for matching thread", async () => {
+  let callCount = 0;
+  let firstStreamSignal;
+  let firstStreamStartedResolve;
+  const firstStreamStarted = new Promise((resolve) => {
+    firstStreamStartedResolve = resolve;
+  });
+
   class MockOpenAI {
     constructor() {
-      this.chat = { completions: { create: async () => ({}) } };
+      this.chat = {
+        completions: {
+          create: async (_payload, options) => {
+            callCount += 1;
+            if (callCount === 1) {
+              firstStreamSignal = options?.signal;
+              firstStreamStartedResolve?.();
+              return {
+                async *[Symbol.asyncIterator]() {
+                  await new Promise((_, reject) => {
+                    const signal = firstStreamSignal;
+                    const abortHandler = () => {
+                      const abortError = new Error("Aborted");
+                      abortError.name = "AbortError";
+                      reject(abortError);
+                    };
+                    if (signal?.aborted) {
+                      abortHandler();
+                      return;
+                    }
+                    signal?.addEventListener("abort", abortHandler, { once: true });
+                  });
+                },
+              };
+            }
+
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    {
+                      delta: { content: "Second" },
+                      finish_reason: "stop",
+                    },
+                  ],
+                };
+              },
+            };
+          },
+        },
+      };
       this.responses = { create: async () => ({}) };
     }
   }
 
   __setOpenAIClient(MockOpenAI);
-
-  const encoder = new TextEncoder();
-  let callCount = 0;
-  let firstFetchStartedResolve;
-  const firstFetchStarted = new Promise((resolve) => {
-    firstFetchStartedResolve = resolve;
-  });
-  globalThis.fetch = async (_, options) => {
-    callCount += 1;
-    if (callCount === 1) {
-      firstFetchStartedResolve?.();
-      const stream = new ReadableStream({
-        start(controller) {
-          options.signal.addEventListener("abort", () => {
-            try {
-              controller.close();
-            } catch {}
-          });
-        },
-      });
-      return new Response(stream, { status: 200 });
-    }
-
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(
-          encoder.encode('data: {"choices":[{"delta":{"content":"Second"},"finish_reason":"stop"}]}\n\n')
-        );
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
-      },
-    });
-    return new Response(stream, { status: 200 });
-  };
 
   const firstReq = createStreamingRequest({
     stream: true,
@@ -206,7 +218,7 @@ test("/api/chat aborts previous stream for matching thread", async () => {
   const firstRes = createStreamingResponse();
 
   const firstPromise = handler(firstReq, firstRes);
-  await firstFetchStarted;
+  await firstStreamStarted;
 
   const secondReq = createStreamingRequest({
     stream: true,

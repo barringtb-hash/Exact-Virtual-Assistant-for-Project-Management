@@ -33,7 +33,9 @@ import {
   chatStoreApi,
   useChatMessages,
   useComposerDraft,
+  useIsAssistantThinking,
   useIsStreaming,
+  useIsSyncingPreview,
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
@@ -476,7 +478,9 @@ export default function ExactVirtualAssistantPM() {
   const draftHydratedRef = useRef(false);
   const messages = useChatMessages();
   const composerDraft = useComposerDraft();
-  const isAssistantThinking = useIsStreaming();
+  const isAssistantThinking = useIsAssistantThinking();
+  const isAssistantStreaming = useIsStreaming();
+  const isSyncingPreviewFlag = useIsSyncingPreview();
   const voiceStatus = useVoiceStatus();
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
@@ -487,6 +491,11 @@ export default function ExactVirtualAssistantPM() {
 
     return messages.filter((entry) => entry.role === "user" || entry.role === "assistant");
   }, [messages]);
+  const assistantActivityStatus = isAssistantThinking
+    ? "thinking"
+    : isAssistantStreaming
+    ? "streaming"
+    : null;
   const [files, setFiles] = useState(() => {
     const stored = storedContextRef.current;
     return restoreFilesFromStoredAttachments(stored?.attachments);
@@ -670,6 +679,7 @@ export default function ExactVirtualAssistantPM() {
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
+  const isPreviewSyncing = isSyncingPreviewFlag || isDraftSyncing;
   const legacyDraftSnapshot = useLegacyDraftStore();
   const pointerLocks =
     legacyDraftSnapshot?.locks instanceof Map ? legacyDraftSnapshot.locks : new Map();
@@ -976,7 +986,7 @@ export default function ExactVirtualAssistantPM() {
     }
     setShowDocTypeModal(true);
   }, [docRouterEnabled, hasConfirmedDocType, canSyncNow]);
-  const isCharterSyncInFlight = isExtracting || isCharterSyncing || isDraftSyncing;
+  const isCharterSyncInFlight = isExtracting || isCharterSyncing || isPreviewSyncing;
   const activeCharterError = charterSyncError || extractError;
 
   const applyCharterDraft = useCallback(
@@ -1118,7 +1128,7 @@ export default function ExactVirtualAssistantPM() {
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages, isAssistantThinking]);
+  }, [messages, isAssistantThinking, isAssistantStreaming]);
 
   const handleThemeModeChange = (value) => {
     if (value === "light" || value === "dark" || value === "auto") {
@@ -1199,6 +1209,7 @@ export default function ExactVirtualAssistantPM() {
           : [];
         const latestDraft = charterDraftRef.current;
 
+        chatActions.setSyncingPreview(true);
         try {
           const result = await triggerExtraction({
             docType: effectiveDocType,
@@ -1222,6 +1233,8 @@ export default function ExactVirtualAssistantPM() {
             tone: "error",
             message: "Unable to update the preview from the latest chat turn.",
           });
+        } finally {
+          chatActions.setSyncingPreview(false);
         }
       }, CHAT_EXTRACTION_DEBOUNCE_MS);
     },
@@ -2288,7 +2301,7 @@ const resolveDocTypeForManualSync = useCallback(
   const handleSend = async () => {
     const text = composerDraft.trim();
     if (!text) return;
-    if (isAssistantThinking) return;
+    if (isAssistantThinking || isAssistantStreaming) return;
     chatActions.clearComposerDraft();
     await submitChatTurn(text, { source: "composer" });
   };
@@ -2610,9 +2623,9 @@ const resolveDocTypeForManualSync = useCallback(
                     />
                   ))}
                 </div>
-                {isAssistantThinking && (
+                {assistantActivityStatus && (
                   <div className="px-4 pb-2">
-                    <AssistantThinkingIndicator />
+                    <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
@@ -2639,7 +2652,7 @@ const resolveDocTypeForManualSync = useCallback(
                       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
                     ) : null}
                   </Composer>
-                  {isDraftSyncing ? (
+                  {isPreviewSyncing ? (
                     <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
                       <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />
                       Updating preview…
@@ -2750,7 +2763,7 @@ const resolveDocTypeForManualSync = useCallback(
                   />
                 )}
               </div>
-              {isDraftSyncing ? (
+              {isPreviewSyncing ? (
                 <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
                   <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />
                   Updating preview…
@@ -2938,7 +2951,8 @@ function Panel({ title, icon, right, children }) {
   );
 }
 
-function AssistantThinkingIndicator() {
+function AssistantThinkingIndicator({ status = "thinking" }) {
+  const label = status === "streaming" ? "Assistant is responding…" : "Assistant is thinking…";
   return (
     <div className="flex justify-start">
       <div className="flex items-center gap-2 rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/70 dark:text-slate-200">
@@ -2946,7 +2960,7 @@ function AssistantThinkingIndicator() {
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400/80 opacity-75" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
         </span>
-        <span className="font-medium">Assistant is thinking…</span>
+        <span className="font-medium">{label}</span>
       </div>
     </div>
   );

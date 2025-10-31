@@ -12,6 +12,8 @@ export interface Message {
 type ChatState = {
   messages: Message[];
   isStreaming: boolean;
+  isAssistantThinking: boolean;
+  isSyncingPreview: boolean;
   inputLocked: boolean;
   activeRunId?: string;
   composerDraft: string;
@@ -29,6 +31,8 @@ function createId() {
 const chatStore = createStore<ChatState>({
   messages: [],
   isStreaming: false,
+  isAssistantThinking: false,
+  isSyncingPreview: false,
   inputLocked: false,
   activeRunId: undefined,
   composerDraft: "",
@@ -46,6 +50,8 @@ export const chatActions = {
     chatStore.setState({
       messages: [],
       isStreaming: false,
+      isAssistantThinking: false,
+      isSyncingPreview: false,
       inputLocked: false,
       activeRunId: undefined,
     });
@@ -64,12 +70,18 @@ export const chatActions = {
   startAssistant(runId: string) {
     const assistantId = runId || createId();
     chatStore.setState({
-      isStreaming: true,
+      isStreaming: false,
+      isAssistantThinking: true,
       activeRunId: assistantId,
     });
     updateMessages((prev) => [
       ...prev,
-      { id: assistantId, role: "assistant", text: "", runId: assistantId },
+      {
+        id: assistantId,
+        role: "assistant",
+        text: "",
+        runId: assistantId,
+      },
     ]);
   },
   appendAssistant(runId: string, delta: string) {
@@ -77,6 +89,10 @@ export const chatActions = {
       return;
     }
     const fragment = delta;
+    chatStore.setState({
+      isAssistantThinking: false,
+      isStreaming: true,
+    });
     updateMessages((prev) =>
       prev.map((message) =>
         message.runId === runId
@@ -89,6 +105,7 @@ export const chatActions = {
     const resolvedRunId = runId || chatStore.getState().activeRunId;
     chatStore.setState({
       isStreaming: false,
+      isAssistantThinking: false,
       activeRunId: undefined,
     });
     if (!resolvedRunId) {
@@ -101,6 +118,9 @@ export const chatActions = {
           : message,
       ),
     );
+  },
+  setAssistantThinking(value: boolean) {
+    chatStore.setState({ isAssistantThinking: value });
   },
   lockField(field: "composer") {
     if (field === "composer") {
@@ -118,6 +138,9 @@ export const chatActions = {
   clearComposerDraft() {
     chatStore.setState({ composerDraft: "" });
   },
+  setSyncingPreview(value: boolean) {
+    chatStore.setState({ isSyncingPreview: value });
+  },
   setMessages(updater: MessageUpdater | Message[]) {
     if (typeof updater === "function") {
       updateMessages(updater as MessageUpdater);
@@ -129,8 +152,12 @@ export const chatActions = {
 
 export const useChatMessages = () => useStore(chatStore, (state) => state.messages);
 export const useIsStreaming = () => useStore(chatStore, (state) => state.isStreaming);
+export const useIsAssistantThinking = () =>
+  useStore(chatStore, (state) => state.isAssistantThinking);
 export const useInputLocked = () => useStore(chatStore, (state) => state.inputLocked);
 export const useComposerDraft = () => useStore(chatStore, (state) => state.composerDraft);
 export const useActiveRunId = () => useStore(chatStore, (state) => state.activeRunId);
+export const useIsSyncingPreview = () =>
+  useStore(chatStore, (state) => state.isSyncingPreview);
 
 export const chatStoreApi = chatStore;

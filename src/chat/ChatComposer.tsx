@@ -85,6 +85,11 @@ interface StreamHandle {
   cancel: (reason?: string) => void;
 }
 
+interface PendingRequest {
+  body: Record<string, unknown>;
+  onStreamError: (error: Error) => void;
+}
+
 function useActiveStream() {
   const activeAssistantIdRef = useRef<string | null>(null);
   const handleRef = useRef<StreamHandle | null>(null);
@@ -140,7 +145,10 @@ export function ChatComposer({
   const { appendMessage, updateMessage, getMessages } = useChatSession();
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const hasReceivedFirstTokenRef = useRef(false);
+  const pendingRequestsRef = useRef<Map<string, PendingRequest>>(new Map());
 
   const streamState = useActiveStream();
 
@@ -162,6 +170,11 @@ export function ChatComposer({
   const handleToken = useCallback(
     (assistantId: string, token: string) => {
       if (!token) return;
+      if (!hasReceivedFirstTokenRef.current) {
+        hasReceivedFirstTokenRef.current = true;
+        setIsAssistantThinking(false);
+        setIsStreaming(true);
+      }
       updateMessage(assistantId, (message) => ({
         ...message,
         content: message.content + token,
@@ -174,10 +187,14 @@ export function ChatComposer({
     (assistantId: string, updater?: (message: ChatMessage) => ChatMessage) => {
       let finalMessage: ChatMessage | null = null;
       setIsStreaming(false);
+      setIsAssistantThinking(false);
+      hasReceivedFirstTokenRef.current = false;
       updateMessage(assistantId, (message) => {
         const base: ChatMessage = {
           ...message,
           pending: false,
+          retryable: false,
+          onRetry: null,
         };
         const next = updater ? updater(base) : base;
         finalMessage = next;
@@ -195,6 +212,10 @@ export function ChatComposer({
       { onStreamError }: { onStreamError: (error: Error) => void },
     ) => {
       const controller = new AbortController();
+      pendingRequestsRef.current.set(assistantId, { body, onStreamError });
+      hasReceivedFirstTokenRef.current = false;
+      setIsAssistantThinking(true);
+      setIsStreaming(false);
       const dispose = openChatStreamFetch(apiPath, {
         signal: controller.signal,
         requestInit: {
@@ -204,12 +225,12 @@ export function ChatComposer({
           body: JSON.stringify(body),
         },
         onOpen: () => {
-          setIsStreaming(true);
           onStreamStart?.();
         },
         onToken: (token) => handleToken(assistantId, token),
         onComplete: () => {
           const completed = finalizeAssistantMessage(assistantId);
+          pendingRequestsRef.current.delete(assistantId);
           streamState.setHandle(null);
           streamState.setActiveAssistantId(null);
           dispose();
@@ -221,6 +242,26 @@ export function ChatComposer({
           finalizeAssistantMessage(assistantId, (message) => ({
             ...message,
             error: error.message,
+            retryable: true,
+            onRetry: () => {
+              const pending = pendingRequestsRef.current.get(assistantId);
+              if (!pending) {
+                return;
+              }
+              streamState.setActiveAssistantId(assistantId);
+              hasReceivedFirstTokenRef.current = false;
+              updateMessage(assistantId, (current) => ({
+                ...current,
+                content: "",
+                pending: true,
+                error: null,
+                retryable: false,
+                onRetry: null,
+              }));
+              setIsAssistantThinking(true);
+              setIsStreaming(false);
+              startStream(assistantId, pending.body, { onStreamError: pending.onStreamError });
+            },
           }));
           streamState.setHandle(null);
           streamState.setActiveAssistantId(null);
@@ -239,6 +280,11 @@ export function ChatComposer({
         }
         dispose();
         streamState.setHandle(null);
+        streamState.setActiveAssistantId(null);
+        pendingRequestsRef.current.delete(assistantId);
+        setIsAssistantThinking(false);
+        setIsStreaming(false);
+        hasReceivedFirstTokenRef.current = false;
       };
 
       streamState.setHandle({ cancel });
@@ -251,6 +297,7 @@ export function ChatComposer({
       onStreamStart,
       requestInit,
       streamState,
+      updateMessage,
     ],
   );
 
@@ -273,9 +320,13 @@ export function ChatComposer({
 
       const activeAssistantId = streamState.getActiveAssistantId();
       const cancelledId = streamState.cancelActiveStream("replaced");
+      if (cancelledId) {
+        pendingRequestsRef.current.delete(cancelledId);
+      }
       const assistantToFinalize = cancelledId || activeAssistantId;
       if (assistantToFinalize) {
         finalizeAssistantMessage(assistantToFinalize);
+        pendingRequestsRef.current.delete(assistantToFinalize);
       }
 
       appendMessage(userMessage);
@@ -288,6 +339,8 @@ export function ChatComposer({
         content: "",
         pending: true,
         error: null,
+        retryable: false,
+        onRetry: null,
       });
 
       resetDraft();
@@ -348,8 +401,9 @@ export function ChatComposer({
     <form
       className={className}
       onSubmit={handleSubmit}
-      aria-busy={isStreaming}
+      aria-busy={isAssistantThinking || isStreaming}
       data-streaming={isStreaming || undefined}
+      data-thinking={isAssistantThinking || undefined}
     >
       <input
         ref={inputRef}
@@ -362,7 +416,11 @@ export function ChatComposer({
         className="eva-chat-composer-input"
         aria-label="Chat composer"
       />
-      <button type="submit" disabled={disabled} className="eva-chat-composer-send">
+      <button
+        type="submit"
+        disabled={disabled || isAssistantThinking || isStreaming}
+        className="eva-chat-composer-send"
+      >
         Send
       </button>
     </form>

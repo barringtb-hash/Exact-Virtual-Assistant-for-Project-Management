@@ -8,6 +8,8 @@ export interface ChatMessage {
   content: string;
   pending?: boolean;
   error?: string | null;
+  retryable?: boolean;
+  onRetry?: (() => void) | null;
 }
 
 interface AppendAction {

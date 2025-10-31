@@ -4,6 +4,7 @@ import {
   chatActions,
   useComposerDraft,
   useInputLocked,
+  useIsAssistantThinking,
   useIsStreaming,
 } from "../state/chatStore.ts";
 import { useVoiceStatus } from "../state/voiceStore.ts";
@@ -91,12 +92,14 @@ const Composer: React.FC<ComposerProps> = ({
   const textareaId = useId();
   const { previewDocTypeLabel } = useDocType();
   const draft = useComposerDraft();
+  const isAssistantThinking = useIsAssistantThinking();
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
   const voiceStatus = useVoiceStatus();
   const recording =
     typeof recordingOverride === "boolean" ? recordingOverride : voiceStatus === "listening";
-  const resolvedSendDisabled = sendDisabled || isStreaming || inputLocked;
+  const resolvedSendDisabled =
+    sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
 
   const adjustTextareaHeight = useCallback(() => {

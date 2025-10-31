@@ -12,6 +12,21 @@ export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
 type RtcState = "idle" | "connecting" | "live" | "error";
 
+type VoiceStatus = "ready" | "recording" | "processing" | "error";
+
+const voiceStatusLabel = (status: VoiceStatus): string => {
+  switch (status) {
+    case "recording":
+      return "Recording…";
+    case "processing":
+      return "Processing audio…";
+    case "error":
+      return "Voice connection error";
+    default:
+      return "Ready";
+  }
+};
+
 export interface ComposerProps {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -21,7 +36,6 @@ export interface ComposerProps {
   onStartRecording?: () => void;
   onStopRecording?: () => void;
   recording?: boolean;
-  statusText?: string | null;
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
@@ -30,7 +44,6 @@ export interface ComposerProps {
   rtcState?: RtcState;
   startRealtime?: () => void;
   stopRealtime?: () => void;
-  rtcStatusLabel?: string;
   rtcReset?: () => void;
   placeholder?: string;
   onDrop?: React.DragEventHandler<HTMLTextAreaElement>;
@@ -61,7 +74,6 @@ const Composer: React.FC<ComposerProps> = ({
   onStartRecording,
   onStopRecording,
   recording = false,
-  statusText,
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
@@ -70,7 +82,6 @@ const Composer: React.FC<ComposerProps> = ({
   rtcState = "idle",
   startRealtime,
   stopRealtime,
-  rtcStatusLabel,
   rtcReset,
   placeholder,
   onDrop,
@@ -155,6 +166,25 @@ const Composer: React.FC<ComposerProps> = ({
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
     : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
 
+  const realtimeVoiceStatus: VoiceStatus = useMemo(() => {
+    if (rtcState === "live") return "recording";
+    if (rtcState === "connecting") return "processing";
+    if (rtcState === "error") return "error";
+    return "ready";
+  }, [rtcState]);
+
+  const realtimeAriaLabel = useMemo(
+    () => voiceStatusLabel(realtimeVoiceStatus),
+    [realtimeVoiceStatus]
+  );
+
+  const recordingAriaLabel = useMemo(
+    () => voiceStatusLabel(recording ? "recording" : "ready"),
+    [recording]
+  );
+
+  const liveVoiceLabel = realtimeEnabled ? realtimeAriaLabel : recordingAriaLabel;
+
   return (
     <div className="sticky bottom-0 left-0 right-0">
       <div className="rounded-3xl border border-white/60 bg-white/80 px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300 dark:border-slate-700/60 dark:bg-slate-900/50 dark:focus-within:ring-indigo-500">
@@ -197,14 +227,10 @@ const Composer: React.FC<ComposerProps> = ({
                   disabled={!startRealtime && !stopRealtime}
                   className={`shrink-0 rounded-xl border p-2 transition ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
+                  aria-label={realtimeAriaLabel}
                 >
                   <IconMic className="h-5 w-5" />
                 </button>
-                <span
-                  className={`text-xs font-medium px-2 py-1 rounded-lg border ${rtcStateClasses[rtcState]}`}
-                >
-                  {rtcStatusLabel || "Idle"}
-                </span>
                 {rtcState !== "idle" && (
                   <button
                     type="button"
@@ -227,6 +253,7 @@ const Composer: React.FC<ComposerProps> = ({
                     : micButtonClasses
                 }`}
                 title={recording ? "Stop recording" : "Voice input (mock)"}
+                aria-label={recordingAriaLabel}
               >
                 <IconMic className="h-5 w-5" />
               </button>
@@ -248,11 +275,9 @@ const Composer: React.FC<ComposerProps> = ({
             </button>
           </div>
         </div>
-        {statusText ? (
-          <div className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
-            {statusText}
-          </div>
-        ) : null}
+        <span className="sr-only" aria-live="polite">
+          {liveVoiceLabel}
+        </span>
       </div>
     </div>
   );

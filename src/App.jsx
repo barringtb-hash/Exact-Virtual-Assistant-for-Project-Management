@@ -1110,13 +1110,6 @@ export default function ExactVirtualAssistantPM() {
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
 
-  const rtcStateToLabel = {
-    idle: "Idle",
-    connecting: "Connecting",
-    live: "Live",
-    error: "Error",
-  };
-
   const appendAssistantMessage = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return;
@@ -2430,35 +2423,6 @@ const resolveDocTypeForManualSync = useCallback(
     }
   };
 
-  const composerStatus = useMemo(() => {
-    if (isUploadingAttachments) {
-      return "Processing attachments…";
-    }
-    if (isTranscribing) {
-      return "Transcribing…";
-    }
-    if (listening) {
-      return "Recording…";
-    }
-    if (isAssistantThinking) {
-      return "Assistant is responding…";
-    }
-    if (isDraftSyncing) {
-      return "Updating preview…";
-    }
-    if (isCharterSyncInFlight) {
-      return `Syncing ${docPreviewLabel}…`;
-    }
-    return "Idle";
-  }, [
-    isAssistantThinking,
-    isDraftSyncing,
-    isCharterSyncInFlight,
-    isTranscribing,
-    isUploadingAttachments,
-    listening,
-  ]);
-
   const handleComposerDrop = async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2602,14 +2566,12 @@ const resolveDocTypeForManualSync = useCallback(
                     onStartRecording={!realtimeEnabled ? startRecording : undefined}
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
                     recording={listening}
-                    statusText={composerStatus}
                     sendDisabled={isAssistantThinking}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}
                     startRealtime={startRealtime}
                     stopRealtime={stopRealtime}
-                    rtcStatusLabel={rtcStateToLabel[rtcState] || "Idle"}
                     rtcReset={stopRealtime}
                     placeholder="Type here… (paste scope or attach files)"
                     onDrop={handleComposerDrop}

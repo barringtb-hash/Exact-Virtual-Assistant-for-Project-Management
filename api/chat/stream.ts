@@ -1,11 +1,6 @@
 import OpenAI from "openai";
+import { registerStreamController } from "./streamingState.js";
 
-interface ControllerEntry {
-  threadId: string;
-  controller: AbortController;
-}
-
-const activeControllers = new Map<string, ControllerEntry>();
 const encoder = new TextEncoder();
 
 class ChatRequestError extends Error {
@@ -871,19 +866,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const openai = new OpenAI({ apiKey });
   const abortController = new AbortController();
-
-  for (const [existingId, entry] of activeControllers.entries()) {
-    if (entry.threadId === threadId && existingId !== clientStreamId) {
-      try {
-        entry.controller.abort("replaced");
-      } catch {
-        // ignore abort failures
-      }
-      activeControllers.delete(existingId);
-    }
-  }
-
-  activeControllers.set(clientStreamId, { threadId, controller: abortController });
+  let unregister: (() => void) | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(streamController) {
@@ -908,10 +891,7 @@ export default async function handler(req: Request): Promise<Response> {
         cleaned = true;
         clearInterval(keepAlive);
         abortController.signal.removeEventListener("abort", onAbort);
-        const existing = activeControllers.get(clientStreamId);
-        if (existing && existing.controller === abortController) {
-          activeControllers.delete(clientStreamId);
-        }
+        unregister?.();
       };
 
       const onAbort = () => {
@@ -927,6 +907,17 @@ export default async function handler(req: Request): Promise<Response> {
       };
 
       abortController.signal.addEventListener("abort", onAbort);
+
+      unregister = registerStreamController(
+        clientStreamId,
+        threadId,
+        abortController
+      );
+
+      if (abortController.signal.aborted) {
+        onAbort();
+        return;
+      }
 
       let messages: any[];
       try {

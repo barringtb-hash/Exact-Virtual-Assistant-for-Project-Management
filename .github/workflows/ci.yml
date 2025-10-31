@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [ "main" ]
-  # Run CI on PRs too (optional)
   pull_request:
     branches: [ "**" ]
 
@@ -15,41 +14,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22] # change/add versions if needed (e.g. [20, 22])
+        node-version: [22]
 
     steps:
-      - name: Check out source
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await require('child_process').execSync('git config --global --add safe.directory "$GITHUB_WORKSPACE"')
-        # Now check out the repo
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Use Node ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          cache: npm
 
-      - name: Install system deps for headless browsers (Xvfb)
-        # GitHub runners often have most libs preinstalled, but Xvfb may be missing.
+      - name: Install Node deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            xvfb \
-            libgtk-3-0 libnss3 libasound2 libatk-bridge2.0-0 libxss1 libxtst6 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: Install Node dependencies (prefer lockfile)
-        id: npm-ci
-        run: |
-          if [ -f package-lock.json ]; then
-            echo "Using npm ci"
-            npm ci
-          else
-            echo "No package-lock.json found, running npm install"
-            npm install
-          fi
+      - name: Install Cypress system deps
+        run: bash scripts/install-cypress-deps.sh
 
       - name: Lint
         run: npm run lint --if-present
@@ -64,15 +46,12 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Start preview server (Vite)
+      - name: Start preview on strict port
         run: |
-          # start static preview server in background on :5173
-          npm run preview -- --host --port 5173 &
-          # wait for the server to be ready
+          npm run preview -- --host --port 5173 --strictPort &
           npx --yes wait-on http://127.0.0.1:5173
 
-      - name: End-to-end tests (Cypress via Xvfb)
-        # Runs your package.json script: "e2e:ci": "npx --yes cypress run --config-file cypress.config.ts"
+      - name: Cypress E2E (headless via Xvfb)
         run: xvfb-run -a npm run e2e:ci
         env:
           CI: true

@@ -11,6 +11,7 @@
     "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:e2e": "playwright test",
     "e2e:ci": "npx --yes cypress run --config-file cypress.config.ts",
+    "e2e:codespace": "bash -lc 'npm run build && (pkill -f \"vite preview\" || true) && npm run preview -- --port 5173 --strictPort & npx --yes wait-on http://localhost:5173 && xvfb-run -a npm run e2e:ci; pkill -f \"vite preview\" || true'",
     "validate:charter-docx": "node templates/validate-docx-template.mjs",
     "docx:encode": "node templates/tools/encode-docx.mjs",
     "docx:lint": "node templates/tools/lint-tokens.mjs",

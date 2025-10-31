@@ -14,7 +14,8 @@
     "docx:encode": "node templates/tools/encode-docx.mjs",
     "docx:lint": "node templates/tools/lint-tokens.mjs",
     "docx:smoke": "node templates/tools/render-smoke.mjs",
-    "dep:check": "node ./scripts/checkCircularDeps.mjs"
+    "dep:check": "node ./scripts/checkCircularDeps.mjs",
+    "analyze:cycles": "node ./scripts/checkCircularDeps.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

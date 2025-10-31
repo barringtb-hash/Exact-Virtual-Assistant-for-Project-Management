@@ -732,34 +732,6 @@ export default function ExactVirtualAssistantPM() {
     },
     [dismissToast]
   );
-  const attemptIntentExtraction = useCallback(
-    async ({ intent, reason, messages: history, voice: voiceEvents }) => {
-      const result = await triggerExtraction({
-        intent,
-        docType: "charter",
-        messages: history,
-        attachments,
-        voice: voiceEvents,
-        reason,
-      });
-
-      if (!result?.ok && result?.reason === "attachments-uploading") {
-        const isNewPending = !pendingIntentRef.current;
-        queuePendingIntentExtraction({ intent, reason });
-        if (isNewPending) {
-          pushToast({
-            tone: "info",
-            message: "Waiting for attachments to finish before extracting the charter.",
-          });
-        }
-      } else {
-        clearPendingIntentExtraction();
-      }
-
-      return result;
-    },
-    [attachments, clearPendingIntentExtraction, queuePendingIntentExtraction, triggerExtraction, pushToast]
-  );
   const applyNormalizedDraft = useCallback(
     (normalizedDraft) => {
       if (!previewDocType) {
@@ -820,6 +792,34 @@ export default function ExactVirtualAssistantPM() {
     docTypeRoutingEnabled: docRouterEnabled,
     requireDocType: () => setShowDocTypeModal(true),
   });
+  const attemptIntentExtraction = useCallback(
+    async ({ intent, reason, messages: history, voice: voiceEvents }) => {
+      const result = await triggerExtraction({
+        intent,
+        docType: "charter",
+        messages: history,
+        attachments,
+        voice: voiceEvents,
+        reason,
+      });
+
+      if (!result?.ok && result?.reason === "attachments-uploading") {
+        const isNewPending = !pendingIntentRef.current;
+        queuePendingIntentExtraction({ intent, reason });
+        if (isNewPending) {
+          pushToast({
+            tone: "info",
+            message: "Waiting for attachments to finish before extracting the charter.",
+          });
+        }
+      } else {
+        clearPendingIntentExtraction();
+      }
+
+      return result;
+    },
+    [attachments, clearPendingIntentExtraction, queuePendingIntentExtraction, triggerExtraction, pushToast]
+  );
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;

@@ -1,10 +1,12 @@
-import React, {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef } from "react";
+
+import {
+  chatActions,
+  useComposerDraft,
+  useInputLocked,
+  useIsStreaming,
+} from "../state/chatStore.ts";
+import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
 
@@ -28,18 +30,14 @@ const voiceStatusLabel = (status: VoiceStatus): string => {
 };
 
 export interface ComposerProps {
-  draft: string;
-  onDraftChange: (value: string) => void;
   onSend: () => void;
   onUploadClick: () => void;
   onMicToggle?: () => void;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
-  recording?: boolean;
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
-  disableDraft?: boolean;
   realtimeEnabled?: boolean;
   rtcState?: RtcState;
   startRealtime?: () => void;
@@ -66,18 +64,14 @@ const rtcStateClasses: Record<RtcState, string> = {
 };
 
 const Composer: React.FC<ComposerProps> = ({
-  draft,
-  onDraftChange,
   onSend,
   onUploadClick,
   onMicToggle,
   onStartRecording,
   onStopRecording,
-  recording = false,
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
-  disableDraft = false,
   realtimeEnabled = false,
   rtcState = "idle",
   startRealtime,
@@ -94,6 +88,13 @@ const Composer: React.FC<ComposerProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaId = useId();
   const { previewDocTypeLabel } = useDocType();
+  const draft = useComposerDraft();
+  const isStreaming = useIsStreaming();
+  const inputLocked = useInputLocked();
+  const voiceStatus = useVoiceStatus();
+  const recording = voiceStatus === "listening";
+  const resolvedSendDisabled = sendDisabled || isStreaming || inputLocked;
+  const resolvedDraftDisabled = inputLocked;
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
@@ -108,22 +109,22 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleChange: React.ChangeEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
-      onDraftChange(event.target.value);
+      chatActions.setComposerDraft(event.target.value);
       adjustTextareaHeight();
     },
-    [adjustTextareaHeight, onDraftChange]
+    [adjustTextareaHeight]
   );
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
-        if (!sendDisabled) {
+        if (!resolvedSendDisabled) {
           onSend();
         }
       }
     },
-    [onSend, sendDisabled]
+    [onSend, resolvedSendDisabled]
   );
 
   const handleMicClick = useCallback(() => {
@@ -200,7 +201,7 @@ const Composer: React.FC<ComposerProps> = ({
           onDrop={onDrop}
           onDragOver={onDragOver}
           placeholder={resolvedPlaceholder}
-          disabled={disableDraft}
+          disabled={resolvedDraftDisabled}
           className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -263,13 +264,13 @@ const Composer: React.FC<ComposerProps> = ({
             <button
               type="button"
               onClick={onSend}
-              disabled={sendDisabled}
+              disabled={resolvedSendDisabled}
               className={`shrink-0 rounded-xl p-2 shadow-sm transition ${
-                sendDisabled
+                resolvedSendDisabled
                   ? "cursor-not-allowed bg-slate-500/70 text-white/80 opacity-60 dark:bg-indigo-300/60 dark:text-slate-200"
                   : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
               }`}
-              title={sendDisabled ? "Assistant is responding…" : "Send"}
+              title={resolvedSendDisabled ? "Assistant is responding…" : "Send"}
             >
               <IconSend className="h-5 w-5" />
             </button>

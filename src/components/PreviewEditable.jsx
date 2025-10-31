@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
 import { useDocTemplate } from "../state/docTemplateStore.js";
+import { useDraft } from "../state/draftStore.ts";
 
 const CUSTOM_EDITORS = {};
 
@@ -572,8 +573,10 @@ export default function PreviewEditable({
     []
   );
   const { docType: previewDocType, templateLabel } = useDocTemplate(selectDocTemplate);
+  const storeDraft = useDraft();
+  const baseDraft = draft ?? storeDraft ?? {};
   const safeDraft =
-    draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+    baseDraft && typeof baseDraft === "object" && !Array.isArray(baseDraft) ? baseDraft : {};
   const highlightSet =
     highlightedPaths instanceof Set
       ? highlightedPaths

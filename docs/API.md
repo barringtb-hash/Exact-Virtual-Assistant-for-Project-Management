@@ -8,29 +8,82 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 - **Authentication** – None yet. Add middleware in these handlers or place an API gateway in front before production use.
 
 ## Chat completions – `POST /api/chat`
-- **Body**
+- **Body (non-streaming)**
   ```json
   {
     "messages": [
-      { "role": "user", "content": "..." }
+      { "role": "user", "content": "Summarise the active project risks." }
     ],
     "attachments": [
-      { "name": "Vision Brief", "text": "Trimmed excerpt..." }
+      { "name": "Risk Log", "text": "Escalation owners and deadlines..." }
     ]
   }
   ```
   `attachments` is optional and should contain the trimmed text for each supporting file you want the assistant to reference.
-- **Response**
+- **Response (non-streaming)**
   ```json
   {
-    "reply": "Assistant response"
+    "reply": "Here are the active risks and owners..."
   }
+  ```
+- **Body (SSE streaming via the same route)**
+  ```json
+  {
+    "messages": [
+      { "role": "user", "content": "Draft the next project update." }
+    ],
+    "stream": true,
+    "clientStreamId": "composer-123",
+    "threadId": "run-abc"
+  }
+  ```
+  Including `stream: true` switches the handler into SSE mode (still on the Node runtime). A `clientStreamId`/`threadId` pair must be unique per live exchange and matches the values tracked in `api/chat/streamingState.js`.
+- **Streaming response shape** – data is emitted as SSE frames:
+  ```text
+  event: token
+  data: {"delta":"Drafting summary"}
+
+  event: token
+  data: {"delta":" with key milestones"}
+
+  event: done
+  data: {}
   ```
 - **Notes**
   - Prepends a project-management system prompt and trims history to the most recent 18 messages.
   - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before summarizing oversized files via a map/reduce pass (`lib/tokenize.js`). Attachments that fit under `SMALL_ATTACHMENTS_TOKEN_BUDGET` are inlined verbatim as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
   - Honors `CHAT_PROMPT_TOKEN_LIMIT` when set—payloads exceeding the token budget return a `400` with an explanatory error.
   - Uses the Responses API when the configured model matches `gpt-4o`/`gpt-4.1` families; otherwise falls back to Chat Completions with `temperature: 0.3` for consistent tone.
+  - The frontend prefers EventSource when available and falls back to `fetch` streaming readers (`openChatStreamFetch`) so React Native or polyfilled environments continue to work.
+
+## Edge chat streaming – `POST /api/chat/stream`
+- **Enablement** – set `CHAT_STREAMING=true` (or append `?stream=1` to the request URL) to allow the handler to respond; otherwise it returns `404` to guard against accidental usage. The environment variable can be flipped without redeploying to roll back streaming.
+- **Request**
+  ```json
+  {
+    "threadId": "run-abc",
+    "clientStreamId": "composer-123",
+    "messages": [
+      { "role": "user", "content": "List the open action items." }
+    ]
+  }
+  ```
+- **Response stream** – emitted as SSE with `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, and periodic `: keep-alive` comments. Example events:
+  ```text
+  event: token
+  data: {"delta":"Action item 1:"}
+
+  event: token
+  data: {"delta":" Assign owners"}
+
+  event: done
+  data: {}
+  ```
+- **Notes**
+  - Runs on the Vercel Edge runtime (`runtime: "edge"`), so deploy it behind infrastructure that supports streaming responses (Vercel Edge, Cloudflare Workers, etc.). Disable intermediary response buffering (`proxy_buffering off;`, ALB response streaming) to avoid token delays.
+  - Shares message assembly logic with `/api/chat` and streams via Responses API when available (`gpt-4.1`/`gpt-4o`), otherwise falls back to Chat Completions.
+  - Registers each live stream in `api/chat/streamingState.js`; cancelling or replacing a stream aborts the SSE connection with an `event: aborted` frame.
+  - Rollback strategy: unset `CHAT_STREAMING` or redeploy with the variable set to `false`/`0` to disable the route while leaving the non-streaming `/api/chat` untouched.
 
 ## Speech-to-text – `POST /api/transcribe`
 - **Body**
@@ -120,7 +173,24 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   }
   ```
   `docType` selects the prompt/schema pair. Supported values are listed in [`lib/doc/registry.js`](../lib/doc/registry.js) (`charter`, `ddp`, …). `attachments` must include a `text` excerpt (up to ~20k characters are considered) so the extractor can build context; additional metadata like `mimeType` or `name` is optional but encouraged. `voice` should be an array of transcript events with `text` (and optionally `timestamp` in milliseconds) in the order they were captured. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
-- **Response** – JSON object whose keys align with the selected schema (falls back to `{ "result": "…" }` when parsing fails).
+- **Response**
+  ```json
+  {
+    "project_name": "Data Platform Modernization",
+    "sponsor": "Emily Carter",
+    "objectives": [
+      "Streamline stakeholder updates",
+      "Retire legacy ETL"
+    ],
+    "risks": [
+      {
+        "description": "Vendor integration backlog",
+        "owner": "PMO"
+      }
+    ]
+  }
+  ```
+  The payload matches the schema for the chosen document type. When parsing fails or intent is missing, the extractor returns `{ "result": "no_op" }` so callers can surface a no-op state without treating it as an error.
 - **Notes**
   - Prepends the system prompt registered for the doc type before requesting structured data from OpenAI.
   - Returns normalized JSON when the model emits a valid object; downstream callers should merge the payload with manual edits, skipping locked fields.

@@ -2203,7 +2203,8 @@ const resolveDocTypeForManualSync = useCallback(
         return { status: "empty" };
       }
 
-      if (chatStoreApi.getState().isStreaming) {
+      const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
+      if (isStreaming || isAssistantThinking) {
         return { status: "busy" };
       }
 
@@ -2271,7 +2272,8 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      if (chatStoreApi.getState().isStreaming) {
+      const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
+      if (isStreaming || isAssistantThinking) {
         voiceActions.setStatus("idle");
         return;
       }

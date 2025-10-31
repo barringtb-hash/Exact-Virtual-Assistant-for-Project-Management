@@ -7,10 +7,8 @@ import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
 import normalizeCharter from "../lib/charter/normalize.js";
-import useBackgroundExtraction, {
-  mergeExtractedDraft,
-  onFileAttached,
-} from "./hooks/useBackgroundExtraction";
+import useBackgroundExtraction, { onFileAttached } from "./hooks/useBackgroundExtraction";
+import mergeIntoDraftWithLocks from "./lib/preview/mergeIntoDraftWithLocks.js";
 import {
   handleSyncCommand,
   handleTypeCommand,
@@ -23,6 +21,7 @@ import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import { isIntentOnlyExtractionEnabled } from "../config/featureFlags.js";
+import { useDraftStore, recordDraftMetadata } from "./state/draftStore.js";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -36,6 +35,7 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
+const CHAT_EXTRACTION_DEBOUNCE_MS = 500;
 
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
@@ -488,12 +488,21 @@ export default function ExactVirtualAssistantPM() {
   const messagesRef = useRef(messages);
   const voiceTranscriptsRef = useRef(voiceTranscripts);
   const pendingIntentRef = useRef(null);
+  const chatExtractionTimerRef = useRef(null);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
+  useEffect(() => {
+    return () => {
+      if (chatExtractionTimerRef.current) {
+        clearTimeout(chatExtractionTimerRef.current);
+        chatExtractionTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const clearPendingIntentExtraction = useCallback(() => {
     pendingIntentRef.current = null;
@@ -592,6 +601,8 @@ export default function ExactVirtualAssistantPM() {
   const [rtcState, setRtcState] = useState("idle");
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
+  const draftSnapshot = useDraftStore();
+  const isDraftSyncing = draftSnapshot?.isSyncing ?? false;
   const [charterSyncError, setCharterSyncError] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -743,24 +754,30 @@ export default function ExactVirtualAssistantPM() {
 
       const locksSnapshot = locksRef.current || {};
       const baseDraft = charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
-      const finalDraft = mergeExtractedDraft(baseDraft, normalizedDraft, locksSnapshot);
+      const {
+        draft: finalDraft,
+        updatedPaths: touchedPaths,
+      } = mergeIntoDraftWithLocks(baseDraft, normalizedDraft, locksSnapshot);
 
       charterDraftRef.current = finalDraft;
       setCharterPreview(finalDraft);
 
-      const candidatePaths = collectPaths(normalizedDraft);
-      const filteredPaths = candidatePaths.filter((path) => !isPathLocked(locksSnapshot, path));
-      const touchedPaths = expandPathsWithAncestors(filteredPaths);
       const now = Date.now();
 
       setFieldStates((prevStates) =>
         synchronizeFieldStates(finalDraft, prevStates, {
           touchedPaths,
-          source: "Auto",
+          source: "AI",
           timestamp: now,
           locks: locksSnapshot,
         })
       );
+
+      recordDraftMetadata({
+        paths: touchedPaths,
+        source: "AI",
+        updatedAt: now,
+      });
 
       return finalDraft;
     },
@@ -844,7 +861,7 @@ export default function ExactVirtualAssistantPM() {
     }
     setShowDocTypeModal(true);
   }, [docRouterEnabled, hasConfirmedDocType, canSyncNow]);
-  const isCharterSyncInFlight = isExtracting || isCharterSyncing;
+  const isCharterSyncInFlight = isExtracting || isCharterSyncing || isDraftSyncing;
   const activeCharterError = charterSyncError || extractError;
 
   const applyCharterDraft = useCallback(
@@ -1033,6 +1050,55 @@ export default function ExactVirtualAssistantPM() {
       { id: Date.now() + Math.random(), role: "assistant", text: safeText },
     ]);
   }, []);
+
+  const scheduleChatPreviewSync = useCallback(
+    ({ reason = "chat-completion" } = {}) => {
+      if (!effectiveDocType) {
+        return;
+      }
+      if (chatExtractionTimerRef.current) {
+        clearTimeout(chatExtractionTimerRef.current);
+        chatExtractionTimerRef.current = null;
+      }
+
+      chatExtractionTimerRef.current = setTimeout(async () => {
+        chatExtractionTimerRef.current = null;
+        const latestMessages = Array.isArray(messagesRef.current)
+          ? messagesRef.current
+          : [];
+        const latestVoice = Array.isArray(voiceTranscriptsRef.current)
+          ? voiceTranscriptsRef.current
+          : [];
+        const latestDraft = charterDraftRef.current;
+
+        try {
+          const result = await triggerExtraction({
+            docType: effectiveDocType,
+            draft: latestDraft,
+            messages: latestMessages,
+            attachments,
+            voice: latestVoice,
+            reason,
+          });
+
+          if (!result?.ok && result?.reason === "attachments-uploading") {
+            pushToast({
+              tone: "info",
+              message:
+                "Waiting for attachments to finish before updating the preview.",
+            });
+          }
+        } catch (error) {
+          console.error("Chat-triggered extraction failed", error);
+          pushToast({
+            tone: "error",
+            message: "Unable to update the preview from the latest chat turn.",
+          });
+        }
+      }, CHAT_EXTRACTION_DEBOUNCE_MS);
+    },
+    [attachments, effectiveDocType, pushToast, triggerExtraction]
+  );
 
   const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
@@ -2093,6 +2159,7 @@ const resolveDocTypeForManualSync = useCallback(
       setIsAssistantThinking(false);
     }
     appendAssistantMessage(reply || "");
+    scheduleChatPreviewSync({ reason: "chat-completion" });
   };
 
   const processPickedFiles = useCallback(
@@ -2298,12 +2365,16 @@ const resolveDocTypeForManualSync = useCallback(
     if (isAssistantThinking) {
       return "Assistant is responding…";
     }
+    if (isDraftSyncing) {
+      return "Updating preview…";
+    }
     if (isCharterSyncInFlight) {
       return `Syncing ${docPreviewLabel}…`;
     }
     return "Idle";
   }, [
     isAssistantThinking,
+    isDraftSyncing,
     isCharterSyncInFlight,
     isTranscribing,
     isUploadingAttachments,
@@ -2473,6 +2544,12 @@ const resolveDocTypeForManualSync = useCallback(
                       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
                     ) : null}
                   </Composer>
+                  {isDraftSyncing ? (
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
+                      <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />
+                      Updating preview…
+                    </div>
+                  ) : null}
                   {!realtimeEnabled && listening ? (
                     <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">Recording… (simulated)</div>
                   ) : null}
@@ -2576,9 +2653,12 @@ const resolveDocTypeForManualSync = useCallback(
                   />
                 )}
               </div>
-              {isCharterSyncInFlight && (
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating {docPreviewLabel}…</div>
-              )}
+              {isDraftSyncing ? (
+                <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
+                  <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />
+                  Updating preview…
+                </div>
+              ) : null}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"

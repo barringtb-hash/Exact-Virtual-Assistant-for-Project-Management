@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { beginDraftSync, completeDraftSync } from "../state/draftStore.js";
+
+export { mergeExtractedDraft } from "../lib/preview/mergeIntoDraftWithLocks.js";
+
 import {
   areDocTypeSuggestionsEqual,
   isDocTypeConfirmed,
@@ -43,80 +47,6 @@ function isTransientError(error) {
     return shouldRetryStatus(error.status);
   }
   return false;
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function isPathLocked(locks, segments) {
-  if (!locks) return false;
-  if (!Array.isArray(segments) || segments.length === 0) {
-    return false;
-  }
-
-  let current = "";
-  for (const segment of segments) {
-    current = current ? `${current}.${segment}` : `${segment}`;
-    if (locks[current]) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function mergeRecursive(currentValue, nextValue, segments, locks) {
-  if (isPathLocked(locks, segments)) {
-    return currentValue;
-  }
-
-  if (Array.isArray(nextValue)) {
-    const currentArray = Array.isArray(currentValue) ? currentValue : [];
-    const result = currentArray.slice();
-
-    for (let index = 0; index < nextValue.length; index += 1) {
-      const childSegments = [...segments, String(index)];
-      result[index] = mergeRecursive(currentArray[index], nextValue[index], childSegments, locks);
-    }
-
-    for (let index = result.length - 1; index >= nextValue.length; index -= 1) {
-      const childSegments = [...segments, String(index)];
-      if (!isPathLocked(locks, childSegments)) {
-        result.splice(index, 1);
-      }
-    }
-
-    return result;
-  }
-
-  if (isPlainObject(nextValue)) {
-    const currentObject = isPlainObject(currentValue) ? currentValue : {};
-    const result = { ...currentObject };
-
-    for (const [key, value] of Object.entries(nextValue)) {
-      const childSegments = [...segments, key];
-      result[key] = mergeRecursive(currentObject[key], value, childSegments, locks);
-    }
-
-    return result;
-  }
-
-  if (typeof nextValue === "undefined") {
-    return currentValue;
-  }
-
-  return nextValue;
-}
-
-export function mergeExtractedDraft(currentDraft, extractedDraft, locks = {}) {
-  if (!isPlainObject(extractedDraft) && !Array.isArray(extractedDraft)) {
-    return currentDraft ?? extractedDraft;
-  }
-
-  const baseDraft = isPlainObject(currentDraft) || Array.isArray(currentDraft) ? currentDraft : {};
-  const merged = mergeRecursive(baseDraft, extractedDraft, [], locks);
-  return merged;
 }
 
 function hasUserInput(messages) {
@@ -693,6 +623,13 @@ export default function useBackgroundExtraction({
       setIsExtracting(true);
       setError(null);
     }
+    let syncStarted = false;
+    try {
+      beginDraftSync();
+      syncStarted = true;
+    } catch (errorInstance) {
+      console.error("Failed to mark draft sync start", errorInstance);
+    }
 
     const normalizedDocType =
       typeof latestDocType === "string" && latestDocType.trim()
@@ -772,6 +709,13 @@ export default function useBackgroundExtraction({
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
+      }
+      if (syncStarted) {
+        try {
+          completeDraftSync();
+        } catch (errorInstance) {
+          console.error("Failed to mark draft sync completion", errorInstance);
+        }
       }
     }
   }, []);

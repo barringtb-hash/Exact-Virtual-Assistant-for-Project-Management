@@ -1231,9 +1231,10 @@ export default function ExactVirtualAssistantPM() {
   const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
     if (!safeText) return null;
-    const entry = { id: Date.now() + Math.random(), role: "user", text: safeText };
-    chatActions.setMessages((prev) => [...prev, entry]);
-    return entry;
+    chatActions.pushUser(safeText);
+    const nextHistory = chatStoreApi.getState().messages;
+    messagesRef.current = nextHistory;
+    return nextHistory[nextHistory.length - 1] ?? null;
   }, []);
 
   const shareLinksNotConfiguredMessage =
@@ -1907,32 +1908,13 @@ const resolveDocTypeForManualSync = useCallback(
       dataRef.current = dataChannel;
 
       dataChannel.onmessage = async (event) => {
-        const payload = event?.data;
-        let transcript = "";
-        if (typeof payload === "string") {
-          try {
-            const parsed = JSON.parse(payload);
-            if (typeof parsed === "string") {
-              transcript = parsed;
-            } else if (parsed?.transcript) {
-              transcript = parsed.transcript;
-            } else if (parsed?.text) {
-              transcript = parsed.text;
-            } else if (Array.isArray(parsed?.alternatives) && parsed.alternatives[0]?.transcript) {
-              transcript = parsed.alternatives[0].transcript;
-            }
-          } catch (error) {
-            transcript = payload;
-          }
+        const normalized = normalizeRealtimeTranscriptEvent(event?.data);
+        if (!normalized || !normalized.text) {
+          return;
         }
-        if (!transcript && payload?.text) {
-          transcript = payload.text;
-        }
-        if (transcript) {
-          const trimmedTranscript = transcript.trim();
-          if (!trimmedTranscript) return;
-          await handleVoiceTranscriptMessage(trimmedTranscript);
-        }
+        await handleVoiceTranscriptMessage(normalized.text, {
+          isFinal: normalized.isFinal,
+        });
       };
 
       dataChannel.onclose = () => {
@@ -2201,10 +2183,85 @@ const resolveDocTypeForManualSync = useCallback(
     ]
   );
 
+  const submitChatTurn = useCallback(
+    async (rawText, { source }) => {
+      const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+      if (!trimmed) {
+        return { status: "empty" };
+      }
+
+      if (chatStoreApi.getState().isStreaming) {
+        return { status: "busy" };
+      }
+
+      chatActions.pushUser(trimmed);
+      const nextHistory = chatStoreApi.getState().messages;
+      messagesRef.current = nextHistory;
+
+      if (intentOnlyExtractionEnabled) {
+        const intent = detectCharterIntent(trimmed);
+        if (intent) {
+          const latestVoice = Array.isArray(voiceTranscriptsRef.current)
+            ? voiceTranscriptsRef.current
+            : [];
+          await attemptIntentExtraction({
+            intent,
+            reason: source === "voice" ? "voice-intent" : "composer-intent",
+            messages: nextHistory,
+            voice: latestVoice,
+          });
+          return { status: "intent" };
+        }
+      }
+
+      const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
+      if (handled) {
+        return { status: "command" };
+      }
+
+      const runId = createTempId();
+      chatActions.lockField("composer");
+      chatActions.startAssistant(runId);
+      let reply = "";
+      try {
+        const latestAttachments = Array.isArray(attachmentsRef.current)
+          ? attachmentsRef.current
+          : [];
+        reply = await callLLM(trimmed, nextHistory, latestAttachments);
+      } catch (e) {
+        reply = "LLM error (demo): " + (e?.message || "unknown");
+      } finally {
+        chatActions.unlockField("composer");
+      }
+      chatActions.endAssistant(runId, reply || "");
+      scheduleChatPreviewSync({
+        reason: source === "voice" ? "voice-chat-completion" : "chat-completion",
+      });
+
+      return { status: "responded" };
+    },
+    [
+      attemptIntentExtraction,
+      handleCommandFromText,
+      intentOnlyExtractionEnabled,
+      scheduleChatPreviewSync,
+    ]
+  );
+
   const handleVoiceTranscriptMessage = useCallback(
-    async (rawText) => {
+    async (rawText, { isFinal = true } = {}) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
       if (!trimmed) return;
+
+      if (!isFinal) {
+        voiceActions.setStatus("transcribing");
+        return;
+      }
+
+      if (chatStoreApi.getState().isStreaming) {
+        voiceActions.setStatus("idle");
+        return;
+      }
 
       const entry = {
         id: Date.now() + Math.random(),
@@ -2218,77 +2275,22 @@ const resolveDocTypeForManualSync = useCallback(
       voiceTranscriptsRef.current = nextVoice;
       voiceActions.setTranscripts(nextVoice);
 
-      const userMsg = { id: Date.now() + Math.random(), role: "user", text: trimmed };
-      const baseHistory = Array.isArray(messagesRef.current) ? messagesRef.current : [];
-      const nextHistory = [...baseHistory, userMsg];
-      messagesRef.current = nextHistory;
-      chatActions.setMessages(nextHistory);
-
-      if (intentOnlyExtractionEnabled) {
-        const intent = detectCharterIntent(trimmed);
-        if (intent) {
-          await attemptIntentExtraction({
-            intent,
-            reason: "voice-intent",
-            messages: nextHistory,
-            voice: nextVoice,
-          });
-          return;
-        }
-      }
-
-      const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
-      if (handled) {
-        return;
+      voiceActions.setStatus("transcribing");
+      try {
+        await submitChatTurn(trimmed, { source: "voice" });
+      } finally {
+        voiceActions.setStatus("idle");
       }
     },
-    [
-      attemptIntentExtraction,
-      handleCommandFromText,
-      intentOnlyExtractionEnabled,
-      chatActions,
-    ]
+    [submitChatTurn]
   );
 
   const handleSend = async () => {
     const text = composerDraft.trim();
     if (!text) return;
     if (isAssistantThinking) return;
-    chatActions.pushUser(text);
-    const nextHistory = chatStoreApi.getState().messages;
-    messagesRef.current = nextHistory;
     chatActions.clearComposerDraft();
-
-    if (intentOnlyExtractionEnabled) {
-      const intent = detectCharterIntent(text);
-      if (intent) {
-        await attemptIntentExtraction({
-          intent,
-          reason: "composer-intent",
-          messages: nextHistory,
-          voice: voiceTranscripts,
-        });
-        return;
-      }
-    }
-
-    const handled = await handleCommandFromText(text, { userMessageAppended: true });
-    if (handled) {
-      return;
-    }
-    let reply = "";
-    const runId = createTempId();
-    chatActions.lockField("composer");
-    chatActions.startAssistant(runId);
-    try {
-      reply = await callLLM(text, nextHistory, attachments);
-    } catch (e) {
-      reply = "LLM error (demo): " + (e?.message || "unknown");
-    } finally {
-      chatActions.unlockField("composer");
-    }
-    chatActions.endAssistant(runId, reply || "");
-    scheduleChatPreviewSync({ reason: "chat-completion" });
+    await submitChatTurn(text, { source: "composer" });
   };
 
   const processPickedFiles = useCallback(
@@ -3032,4 +3034,163 @@ async function callLLM(text, history = [], contextAttachments = []) {
   } catch (e) {
     return "OpenAI endpoint error: " + (e?.message || "unknown");
   }
+}
+
+function normalizeRealtimeTranscriptEvent(rawPayload) {
+  if (rawPayload == null) {
+    return null;
+  }
+
+  let payload = rawPayload;
+
+  if (typeof payload === "object" && payload !== null && "data" in payload && typeof payload.data === "string") {
+    payload = payload.data;
+  }
+
+  if (payload instanceof ArrayBuffer) {
+    try {
+      payload = new TextDecoder().decode(payload);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  if (typeof Blob !== "undefined" && payload instanceof Blob) {
+    return null;
+  }
+
+  let parsed = payload;
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (_) {
+        parsed = trimmed;
+      }
+    } else {
+      parsed = trimmed;
+    }
+  }
+
+  if (typeof parsed === "string") {
+    const text = parsed.trim();
+    if (!text) {
+      return null;
+    }
+    return { text, isFinal: true };
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const pickText = (...candidates) => {
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+      if (typeof candidate === "object") {
+        const nestedText = pickText(candidate.text, candidate.transcript, candidate.content);
+        if (nestedText) {
+          return nestedText;
+        }
+      }
+    }
+    return "";
+  };
+
+  let text = pickText(parsed.text, parsed.transcript, parsed.segment, parsed.message);
+
+  if (!text && Array.isArray(parsed.alternatives)) {
+    for (const alternative of parsed.alternatives) {
+      text = pickText(alternative);
+      if (text) {
+        break;
+      }
+    }
+  }
+
+  if (!text) {
+    text = pickText(parsed.delta, parsed.content, parsed.result, parsed.response);
+  }
+
+  if (!text && Array.isArray(parsed.segments)) {
+    for (const segment of parsed.segments) {
+      text = pickText(segment);
+      if (text) {
+        break;
+      }
+    }
+  }
+
+  if (!text) {
+    return null;
+  }
+
+  const boolHints = [
+    parsed.final,
+    parsed.isFinal,
+    parsed.is_final,
+    parsed.completed,
+    parsed.complete,
+    parsed.done,
+    parsed?.delta?.final,
+    parsed?.delta?.isFinal,
+    parsed?.delta?.is_final,
+  ];
+
+  let isFinal;
+  for (const hint of boolHints) {
+    if (typeof hint === "boolean") {
+      isFinal = hint;
+      break;
+    }
+  }
+
+  const statusHints = [
+    parsed.type,
+    parsed.event,
+    parsed.status,
+    parsed.state,
+    parsed.stage,
+    parsed.phase,
+  ];
+
+  for (const hint of statusHints) {
+    if (typeof hint !== "string") continue;
+    const lowered = hint.toLowerCase();
+    if (lowered.includes("delta") || lowered.includes("partial") || lowered.includes("interim")) {
+      isFinal = false;
+      break;
+    }
+    if (lowered.includes("complete") || lowered.includes("final") || lowered.includes("done")) {
+      isFinal = true;
+      break;
+    }
+  }
+
+  if (parsed.partial === true || parsed?.delta?.partial === true) {
+    isFinal = false;
+  }
+
+  const streamId =
+    typeof parsed.stream_id === "string"
+      ? parsed.stream_id
+      : typeof parsed.streamId === "string"
+      ? parsed.streamId
+      : typeof parsed.streamID === "string"
+      ? parsed.streamID
+      : typeof parsed.id === "string"
+      ? parsed.id
+      : undefined;
+
+  return { text, isFinal: typeof isFinal === "boolean" ? isFinal : true, streamId };
 }

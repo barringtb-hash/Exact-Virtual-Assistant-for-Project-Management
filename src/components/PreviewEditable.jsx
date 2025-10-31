@@ -220,13 +220,30 @@ const noop = () => {};
 function FieldMetaTags({ source, updatedAt }) {
   if (!source && !updatedAt) return null;
 
+  const normalizedSource = (() => {
+    if (typeof source !== "string") return "";
+    const trimmed = source.trim();
+    if (!trimmed) return "";
+    if (trimmed.toLowerCase() === "ai" || trimmed.toLowerCase() === "auto") {
+      return "Auto";
+    }
+    return trimmed;
+  })();
+
   const relative = typeof updatedAt === "number" ? formatRelativeTime(updatedAt) : "";
+
+  const sourceToneClass =
+    normalizedSource === "Auto"
+      ? "bg-sky-100/80 text-sky-700 dark:bg-sky-900/60 dark:text-sky-200"
+      : "bg-slate-200/70 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200";
 
   return (
     <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-slate-500 dark:text-slate-400">
-      {source ? (
-        <span className="inline-flex items-center rounded-full bg-slate-200/70 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
-          {source}
+      {normalizedSource ? (
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${sourceToneClass}`}
+        >
+          {normalizedSource}
         </span>
       ) : null}
       {relative ? (
@@ -247,12 +264,16 @@ function LockBadge({ locked }) {
   );
 }
 
-function FieldHeader({ label, locked, description, meta }) {
+function FieldHeader({ label, locked, description, meta, highlighted = false }) {
   const source = meta?.source;
   const updatedAt = meta?.updatedAt;
 
   return (
-    <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+    <div
+      className={`mb-1 text-xs text-slate-500 transition-colors dark:text-slate-400 ${
+        highlighted ? "rounded-lg bg-sky-50/80 px-2 py-1 dark:bg-sky-900/30" : ""
+      }`}
+    >
       <div className="flex items-center justify-between">
         <span className="font-medium text-slate-600 dark:text-slate-200">{label}</span>
         <div className="flex items-center gap-2">
@@ -278,7 +299,13 @@ function ScalarInput({
   disabled = false,
   description,
   meta,
+  highlighted = false,
 }) {
+  const baseClass =
+    "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
+  const highlightClasses = highlighted
+    ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
+    : "";
   const baseProps = {
     value,
     onChange: (event) => {
@@ -287,13 +314,18 @@ function ScalarInput({
     },
     placeholder,
     disabled,
-    className:
-      "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500",
+    className: `${baseClass}${highlightClasses}`,
   };
 
   return (
     <label className="block">
-      <FieldHeader label={label} locked={locked} description={description} meta={meta} />
+      <FieldHeader
+        label={label}
+        locked={locked}
+        description={description}
+        meta={meta}
+        highlighted={highlighted}
+      />
       {multiline ? (
         <textarea rows={3} {...baseProps} />
       ) : (
@@ -316,16 +348,30 @@ function StringArrayEditor({
   meta,
   itemMeta,
   description,
+  isHighlighted = () => false,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
+  const highlightPath = typeof isHighlighted === "function" ? isHighlighted(path) : false;
+  const highlightInputClasses = (highlighted) =>
+    highlighted
+      ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
+      : "";
 
   return (
     <div>
-      <FieldHeader label={label} locked={isLocked(path)} meta={meta} description={description} />
+      <FieldHeader
+        label={label}
+        locked={isLocked(path)}
+        meta={meta}
+        description={description}
+        highlighted={highlightPath}
+      />
       <div className="space-y-2">
         {safeItems.map((item, index) => {
           const itemPath = `${path}.${index}`;
           const currentMeta = itemMeta?.[itemPath];
+          const itemHighlighted =
+            typeof isHighlighted === "function" ? isHighlighted(itemPath) : false;
           return (
             <div key={itemPath} className="flex items-start gap-2">
               <textarea
@@ -340,7 +386,9 @@ function StringArrayEditor({
                   onLock(itemPath);
                   onLock(path);
                 }}
-                className="flex-1 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
+                className={`flex-1 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
+                  itemHighlighted
+                )}`}
               />
               <button
                 type="button"
@@ -390,26 +438,53 @@ function ObjectArrayEditor({
   meta,
   fieldMeta,
   description,
+  isHighlighted = () => false,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
+  const highlightInputClasses = (highlighted) =>
+    highlighted
+      ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
+      : "";
 
   return (
     <div>
-      <FieldHeader label={title} locked={isLocked(path)} meta={meta} description={description} />
+      <FieldHeader
+        label={title}
+        locked={isLocked(path)}
+        meta={meta}
+        description={description}
+        highlighted={typeof isHighlighted === "function" ? isHighlighted(path) : false}
+      />
       <div className="space-y-3">
         {safeItems.map((item, index) => {
           const basePath = `${path}.${index}`;
           const current = item && typeof item === "object" && !Array.isArray(item) ? item : {};
           const baseMeta = fieldMeta?.[basePath];
+          const baseHighlighted =
+            typeof isHighlighted === "function" ? isHighlighted(basePath) : false;
           return (
-            <div key={basePath} className="rounded-xl border border-white/70 bg-white/80 p-3 dark:border-slate-600/60 dark:bg-slate-800/50">
+            <div
+              key={basePath}
+              className={`rounded-xl border p-3 transition-colors ${
+                baseHighlighted
+                  ? "border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.25)] dark:border-sky-500/70 dark:bg-sky-900/40"
+                  : "border-white/70 bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/50"
+              }`}
+            >
               <div className="space-y-2">
                 {fields.map((field) => {
                   const fieldPath = `${basePath}.${field.key}`;
                   const currentMeta = fieldMeta?.[fieldPath];
+                  const fieldHighlighted =
+                    typeof isHighlighted === "function" ? isHighlighted(fieldPath) : false;
                   return (
                     <label key={field.key} className="block">
-                      <FieldHeader label={field.label} locked={isLocked(fieldPath)} meta={currentMeta} />
+                      <FieldHeader
+                        label={field.label}
+                        locked={isLocked(fieldPath)}
+                        meta={currentMeta}
+                        highlighted={fieldHighlighted}
+                      />
                       <input
                         type="text"
                         value={typeof current[field.key] === "string" ? current[field.key] : ""}
@@ -426,7 +501,9 @@ function ObjectArrayEditor({
                           onLock(fieldPath);
                           onLock(basePath);
                         }}
-                        className="w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
+                        className={`w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
+                          fieldHighlighted
+                        )}`}
                       />
                     </label>
                   );
@@ -479,6 +556,8 @@ export default function PreviewEditable({
   draft,
   locks = {},
   fieldStates = {},
+  highlightedPaths = new Set(),
+  metadata = new Map(),
   onDraftChange = noop,
   onLockField = noop,
   isLoading = false,
@@ -495,15 +574,55 @@ export default function PreviewEditable({
   const { docType: previewDocType, templateLabel } = useDocTemplate(selectDocTemplate);
   const safeDraft =
     draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
+  const highlightSet =
+    highlightedPaths instanceof Set
+      ? highlightedPaths
+      : new Set(
+          Array.isArray(highlightedPaths) ? highlightedPaths.filter(Boolean) : []
+        );
+  const metadataMap =
+    metadata instanceof Map
+      ? metadata
+      : new Map(
+          metadata && typeof metadata === "object"
+            ? Object.entries(metadata)
+            : []
+        );
   const isLocked = (path) => Boolean(locks && locks[path]);
-  const metaFor = (path) => fieldStates?.[path];
+  const isHighlighted = (path) => (typeof path === "string" ? highlightSet.has(path) : false);
+  const metaFor = (path) => {
+    const fieldMeta = fieldStates?.[path];
+    const draftMeta = metadataMap.get(path);
+    if (!draftMeta) {
+      return fieldMeta;
+    }
+    if (!fieldMeta) {
+      return draftMeta;
+    }
+    return {
+      ...fieldMeta,
+      ...draftMeta,
+    };
+  };
   const metaCollectionForPrefix = (prefix) => {
     const entries = {};
-    if (!fieldStates) return entries;
-    for (const [key, value] of Object.entries(fieldStates)) {
-      if (key === prefix || key.startsWith(`${prefix}.`)) {
-        entries[key] = value;
+    if (fieldStates && typeof fieldStates === "object") {
+      for (const [key, value] of Object.entries(fieldStates)) {
+        if (key === prefix || key.startsWith(`${prefix}.`)) {
+          entries[key] = value;
+        }
       }
+    }
+    if (metadataMap.size > 0) {
+      metadataMap.forEach((value, key) => {
+        if (key === prefix || key.startsWith(`${prefix}.`)) {
+          const existing = entries[key] && typeof entries[key] === "object" ? entries[key] : {};
+          entries[key] = {
+            ...existing,
+            ...(value && typeof value === "object" ? value : {}),
+          };
+        }
+      });
     }
     return entries;
   };
@@ -594,6 +713,7 @@ export default function PreviewEditable({
         multiline={multiline}
         description={field?.description}
         meta={metaFor(path)}
+        highlighted={isHighlighted(path)}
       />
     );
   };
@@ -635,6 +755,7 @@ export default function PreviewEditable({
         meta={metaFor(path)}
         itemMeta={metaCollectionForPrefix(path)}
         description={field?.description}
+        isHighlighted={isHighlighted}
       />
     );
   };
@@ -690,6 +811,7 @@ export default function PreviewEditable({
         meta={metaFor(path)}
         fieldMeta={metaCollectionForPrefix(path)}
         description={field?.description}
+        isHighlighted={isHighlighted}
       />
     );
   };
@@ -719,6 +841,8 @@ export default function PreviewEditable({
         manifest={manifestConfig}
         metaFor={metaFor}
         metaCollectionForPrefix={metaCollectionForPrefix}
+        highlightedPaths={highlightSet}
+        metadata={metadataMap}
       />
     );
   };

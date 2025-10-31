@@ -1,3 +1,11 @@
+import {
+  pathToPointer,
+  pointerAncestors,
+  pointerToPath,
+  pointerToSegments,
+  segmentsToPointer,
+} from "../../utils/jsonPointer.js";
+
 const ROOT_PATH = "";
 
 function isPlainObject(value) {
@@ -11,20 +19,107 @@ function joinPath(segments = []) {
   return segments.join(".");
 }
 
-function isPathLocked(locks = {}, segments = []) {
-  if (!locks || !Array.isArray(segments) || segments.length === 0) {
+function normalizeLocks(locks) {
+  if (!locks) {
+    return new Map();
+  }
+  if (locks instanceof Map) {
+    return new Map(locks);
+  }
+  const map = new Map();
+
+  const addPointer = (entry, value = true) => {
+    if (typeof entry !== "string") {
+      return;
+    }
+    const pointer = pathToPointer(entry);
+    if (pointer) {
+      map.set(pointer, value !== false && value != null);
+    }
+  };
+
+  if (locks instanceof Set) {
+    locks.forEach((entry) => addPointer(entry));
+    return map;
+  }
+
+  if (Array.isArray(locks)) {
+    locks.forEach((entry) => addPointer(entry));
+    return map;
+  }
+
+  if (typeof locks === "object") {
+    Object.entries(locks).forEach(([entry, value]) => addPointer(entry, value));
+  }
+
+  return map;
+}
+
+function hasLock(locksMap, pointer) {
+  if (!locksMap || !(locksMap instanceof Map) || !pointer) {
+    return false;
+  }
+  if (!locksMap.has(pointer)) {
+    return false;
+  }
+  const value = locksMap.get(pointer);
+  if (value === false || value === null) {
+    return false;
+  }
+  return true;
+}
+
+function isPathLocked(locksMap, segments = []) {
+  if (!locksMap || !(locksMap instanceof Map) || !Array.isArray(segments) || segments.length === 0) {
     return false;
   }
 
-  let current = "";
-  for (const segment of segments) {
-    current = current ? `${current}.${segment}` : `${segment}`;
-    if (locks[current]) {
+  for (let index = 1; index <= segments.length; index += 1) {
+    const pointer = segmentsToPointer(segments.slice(0, index));
+    if (hasLock(locksMap, pointer)) {
       return true;
     }
   }
 
   return false;
+}
+
+function isPointerLockedFromSegments(locksMap, pointerSegments = []) {
+  if (!locksMap || !(locksMap instanceof Map) || !Array.isArray(pointerSegments)) {
+    return false;
+  }
+  if (pointerSegments.length === 0) {
+    return false;
+  }
+
+  for (let index = 1; index <= pointerSegments.length; index += 1) {
+    const pointer = segmentsToPointer(pointerSegments.slice(0, index));
+    if (hasLock(locksMap, pointer)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function expandPointersWithAncestors(pointers = []) {
+  const set = new Set();
+  if (!Array.isArray(pointers)) {
+    return set;
+  }
+
+  pointers.forEach((pointer) => {
+    if (typeof pointer !== "string") {
+      return;
+    }
+    pointerAncestors(pointer).forEach((ancestor) => {
+      if (ancestor) {
+        set.add(ancestor);
+      }
+    });
+  });
+
+  return set;
 }
 
 function expandPathsWithAncestors(paths = []) {
@@ -39,7 +134,7 @@ function expandPathsWithAncestors(paths = []) {
   return set;
 }
 
-function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths) {
+function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths, touchedPointers) {
   if (isPathLocked(locks, segments)) {
     return currentValue;
   }
@@ -55,7 +150,8 @@ function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths) 
         nextValue[index],
         childSegments,
         locks,
-        touchedPaths
+        touchedPaths,
+        touchedPointers
       );
     }
 
@@ -67,12 +163,20 @@ function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths) 
         if (removedPath) {
           touchedPaths.add(removedPath);
         }
+        const removedPointer = segmentsToPointer(childSegments);
+        if (removedPointer) {
+          touchedPointers.add(removedPointer);
+        }
       }
     }
 
     const path = joinPath(segments);
     if (path) {
       touchedPaths.add(path);
+    }
+    const pointer = segmentsToPointer(segments);
+    if (pointer) {
+      touchedPointers.add(pointer);
     }
 
     return result;
@@ -89,13 +193,18 @@ function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths) 
         value,
         childSegments,
         locks,
-        touchedPaths
+        touchedPaths,
+        touchedPointers
       );
     }
 
     const path = joinPath(segments);
     if (path) {
       touchedPaths.add(path);
+    }
+    const pointer = segmentsToPointer(segments);
+    if (pointer) {
+      touchedPointers.add(pointer);
     }
 
     return result;
@@ -109,34 +218,86 @@ function mergeRecursive(currentValue, nextValue, segments, locks, touchedPaths) 
   if (path) {
     touchedPaths.add(path);
   }
+  const pointer = segmentsToPointer(segments);
+  if (pointer) {
+    touchedPointers.add(pointer);
+  }
 
   return nextValue;
 }
 
-export function mergeIntoDraftWithLocks(currentDraft, incomingDraft, locks = {}) {
+export function mergeIntoDraftWithLocks(
+  currentDraft,
+  incomingDraft,
+  locks = {},
+  { source = "AI", updatedAt } = {}
+) {
   if (!isPlainObject(incomingDraft) && !Array.isArray(incomingDraft)) {
     return {
       draft: currentDraft ?? incomingDraft,
       touchedPaths: new Set(),
+      touchedPointers: new Set(),
       updatedPaths: new Set(),
+      updatedPointers: new Set(),
+      metadataByPointer: new Map(),
+      updatedAt: typeof updatedAt === "number" ? updatedAt : Date.now(),
     };
   }
 
   const baseDraft =
     isPlainObject(currentDraft) || Array.isArray(currentDraft) ? currentDraft : {};
 
+  const locksMap = normalizeLocks(locks);
   const touchedPaths = new Set();
-  const merged = mergeRecursive(baseDraft, incomingDraft, [], locks, touchedPaths);
-  const filtered = [...touchedPaths].filter((path) => {
-    if (!path) return false;
-    const segments = path.split(".").filter(Boolean);
-    return !isPathLocked(locks, segments);
+  const touchedPointers = new Set();
+  const merged = mergeRecursive(
+    baseDraft,
+    incomingDraft,
+    [],
+    locksMap,
+    touchedPaths,
+    touchedPointers
+  );
+
+  const filteredPointers = [...touchedPointers].filter((pointer) => {
+    if (!pointer) {
+      return false;
+    }
+    const segments = pointerToSegments(pointer);
+    return !isPointerLockedFromSegments(locksMap, segments);
+  });
+
+  const filteredPaths = filteredPointers
+    .map((pointer) => pointerToPath(pointer))
+    .filter(Boolean);
+
+  const timestamp =
+    typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
+  const metadataByPointer = new Map();
+  filteredPointers.forEach((pointer) => {
+    metadataByPointer.set(pointer, {
+      source,
+      updatedAt: timestamp,
+    });
+  });
+
+  const updatedPointerAncestors = expandPointersWithAncestors(filteredPointers);
+  const updatedPaths = new Set();
+  updatedPointerAncestors.forEach((pointer) => {
+    const path = pointerToPath(pointer);
+    if (path) {
+      updatedPaths.add(path);
+    }
   });
 
   return {
     draft: merged,
-    touchedPaths: new Set(filtered),
-    updatedPaths: expandPathsWithAncestors(filtered),
+    touchedPaths: new Set(filteredPaths),
+    touchedPointers: new Set(filteredPointers),
+    updatedPaths,
+    updatedPointers: updatedPointerAncestors,
+    metadataByPointer,
+    updatedAt: timestamp,
   };
 }
 
@@ -144,6 +305,6 @@ export function mergeExtractedDraft(currentDraft, extractedDraft, locks = {}) {
   return mergeIntoDraftWithLocks(currentDraft, extractedDraft, locks).draft;
 }
 
-export { isPathLocked, expandPathsWithAncestors };
+export { expandPathsWithAncestors };
 
 export default mergeIntoDraftWithLocks;

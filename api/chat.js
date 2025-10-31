@@ -1,5 +1,6 @@
 // /api/chat.js - Vercel Serverless Function (Node runtime)
 import OpenAI from "openai";
+import { registerStreamController } from "./chat/streamingState.js";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
 
 export class ChatRequestError extends Error {
@@ -8,6 +9,12 @@ export class ChatRequestError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+let OpenAIClient = OpenAI;
+
+export function __setOpenAIClient(override) {
+  OpenAIClient = override || OpenAI;
 }
 
 export const config = {
@@ -253,6 +260,297 @@ export function mapChatOpenAIError(status, rawMessage) {
   return null;
 }
 
+class OpenAIStreamError extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function parseSSEEvent(rawEvent) {
+  const lines = String(rawEvent ?? "").split(/\r?\n/);
+  const event = { event: "message", data: "" };
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith(":")) continue;
+    const [field, ...rest] = line.split(":");
+    if (!field) continue;
+    const value = rest.join(":").trimStart();
+    if (field === "event") {
+      event.event = value || "message";
+    } else if (field === "data") {
+      event.data = value ? event.data + value : event.data;
+    }
+  }
+  return event;
+}
+
+function extractDeltaFromChoice(choice) {
+  const delta = choice?.delta || choice?.message?.delta || choice?.message;
+  if (typeof delta === "string") {
+    return delta;
+  }
+  if (typeof delta?.content === "string") {
+    return delta.content;
+  }
+  if (Array.isArray(delta?.content)) {
+    const texts = delta.content
+      .filter(
+        (part) => part && typeof part === "object" && part.type === "text"
+      )
+      .map((part) => (typeof part.text === "string" ? part.text : ""))
+      .filter(Boolean);
+    if (texts.length) {
+      return texts.join("");
+    }
+  }
+  if (typeof delta?.content?.[0]?.text === "string") {
+    return delta.content[0].text;
+  }
+  if (typeof delta?.content?.text === "string") {
+    return delta.content.text;
+  }
+  if (
+    typeof delta?.content?.[0]?.type === "string" &&
+    delta.content[0].type === "text"
+  ) {
+    const value = delta.content[0]?.text;
+    return typeof value === "string" ? value : null;
+  }
+  if (typeof delta?.content?.delta === "string") {
+    return delta.content.delta;
+  }
+  if (typeof delta?.content?.[0]?.delta === "string") {
+    return delta.content[0].delta;
+  }
+  if (typeof delta?.content?.parts === "string") {
+    return delta.content.parts;
+  }
+  if (Array.isArray(delta?.content?.parts)) {
+    const joined = delta.content.parts
+      .map((part) => (typeof part === "string" ? part : part?.text || ""))
+      .filter(Boolean)
+      .join("");
+    return joined || null;
+  }
+  if (typeof delta?.content?.[0]?.parts === "string") {
+    return delta.content[0].parts;
+  }
+  return typeof delta?.content === "string" ? delta.content : null;
+}
+
+function handleOpenAIEvent(rawEvent, useResponses, send, status) {
+  if (!rawEvent) return;
+  const { data } = parseSSEEvent(rawEvent);
+  if (!data) return;
+  if (data === "[DONE]") {
+    return "done";
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return;
+  }
+
+  if (useResponses) {
+    const type = parsed?.type;
+    if (type === "response.output_text.delta") {
+      const delta =
+        typeof parsed?.delta === "string"
+          ? parsed.delta
+          : parsed?.delta?.text;
+      if (typeof delta === "string" && delta) {
+        send("token", { delta });
+      }
+      return;
+    } else if (type === "response.error") {
+      const message = parsed?.error?.message || "OpenAI streaming error";
+      const code = parsed?.error?.code || "openai_error";
+      throw new OpenAIStreamError(message, status, code);
+    } else if (type === "response.completed") {
+      return "done";
+    }
+    return;
+  }
+
+  const choices = parsed?.choices;
+  if (!Array.isArray(choices)) {
+    return;
+  }
+
+  for (const choice of choices) {
+    const text = extractDeltaFromChoice(choice);
+    if (typeof text === "string" && text) {
+      send("token", { delta: text });
+    }
+    if (choice?.finish_reason === "stop") {
+      return "done";
+    }
+  }
+}
+
+async function streamFromOpenAI({ client, messages, signal, send }) {
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+
+  const firstNonEmpty = (...candidates) => {
+    for (const value of candidates) {
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    return "";
+  };
+
+  try {
+    if (useResponses) {
+      const stream = await client.responses.create(
+        {
+          model: CHAT_MODEL,
+          temperature: 0.3,
+          input: formatMessagesForResponses(messages),
+          stream: true,
+        },
+        { signal }
+      );
+
+      for await (const event of stream) {
+        if (!event) continue;
+
+        if (event.type === "response.output_text.delta") {
+          const delta = firstNonEmpty(event.delta);
+          if (delta) {
+            send("token", { delta });
+          }
+          continue;
+        }
+
+        if (event.type === "response.completed") {
+          return;
+        }
+
+        if (event.type === "error") {
+          const message = firstNonEmpty(
+            event.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(event.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.failed") {
+          const errorInfo = event.response?.error;
+          const message = firstNonEmpty(
+            errorInfo?.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(errorInfo?.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.incomplete") {
+          const reason = firstNonEmpty(event.response?.incomplete_details?.reason);
+          const message =
+            reason === "max_output_tokens"
+              ? "OpenAI stopped early because max_output_tokens was reached."
+              : reason === "content_filter"
+                ? "OpenAI stopped the response due to content filtering."
+                : "OpenAI response ended prematurely.";
+          const code = reason || "openai_incomplete";
+          throw new OpenAIStreamError(message, 500, code);
+        }
+      }
+
+      return;
+    }
+
+    const stream = await client.chat.completions.create(
+      {
+        model: CHAT_MODEL,
+        temperature: 0.3,
+        messages,
+        stream: true,
+      },
+      { signal }
+    );
+
+    for await (const chunk of stream) {
+      const choices = chunk?.choices;
+      if (!Array.isArray(choices)) continue;
+
+      for (const choice of choices) {
+        const text = extractDeltaFromChoice(choice);
+        if (typeof text === "string" && text) {
+          send("token", { delta: text });
+        }
+        if (choice?.finish_reason === "stop") {
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    if (signal?.aborted && error?.name === "AbortError") {
+      throw error;
+    }
+
+    if (error instanceof OpenAIStreamError) {
+      throw error;
+    }
+
+    const status = (() => {
+      if (Number.isFinite(error?.status) && error.status > 0) {
+        return error.status;
+      }
+      if (Number.isFinite(error?.statusCode) && error.statusCode > 0) {
+        return error.statusCode;
+      }
+      if (Number.isFinite(error?.response?.status) && error.response.status > 0) {
+        return error.response.status;
+      }
+      return 500;
+    })();
+
+    const message =
+      firstNonEmpty(
+        error?.error?.message,
+        error?.response?.error?.message,
+        error?.message,
+        "OpenAI request failed"
+      ) || "OpenAI request failed";
+
+    const code =
+      firstNonEmpty(
+        error?.error?.code,
+        error?.response?.error?.code,
+        error?.code,
+        "openai_error"
+      ) || "openai_error";
+
+    throw new OpenAIStreamError(message, status, code);
+  }
+}
+
+function mapStreamError(err) {
+  if (err instanceof ChatRequestError) {
+    return { message: err.message, code: err.code };
+  }
+  if (err instanceof OpenAIStreamError) {
+    const mapped = mapChatOpenAIError(err.status, err.message);
+    if (mapped) {
+      return { message: mapped.message, code: mapped.code };
+    }
+    return { message: err.message || "OpenAI request failed", code: err.code };
+  }
+  if (err instanceof Error) {
+    return { message: err.message || "Unexpected error", code: "internal_error" };
+  }
+  return { message: "Unexpected error", code: "internal_error" };
+}
+
 async function runWithConcurrency(items, limit, worker) {
   if (!Array.isArray(items) || !items.length) return [];
   const safeLimit = Math.max(1, Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1);
@@ -364,8 +662,194 @@ export default async function handler(req, res) {
     return;
   }
   try {
-    const client = new OpenAI({ apiKey: runtimeEnv.OPENAI_API_KEY });
+    const apiKey = (runtimeEnv.OPENAI_API_KEY || "").toString().trim();
+    if (!apiKey) {
+      res.status(500).json({ error: "Missing OpenAI API key" });
+      return;
+    }
+
+    const client = new OpenAIClient({ apiKey });
     const body = req.body || {};
+
+    const wantsStream = (() => {
+      const value = body?.stream;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        return normalized === "true" || normalized === "1";
+      }
+      return Boolean(value);
+    })();
+
+    if (wantsStream) {
+      const clientStreamId =
+        typeof body?.clientStreamId === "string"
+          ? body.clientStreamId.trim()
+          : "";
+      const threadId =
+        typeof body?.threadId === "string" ? body.threadId.trim() : "";
+
+      if (!clientStreamId) {
+        res
+          .status(400)
+          .json({ error: "clientStreamId is required", code: "invalid_request" });
+        return;
+      }
+
+      if (!threadId) {
+        res
+          .status(400)
+          .json({ error: "threadId is required", code: "invalid_request" });
+        return;
+      }
+
+      const abortController = new AbortController();
+      let unregister;
+
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.status(200);
+      if (typeof res.flushHeaders === "function") {
+        res.flushHeaders();
+      }
+
+      const send = (event, data) => {
+        let payload = `event: ${event}\n`;
+        if (typeof data !== "undefined") {
+          const serialized =
+            typeof data === "string" ? data : JSON.stringify(data);
+          payload += `data: ${serialized}\n`;
+        }
+        payload += "\n";
+        try {
+          res.write(payload);
+        } catch {
+          // ignore write errors triggered by closed sockets
+        }
+      };
+
+      const keepAlive = setInterval(() => {
+        try {
+          res.write(": keep-alive\n\n");
+        } catch {
+          // ignore keep-alive write errors
+        }
+      }, 15000);
+
+      let cleaned = false;
+
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        clearInterval(keepAlive);
+        abortController.signal.removeEventListener("abort", onAbort);
+        removeCloseListeners();
+        unregister?.();
+      };
+
+      function onAbort() {
+        if (abortController.signal.reason === "replaced") {
+          send("aborted");
+        }
+        cleanup();
+        try {
+          res.end();
+        } catch {
+          // ignore end errors
+        }
+      }
+
+      const onClose = () => {
+        cleanup();
+        if (!abortController.signal.aborted) {
+          abortController.abort("client_closed");
+        }
+      };
+
+      function removeCloseListeners() {
+        if (typeof req?.off === "function") {
+          req.off("close", onClose);
+        } else if (typeof req?.removeListener === "function") {
+          req.removeListener("close", onClose);
+        }
+        if (typeof res?.off === "function") {
+          res.off("close", onClose);
+        } else if (typeof res?.removeListener === "function") {
+          res.removeListener("close", onClose);
+        }
+      }
+
+      abortController.signal.addEventListener("abort", onAbort);
+      if (typeof req?.on === "function") {
+        req.on("close", onClose);
+      }
+      if (typeof res?.on === "function") {
+        res.on("close", onClose);
+      }
+
+      try {
+        unregister = registerStreamController(
+          clientStreamId,
+          threadId,
+          abortController
+        );
+      } catch (registrationError) {
+        cleanup();
+        res.status(400).json({
+          error: registrationError?.message || "Invalid clientStreamId",
+          code: "invalid_request",
+        });
+        return;
+      }
+
+      if (abortController.signal.aborted) {
+        onAbort();
+        return;
+      }
+
+      let messages;
+      try {
+        ({ messages } = await buildChatMessages(client, body));
+      } catch (prepErr) {
+        const mapped = mapStreamError(prepErr);
+        send("error", mapped);
+        cleanup();
+        try {
+          res.end();
+        } catch {
+          // ignore end errors
+        }
+        return;
+      }
+
+      try {
+        await streamFromOpenAI({
+          client,
+          messages,
+          signal: abortController.signal,
+          send,
+        });
+        if (!abortController.signal.aborted) {
+          send("done");
+        }
+      } catch (streamErr) {
+        if (!abortController.signal.aborted) {
+          const mapped = mapStreamError(streamErr);
+          send("error", mapped);
+        }
+      } finally {
+        cleanup();
+        if (!abortController.signal.aborted) {
+          try {
+            res.end();
+          } catch {
+            // ignore end errors
+          }
+        }
+      }
+
+      return;
+    }
 
     let messages;
     try {

@@ -1,11 +1,6 @@
 import OpenAI from "openai";
+import { registerStreamController } from "./streamingState.js";
 
-interface ControllerEntry {
-  threadId: string;
-  controller: AbortController;
-}
-
-const activeControllers = new Map<string, ControllerEntry>();
 const encoder = new TextEncoder();
 
 class ChatRequestError extends Error {
@@ -642,121 +637,160 @@ function extractDeltaFromChoice(choice: any): string | null {
 }
 
 async function streamFromOpenAI(params: {
-  apiKey: string;
+  client: OpenAI;
   messages: any[];
   signal: AbortSignal;
   send: (event: string, data?: unknown) => void;
 }): Promise<void> {
-  const { apiKey, messages, signal, send } = params;
+  const { client, messages, signal, send } = params;
   const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-  const endpoint = useResponses
-    ? "https://api.openai.com/v1/responses"
-    : "https://api.openai.com/v1/chat/completions";
-  const payload = useResponses
-    ? {
-        model: CHAT_MODEL,
-        temperature: 0.3,
-        input: formatMessagesForResponses(messages),
-        stream: true,
+
+  const firstNonEmpty = (
+    ...candidates: Array<string | null | undefined>
+  ): string => {
+    for (const value of candidates) {
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
       }
-    : {
+    }
+    return "";
+  };
+
+  try {
+    if (useResponses) {
+      const stream = await client.responses.create(
+        {
+          model: CHAT_MODEL,
+          temperature: 0.3,
+          input: formatMessagesForResponses(messages),
+          stream: true,
+        },
+        { signal }
+      );
+
+      for await (const rawEvent of stream as AsyncIterable<any>) {
+        if (!rawEvent) continue;
+        const event = rawEvent as any;
+
+        if (event.type === "response.output_text.delta") {
+          const delta = firstNonEmpty(event.delta);
+          if (delta) {
+            send("token", { delta });
+          }
+          continue;
+        }
+
+        if (event.type === "response.completed") {
+          return;
+        }
+
+        if (event.type === "error") {
+          const message = firstNonEmpty(
+            event.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(event.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.failed") {
+          const errorInfo = event.response?.error;
+          const message = firstNonEmpty(
+            errorInfo?.message,
+            "OpenAI streaming error"
+          );
+          const code = firstNonEmpty(errorInfo?.code, "openai_error");
+          throw new OpenAIStreamError(message, 500, code || "openai_error");
+        }
+
+        if (event.type === "response.incomplete") {
+          const reason = firstNonEmpty(
+            event.response?.incomplete_details?.reason
+          );
+          const message =
+            reason === "max_output_tokens"
+              ? "OpenAI stopped early because max_output_tokens was reached."
+              : reason === "content_filter"
+                ? "OpenAI stopped the response due to content filtering."
+                : "OpenAI response ended prematurely.";
+          const code = reason || "openai_incomplete";
+          throw new OpenAIStreamError(message, 500, code);
+        }
+      }
+
+      return;
+    }
+
+    const stream = await client.chat.completions.create(
+      {
         model: CHAT_MODEL,
         temperature: 0.3,
         messages,
         stream: true,
-      };
+      },
+      { signal }
+    );
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal,
-  });
+    for await (const rawChunk of stream as AsyncIterable<any>) {
+      const chunk = rawChunk as any;
+      const choices = chunk?.choices;
+      if (!Array.isArray(choices)) continue;
 
-  if (!response.ok) {
-    let message = `OpenAI request failed (${response.status})`;
-    let code = "openai_error";
-    try {
-      const raw = await response.json();
-      const errorMessage = raw?.error?.message;
-      const errorCode = raw?.error?.code;
-      if (typeof errorMessage === "string" && errorMessage.trim()) {
-        message = errorMessage.trim();
-      }
-      if (typeof errorCode === "string" && errorCode.trim()) {
-        code = errorCode.trim();
-      }
-    } catch {
-      // ignore JSON parsing failures
-    }
-    throw new OpenAIStreamError(message, response.status, code);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new OpenAIStreamError("OpenAI response missing body", response.status, "empty_response");
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
-
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const rawEvent = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      let outcome: "done" | void;
-      try {
-        outcome = handleOpenAIEvent(rawEvent, useResponses, send, response.status);
-      } catch (error) {
-        try {
-          await reader.cancel(error as Error);
-        } catch {
-          // ignore reader cancellation failures
+      for (const choice of choices) {
+        const text = extractDeltaFromChoice(choice);
+        if (typeof text === "string" && text) {
+          send("token", { delta: text });
         }
-        throw error;
-      }
-      if (outcome === "done") {
-        try {
-          await reader.cancel();
-        } catch {
-          // ignore reader cancellation failures
+        if (choice?.finish_reason === "stop") {
+          return;
         }
-        return;
       }
-      boundary = buffer.indexOf("\n\n");
     }
-  }
-
-  if (buffer.trim()) {
-    let outcome: "done" | void;
-    try {
-      outcome = handleOpenAIEvent(buffer, useResponses, send, response.status);
-    } catch (error) {
-      try {
-        await reader.cancel(error as Error);
-      } catch {
-        // ignore reader cancellation failures
-      }
+  } catch (error) {
+    const typedError = error as any;
+    if (signal?.aborted && typedError?.name === "AbortError") {
       throw error;
     }
-    if (outcome === "done") {
-      try {
-        await reader.cancel();
-      } catch {
-        // ignore reader cancellation failures
-      }
-      return;
+
+    if (error instanceof OpenAIStreamError) {
+      throw error;
     }
+
+    const status = (() => {
+      if (Number.isFinite(typedError?.status) && typedError.status > 0) {
+        return typedError.status as number;
+      }
+      if (Number.isFinite(typedError?.statusCode) && typedError.statusCode > 0) {
+        return typedError.statusCode as number;
+      }
+      if (
+        Number.isFinite(typedError?.response?.status) &&
+        typedError.response.status > 0
+      ) {
+        return typedError.response.status as number;
+      }
+      return 500;
+    })();
+
+    const message =
+      firstNonEmpty(
+        typedError?.error?.message,
+        typedError?.response?.error?.message,
+        typedError?.message,
+        "OpenAI request failed"
+      ) || "OpenAI request failed";
+
+    const code =
+      firstNonEmpty(
+        typedError?.error?.code,
+        typedError?.response?.error?.code,
+        typedError?.code,
+        "openai_error"
+      ) || "openai_error";
+
+    throw new OpenAIStreamError(message, status, code);
   }
 }
 
@@ -871,19 +905,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const openai = new OpenAI({ apiKey });
   const abortController = new AbortController();
-
-  for (const [existingId, entry] of activeControllers.entries()) {
-    if (entry.threadId === threadId && existingId !== clientStreamId) {
-      try {
-        entry.controller.abort("replaced");
-      } catch {
-        // ignore abort failures
-      }
-      activeControllers.delete(existingId);
-    }
-  }
-
-  activeControllers.set(clientStreamId, { threadId, controller: abortController });
+  let unregister: (() => void) | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(streamController) {
@@ -908,10 +930,7 @@ export default async function handler(req: Request): Promise<Response> {
         cleaned = true;
         clearInterval(keepAlive);
         abortController.signal.removeEventListener("abort", onAbort);
-        const existing = activeControllers.get(clientStreamId);
-        if (existing && existing.controller === abortController) {
-          activeControllers.delete(clientStreamId);
-        }
+        unregister?.();
       };
 
       const onAbort = () => {
@@ -928,6 +947,17 @@ export default async function handler(req: Request): Promise<Response> {
 
       abortController.signal.addEventListener("abort", onAbort);
 
+      unregister = registerStreamController(
+        clientStreamId,
+        threadId,
+        abortController
+      );
+
+      if (abortController.signal.aborted) {
+        onAbort();
+        return;
+      }
+
       let messages: any[];
       try {
         ({ messages } = await buildChatMessages(openai, body));
@@ -941,7 +971,7 @@ export default async function handler(req: Request): Promise<Response> {
 
       try {
         await streamFromOpenAI({
-          apiKey,
+          client: openai,
           messages,
           signal: abortController.signal,
           send,

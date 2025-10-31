@@ -38,6 +38,7 @@ export interface ComposerProps {
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
+  recording?: boolean;
   realtimeEnabled?: boolean;
   rtcState?: RtcState;
   startRealtime?: () => void;
@@ -72,6 +73,7 @@ const Composer: React.FC<ComposerProps> = ({
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
+  recording: recordingOverride,
   realtimeEnabled = false,
   rtcState = "idle",
   startRealtime,
@@ -92,7 +94,8 @@ const Composer: React.FC<ComposerProps> = ({
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
   const voiceStatus = useVoiceStatus();
-  const recording = voiceStatus === "listening";
+  const recording =
+    typeof recordingOverride === "boolean" ? recordingOverride : voiceStatus === "listening";
   const resolvedSendDisabled = sendDisabled || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
 

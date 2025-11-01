@@ -3045,10 +3045,20 @@ async function callLLM(text, history = [], contextAttachments = []) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
+    if (!res.ok) {
+      throw new Error(`Unexpected response (${res.status}) from chat stream.`);
+    }
+
     const data = await res.json();
     return data.reply || "";
   } catch (e) {
-    return "OpenAI endpoint error: " + (e?.message || "unknown");
+    const errorMessage = e?.message || "unknown";
+    // If error message already starts with "Unexpected response", use it as-is
+    if (errorMessage.startsWith("Unexpected response")) {
+      return errorMessage;
+    }
+    return "OpenAI endpoint error: " + errorMessage;
   }
 }
 

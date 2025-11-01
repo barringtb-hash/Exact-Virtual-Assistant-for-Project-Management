@@ -42,7 +42,7 @@ describe('Assistant chat flows', () => {
     cy.get(composer).type('Draft the kickoff agenda for next Monday{enter}');
 
     // Check button is disabled immediately after submission
-    cy.get('button[title="Send"]').should('be.disabled');
+    cy.get('button[title="Assistant is responding…"]').should('be.disabled');
 
     cy.wait('@chatRequest').then(({ request }) => {
       const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
@@ -58,7 +58,8 @@ describe('Assistant chat flows', () => {
     cy.contains('Updating preview…').should('not.exist');
 
     cy.get(composer).should('have.value', '');
-    cy.get('button[title="Send"]').should('not.be.disabled');
+    // After response completes, button should be re-enabled with "Send" title
+    cy.get('button[title="Send"]').should('exist').and('not.be.disabled');
 
     cy.get(composer).type('Please resend the latest summary{enter}');
     cy.wait('@chatRequest');

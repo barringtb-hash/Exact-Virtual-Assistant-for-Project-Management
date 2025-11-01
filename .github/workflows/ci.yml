@@ -26,15 +26,18 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Install Node deps
+        working-directory: ${{ env.PKG_DIR }}
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
       - name: Lint
+        working-directory: ${{ env.PKG_DIR }}
         run: npm run lint --if-present
         env:
           CI: true
 
       - name: Unit/Integration tests
+        working-directory: ${{ env.PKG_DIR }}
         run: npm test --if-present
         env:
           CI: true
@@ -42,8 +45,10 @@ jobs:
       - name: Cypress end-to-end tests
         uses: cypress-io/github-action@v6
         with:
-          build: npm run build
-          start: npm run preview -- --host --port 5173 --strictPort
+          working-directory: ${{ env.PKG_DIR }}
+          install: false
+          build: cd ${{ env.PKG_DIR }} && npm run build
+          start: cd ${{ env.PKG_DIR }} && npm run preview -- --host --port 5173 --strictPort
           wait-on: http://127.0.0.1:5173
           browser: electron
         env:

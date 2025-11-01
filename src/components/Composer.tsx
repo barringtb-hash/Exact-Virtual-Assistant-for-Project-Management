@@ -160,29 +160,28 @@ const Composer: React.FC<ComposerProps> = ({
     adjustTextareaHeight();
   }, [draft, adjustTextareaHeight]);
 
-  // TEMPORARILY DISABLED - these effects are causing React #185 infinite loop
-  // useEffect(() => {
-  //   if (!externallyControlled) return;
-  //   const next = recordingOverride ? "recording" : "idle";
-  //   if (recState !== next) {
-  //     setRecState(next);
-  //   }
-  // }, [externallyControlled, recordingOverride, setRecState]);
+  useEffect(() => {
+    if (!externallyControlled) return;
+    const next = recordingOverride ? "recording" : "idle";
+    if (recState !== next) {
+      setRecState(next);
+    }
+  }, [externallyControlled, recordingOverride, setRecState]);
 
-  // useEffect(() => {
-  //   if (!isMuted || recState !== "recording") {
-  //     return;
-  //   }
+  useEffect(() => {
+    if (!isMuted || recState !== "recording") {
+      return;
+    }
 
-  //   stopListening();
-  //   if (recState !== "idle") setRecState("idle");
+    stopListening();
+    if (recState !== "idle") setRecState("idle");
 
-  //   if (onStopRecording) {
-  //     onStopRecording();
-  //   } else if (onMicToggle) {
-  //     onMicToggle();
-  //   }
-  // }, [isMuted, recState, onMicToggle, onStopRecording, setRecState, stopListening]);
+    if (onStopRecording) {
+      onStopRecording();
+    } else if (onMicToggle) {
+      onMicToggle();
+    }
+  }, [isMuted, recState, onMicToggle, onStopRecording, setRecState, stopListening]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

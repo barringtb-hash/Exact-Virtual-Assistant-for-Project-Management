@@ -820,8 +820,7 @@ export default function ExactVirtualAssistantPM() {
     defaultDocType,
     docRouterEnabled,
     docType,
-    setDocType,
-    setSuggested,
+    // setDocType and setSuggested are stable functions - don't include in deps
     suggested,
     supportedDocTypes,
   ]);

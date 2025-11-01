@@ -43,8 +43,7 @@ const persistMuted = (value: boolean) => {
 export const useMicStore = create<MicState>((set, get) => ({
   isMuted: getInitialMuted(),
   recState: "idle",
-  setRecState: (state) =>
-    set((prev) => (prev.recState === state ? prev : { recState: state })),
+  setRecState: (state) => set({ recState: state }),
   setMuted: (muted) => {
     set({ isMuted: muted });
     persistMuted(muted);

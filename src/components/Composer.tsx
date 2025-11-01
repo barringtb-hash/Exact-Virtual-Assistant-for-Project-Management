@@ -162,7 +162,7 @@ const Composer: React.FC<ComposerProps> = ({
     if (recState !== next) {
       setRecState(next);
     }
-  }, [externallyControlled, recordingOverride, recState, setRecState]);
+  }, [externallyControlled, recordingOverride, setRecState]);
 
   useEffect(() => {
     if (!isMuted || recState !== "recording") {

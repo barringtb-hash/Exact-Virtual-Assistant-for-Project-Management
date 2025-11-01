@@ -1262,7 +1262,7 @@ export default function ExactVirtualAssistantPM() {
         }
       }, CHAT_EXTRACTION_DEBOUNCE_MS);
     },
-    [chatActions, effectiveDocType, pushToast, triggerExtraction]
+    [effectiveDocType, pushToast, triggerExtraction]
   );
 
   const appendUserMessageToChat = useCallback((text) => {

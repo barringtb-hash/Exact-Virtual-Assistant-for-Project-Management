@@ -58,7 +58,8 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
-const CHAT_EXTRACTION_DEBOUNCE_MS = 500;
+// Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
+const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
@@ -1209,6 +1210,9 @@ export default function ExactVirtualAssistantPM() {
           : [];
         const latestDraft = charterDraftRef.current;
 
+        // Performance tracking: Measure real-time sync latency
+        const syncStartTime = performance.now();
+
         chatActions.setSyncingPreview(true);
         try {
           const result = await triggerExtraction({
@@ -1219,6 +1223,10 @@ export default function ExactVirtualAssistantPM() {
             voice: latestVoice,
             reason,
           });
+
+          // Log sync performance (target: <500ms total)
+          const syncDuration = performance.now() - syncStartTime;
+          console.log(`[Real-time Sync] ${reason}: ${syncDuration.toFixed(0)}ms ${syncDuration > 500 ? '⚠️ SLOW' : '✓'}`);
 
           if (!result?.ok && result?.reason === "attachments-uploading") {
             pushToast({
@@ -2211,6 +2219,12 @@ const resolveDocTypeForManualSync = useCallback(
       chatActions.pushUser(trimmed);
       const nextHistory = chatStoreApi.getState().messages;
       messagesRef.current = nextHistory;
+
+      // Real-time sync: Trigger extraction immediately after user input
+      // This provides instant preview updates (<500ms) before LLM responds
+      scheduleChatPreviewSync({
+        reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
+      });
 
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");

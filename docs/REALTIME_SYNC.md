@@ -4,6 +4,75 @@
 
 The Real-Time Sync system provides instant synchronization between chat input (text and voice) and the document preview panel, with a target latency of <500ms.
 
+**IMPORTANT**: Real-time sync behavior depends on the `INTENT_ONLY_EXTRACTION` feature flag (defaults to `true`).
+
+## Intent-Only Mode vs. Real-Time Sync
+
+### Understanding Intent-Only Extraction
+
+The system has two modes controlled by the `INTENT_ONLY_EXTRACTION` environment variable:
+
+**Intent-Only Mode ON (default: `INTENT_ONLY_EXTRACTION=true`)**:
+- Extraction only happens when the system detects user **intent** (e.g., "create a project charter", "update the timeline to 6 months")
+- Real-time sync triggers **only when intent is detected**
+- If no intent is detected, sync happens after LLM responds (fallback)
+- More precise, prevents unnecessary extractions
+
+**Intent-Only Mode OFF (`INTENT_ONLY_EXTRACTION=false`)**:
+- Extraction happens for **every** user message immediately
+- Real-time sync triggers for **all** messages
+- Faster preview updates for casual conversation
+- May trigger more extractions than needed
+
+### How This Affects Real-Time Sync
+
+**With Intent-Only Mode ON (Default)**:
+
+```
+User: "Set the project timeline to 6 months"
+  ↓ Intent detected: update_field
+  ↓ attemptIntentExtraction() called
+  ↓ triggerExtraction() with intent
+  ↓ Preview updates IMMEDIATELY (<500ms) ✓
+```
+
+```
+User: "What fields are required?"
+  ↓ No intent detected (just a question)
+  ↓ LLM responds with answer
+  ↓ scheduleChatPreviewSync() after LLM
+  ↓ Preview updates after LLM response
+```
+
+**With Intent-Only Mode OFF**:
+
+```
+User: ANY message
+  ↓ scheduleChatPreviewSync() called immediately
+  ↓ triggerExtraction() executes
+  ↓ Preview updates IMMEDIATELY (<500ms) ✓
+```
+
+### Common Intent Patterns
+
+The system detects these intent patterns (see `src/utils/detectCharterIntent.js`):
+
+- **create_charter**: "create a charter", "make a project charter", "generate charter"
+- **update_field**: "set the timeline", "budget is $150k", "add risk: schedule delay"
+- **populate_from_attachment**: "create charter from this document", "extract from attachment"
+
+### Recommended Configuration
+
+**For Production** (default): `INTENT_ONLY_EXTRACTION=true`
+- More precise, fewer unnecessary API calls
+- Real-time sync works when user provides clear intent
+- Prevents errors from ambiguous messages
+
+**For Development/Testing**: `INTENT_ONLY_EXTRACTION=false`
+- Easier testing, every message triggers extraction
+- Useful for debugging extraction logic
+- May see more API calls
+
 ## Implementation Summary
 
 ### What Was Changed
@@ -13,10 +82,12 @@ The Real-Time Sync system provides instant synchronization between chat input (t
 - **After**: 50ms debounce delay (10x faster)
 - **Impact**: Reduces total sync latency from ~500-800ms to ~50-300ms
 
-**2. Immediate Sync Trigger** (App.jsx:2216-2220)
+**2. Intent-Aware Immediate Sync** (App.jsx:2226-2253)
 - **Before**: Sync triggered only AFTER LLM responds to user input
-- **After**: Sync triggered IMMEDIATELY after user sends message
-- **Impact**: Preview updates before LLM completes, providing instant visual feedback
+- **After**: Conditional immediate sync based on intent-only mode
+  - **Intent-only mode ON**: Immediate sync when intent detected (via `attemptIntentExtraction`)
+  - **Intent-only mode OFF**: Immediate sync for all messages
+- **Impact**: Preview updates before LLM completes when appropriate, no errors from missing intents
 
 **3. Performance Tracking** (App.jsx:1213-1229)
 - Added `performance.now()` timing measurements
@@ -332,6 +403,32 @@ await waitFor(() => {
 
 ## Troubleshooting
 
+### Error: "Charter extraction requires an explicit or detected intent"
+
+**Symptom**: Console shows 400 error with message "Charter extraction requires an explicit or detected intent"
+
+**Cause**: You have `INTENT_ONLY_EXTRACTION=true` (default) but sent a message that doesn't match any intent patterns
+
+**Solution**:
+1. **Use intent-triggering phrases** like:
+   - "Set the project timeline to 6 months"
+   - "Update the budget to $150,000"
+   - "Create a project charter"
+   - "Add risk: Schedule delay"
+
+2. **OR turn off intent-only mode** (if appropriate):
+   ```bash
+   # In .env.local
+   VITE_INTENT_ONLY_EXTRACTION=false
+   ```
+   This makes extraction happen for ALL messages (more API calls but always syncs)
+
+3. **Check intent detection**:
+   - See `src/utils/detectCharterIntent.js` for recognized patterns
+   - Intent patterns: `create_charter`, `update_field`, `populate_from_attachment`
+
+**Note**: With intent-only mode ON (default), real-time sync only works when intent is detected. This is by design to prevent unnecessary API calls.
+
 ### Preview Not Updating
 
 **Check**:
@@ -339,6 +436,7 @@ await waitFor(() => {
 2. Are there console errors in the extraction?
 3. Is the field locked? (check `mergeIntoDraftWithLocks` metadata)
 4. Is the extraction API running? (check Network tab)
+5. **If intent-only mode is ON**: Did your message include a recognized intent phrase?
 
 ### Slow Sync (>500ms)
 
@@ -371,10 +469,12 @@ await waitFor(() => {
 |-----------|------|-------|
 | Debounce constant | `src/App.jsx` | 61-62 |
 | scheduleChatPreviewSync | `src/App.jsx` | 1190-1243 |
-| Immediate sync trigger | `src/App.jsx` | 2216-2220 |
-| submitChatTurn | `src/App.jsx` | 2200-2271 |
-| handleVoiceTranscriptMessage | `src/App.jsx` | 2273-2308 |
+| Intent-aware sync logic | `src/App.jsx` | 2226-2253 |
+| submitChatTurn | `src/App.jsx` | 2207-2284 |
+| attemptIntentExtraction | `src/App.jsx` | 938-963 |
+| handleVoiceTranscriptMessage | `src/App.jsx` | 2286+ |
 | mergeIntoDraftWithLocks | `src/lib/preview/mergeIntoDraftWithLocks.js` | Full file |
+| detectCharterIntent | `src/utils/detectCharterIntent.js` | Full file |
 | chatStore | `src/state/chatStore.ts` | Full file |
 | draftStore | `src/state/draftStore.ts` | Full file |
 | voiceStore | `src/state/voiceStore.ts` | Full file |
@@ -384,14 +484,27 @@ await waitFor(() => {
 The Real-Time Sync system achieves <500ms synchronization between chat input and preview panel by:
 
 1. **Reducing debounce** from 500ms to 50ms (10x faster)
-2. **Triggering sync immediately** after user input (not after LLM)
-3. **Leveraging existing robust infrastructure** (extraction, merge, stores)
+2. **Intelligently triggering sync** based on intent-only mode configuration
+   - Intent-only mode ON: Sync when intent detected (default, production)
+   - Intent-only mode OFF: Sync for all messages (testing/development)
+3. **Leveraging existing robust infrastructure** (extraction, merge, stores, intent detection)
 4. **Adding performance monitoring** to verify targets are met
 
-The implementation is production-ready, well-tested through existing infrastructure, and includes comprehensive error handling and user feedback mechanisms.
+The implementation is production-ready, respects the intent-only extraction architecture, and includes comprehensive error handling and user feedback mechanisms.
+
+### Version History
+
+**Version 1.1** (2025-11-01):
+- Fixed: Intent-only mode compatibility - no longer triggers extraction errors
+- Added: Conditional sync logic respecting `INTENT_ONLY_EXTRACTION` flag
+- Updated: Documentation with intent-only mode explanation and troubleshooting
+
+**Version 1.0** (2025-11-01):
+- Initial implementation with reduced debounce and immediate sync
+- Performance tracking and monitoring
 
 ---
 
 **Last Updated**: 2025-11-01
 **Author**: Claude Code
-**Version**: 1.0
+**Version**: 1.1

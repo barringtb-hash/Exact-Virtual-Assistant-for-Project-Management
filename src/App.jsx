@@ -2220,15 +2220,11 @@ const resolveDocTypeForManualSync = useCallback(
       const nextHistory = chatStoreApi.getState().messages;
       messagesRef.current = nextHistory;
 
-      // Real-time sync: Trigger extraction immediately after user input
-      // This provides instant preview updates (<500ms) before LLM responds
-      scheduleChatPreviewSync({
-        reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
-      });
-
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
+      // Real-time sync: In intent-only mode, attemptIntentExtraction() handles immediate sync
+      // In non-intent mode, trigger immediate extraction here
       if (intentOnlyExtractionEnabled) {
         const intent = detectCharterIntent(trimmed);
         if (intent) {
@@ -2236,6 +2232,7 @@ const resolveDocTypeForManualSync = useCallback(
             ? voiceTranscriptsRef.current
             : [];
           try {
+            // attemptIntentExtraction already calls triggerExtraction() - this IS the immediate sync
             await attemptIntentExtraction({
               intent,
               reason: source === "voice" ? "voice-intent" : "composer-intent",
@@ -2247,6 +2244,12 @@ const resolveDocTypeForManualSync = useCallback(
           }
           return { status: "intent" };
         }
+        // No intent detected in intent-only mode: fall back to post-LLM sync
+      } else {
+        // Intent-only mode is OFF: trigger immediate sync for all messages
+        scheduleChatPreviewSync({
+          reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
+        });
       }
 
       const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });

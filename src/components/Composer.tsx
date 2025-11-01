@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { shallow } from "zustand/shallow";
 
 import {
   chatActions,
@@ -101,12 +102,15 @@ const Composer: React.FC<ComposerProps> = ({
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
   const { startListening, stopListening, getStream } = useVoiceEngine();
-  const { isMuted, recState, setRecState, toggleMute } = useMicStore((state) => ({
-    isMuted: state.isMuted,
-    recState: state.recState,
-    setRecState: state.setRecState,
-    toggleMute: state.toggleMute,
-  }));
+  const { isMuted, recState, setRecState, toggleMute } = useMicStore(
+    (state) => ({
+      isMuted: state.isMuted,
+      recState: state.recState,
+      setRecState: state.setRecState,
+      toggleMute: state.toggleMute,
+    }),
+    shallow
+  );
   const externallyControlled = typeof recordingOverride === "boolean";
   const effectiveRecState = externallyControlled
     ? recordingOverride

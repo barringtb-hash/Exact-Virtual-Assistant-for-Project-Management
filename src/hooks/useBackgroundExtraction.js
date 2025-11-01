@@ -655,6 +655,14 @@ export default function useBackgroundExtraction({
             parseFallbackMessage: PARSE_FALLBACK_MESSAGE,
           });
 
+          if (result?.reason === "skipped") {
+            if (isMountedRef.current) {
+              setIsExtracting(false);
+              setError(null);
+            }
+            return { ok: false, reason: "skipped" };
+          }
+
           if (result?.reason === "parse-fallback") {
             const notify = notifyRef.current;
             if (typeof notify === "function") {

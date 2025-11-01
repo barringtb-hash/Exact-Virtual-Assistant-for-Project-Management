@@ -299,15 +299,17 @@ export default async function handler(req, res) {
     const intentRaw = body?.intent;
     const intentSourceRaw = body?.intentSource;
     const intentReasonRaw = body?.intentReason;
+    const detectIntentRaw = body?.detect;
 
     const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
+    const allowIntentDetection = detectIntentRaw !== false;
 
     let resolvedIntent = intentOnlyExtractionEnabled ? normalizeIntent(intentRaw) : null;
     let resolvedIntentSource =
       typeof intentSourceRaw === "string" && intentSourceRaw.trim() ? intentSourceRaw.trim() : null;
 
     if (config.type === "charter") {
-      if (intentOnlyExtractionEnabled && !resolvedIntent) {
+      if (intentOnlyExtractionEnabled && !resolvedIntent && allowIntentDetection) {
         const lastUserMessage = getLastUserMessageText(messages);
         const detectedIntent = detectCharterIntent(lastUserMessage);
         if (detectedIntent) {
@@ -319,10 +321,7 @@ export default async function handler(req, res) {
       }
 
       if (intentOnlyExtractionEnabled && !resolvedIntent) {
-        return res.status(400).json({
-          error: "Charter extraction requires an explicit or detected intent.",
-          code: "missing-charter-intent",
-        });
+        return res.status(200).json({ status: "skipped", reason: "no_intent", fields: {} });
       }
     }
 

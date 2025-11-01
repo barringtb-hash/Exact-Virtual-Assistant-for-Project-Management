@@ -10,5 +10,5 @@
     "noEmit": true,
     "strict": false
   },
-  "include": ["cypress/**/*.ts", "cypress/**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

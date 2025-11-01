@@ -24,18 +24,36 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
+
+      - name: Locate package.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            PKG_DIR="."
+          else
+            PKG_DIR=$(dirname "$(find . -not -path '*/node_modules/*' -name package.json | head -n 1 || true)")
+          fi
+          if [ -z "${PKG_DIR:-}" ] || [ ! -f "$PKG_DIR/package.json" ]; then
+            echo "No package.json found in repository" >&2
+            exit 1
+          fi
+          echo "Using PKG_DIR=$PKG_DIR"
+          echo "PKG_DIR=$PKG_DIR" >> "$GITHUB_ENV"
 
       - name: Install Node deps
+        working-directory: ${{ env.PKG_DIR }}
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
       - name: Lint
+        working-directory: ${{ env.PKG_DIR }}
         run: npm run lint --if-present
         env:
           CI: true
 
       - name: Unit/Integration tests
+        working-directory: ${{ env.PKG_DIR }}
         run: npm test --if-present
         env:
           CI: true
@@ -43,8 +61,9 @@ jobs:
       - name: Cypress end-to-end tests
         uses: cypress-io/github-action@v6
         with:
-          build: npm run build
-          start: npm run preview -- --host --port 5173 --strictPort
+          install: false
+          build: cd ${{ env.PKG_DIR }} && npm run build
+          start: cd ${{ env.PKG_DIR }} && npm run preview -- --host --port 5173 --strictPort
           wait-on: http://127.0.0.1:5173
           browser: electron
         env:

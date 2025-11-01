@@ -528,7 +528,10 @@ export default function ExactVirtualAssistantPM() {
   const attachmentsRef = useRef(attachments);
   const voiceTranscriptsRef = useRef(voiceTranscripts);
   const pendingIntentRef = useRef(null);
-  const chatExtractionTimerRef = useRef(null);
+  // Re-entrancy / coalescing guards for real-time preview sync
+  const syncTimerRef = useRef(null);
+  const syncInFlightRef = useRef(false);
+  const pendingReasonRef = useRef(null);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -578,9 +581,9 @@ export default function ExactVirtualAssistantPM() {
   }, [initialDraftValue]);
   useEffect(() => {
     return () => {
-      if (chatExtractionTimerRef.current) {
-        clearTimeout(chatExtractionTimerRef.current);
-        chatExtractionTimerRef.current = null;
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
       }
     };
   }, []);
@@ -1190,16 +1193,26 @@ export default function ExactVirtualAssistantPM() {
 
   const scheduleChatPreviewSync = useCallback(
     ({ reason = "chat-completion" } = {}) => {
+      pendingReasonRef.current = reason;
       if (!effectiveDocType) {
         return;
       }
-      if (chatExtractionTimerRef.current) {
-        clearTimeout(chatExtractionTimerRef.current);
-        chatExtractionTimerRef.current = null;
+
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
       }
 
-      chatExtractionTimerRef.current = setTimeout(async () => {
-        chatExtractionTimerRef.current = null;
+      syncTimerRef.current = window.setTimeout(async () => {
+        syncTimerRef.current = null;
+        if (syncInFlightRef.current) {
+          return;
+        }
+        syncInFlightRef.current = true;
+
+        const runReason = pendingReasonRef.current || reason;
+        pendingReasonRef.current = null;
+
         const latestMessages = Array.isArray(messagesRef.current)
           ? messagesRef.current
           : [];
@@ -1211,10 +1224,8 @@ export default function ExactVirtualAssistantPM() {
           : [];
         const latestDraft = charterDraftRef.current;
 
-        // Performance tracking: Measure real-time sync latency
-        const syncStartTime = performance.now();
-
         chatActions.setSyncingPreview(true);
+        const t0 = performance.now();
         try {
           const result = await triggerExtraction({
             docType: effectiveDocType,
@@ -1222,12 +1233,8 @@ export default function ExactVirtualAssistantPM() {
             messages: latestMessages,
             attachments: latestAttachments,
             voice: latestVoice,
-            reason,
+            reason: runReason,
           });
-
-          // Log sync performance (target: <500ms total)
-          const syncDuration = performance.now() - syncStartTime;
-          console.log(`[Real-time Sync] ${reason}: ${syncDuration.toFixed(0)}ms ${syncDuration > 500 ? '⚠️ SLOW' : '✓'}`);
 
           if (!result?.ok && result?.reason === "attachments-uploading") {
             pushToast({
@@ -1236,18 +1243,26 @@ export default function ExactVirtualAssistantPM() {
                 "Waiting for attachments to finish before updating the preview.",
             });
           }
-        } catch (error) {
-          console.error("Chat-triggered extraction failed", error);
+        } catch (err) {
+          console.error("Chat-triggered extraction failed", err);
           pushToast({
             tone: "error",
             message: "Unable to update the preview from the latest chat turn.",
           });
         } finally {
           chatActions.setSyncingPreview(false);
+          syncInFlightRef.current = false;
+          const ms = performance.now() - t0;
+          console.log(
+            `[Real-time Sync] ${runReason}: ${ms.toFixed(0)}ms ${ms > 500 ? "⚠️ SLOW" : "✓"}`
+          );
+          if (pendingReasonRef.current) {
+            scheduleChatPreviewSync({ reason: pendingReasonRef.current });
+          }
         }
       }, CHAT_EXTRACTION_DEBOUNCE_MS);
     },
-    [effectiveDocType, pushToast, triggerExtraction]
+    [chatActions, effectiveDocType, pushToast, triggerExtraction]
   );
 
   const appendUserMessageToChat = useCallback((text) => {

@@ -28,8 +28,28 @@ const runCommand = (command, args, options = {}) =>
     });
   });
 
+const killPort = async (port) => {
+  try {
+    // Try to find and kill any process using the port
+    const { execSync } = await import('node:child_process');
+    try {
+      // Use lsof to find the process, then kill it
+      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
+        stdio: 'ignore',
+      });
+    } catch {
+      // Ignore errors - port might not be in use
+    }
+  } catch {
+    // Ignore errors
+  }
+};
+
 const runCypressSuite = async () => {
   await runCommand('npm', ['run', 'build']);
+
+  // Kill any existing process on port 5173
+  await killPort(5173);
 
   const previewProcess = spawn(
     'npm',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   chatActions,
@@ -329,8 +329,35 @@ const Composer: React.FC<ComposerProps> = ({
   const micButtonClasses = isRecording || isProcessing
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
     : isMuted
-      ? "bg-white/60 border-white/50 text-slate-400 hover:bg-white/60 dark:bg-slate-800/60 dark:border-slate-700/50 dark:text-slate-500"
+      ? "cursor-not-allowed bg-white/60 border-white/50 text-slate-400 hover:bg-white/60 dark:bg-slate-800/60 dark:border-slate-700/50 dark:text-slate-500"
       : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
+  const micVuState = micDisabled || isMuted ? "muted" : isRecording ? "active" : "idle";
+  const muteToggleVisible = showMute;
+  const [muteRendered, setMuteRendered] = useState(muteToggleVisible);
+
+  useEffect(() => {
+    if (muteToggleVisible) {
+      setMuteRendered(true);
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion || typeof window === "undefined") {
+      setMuteRendered(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setMuteRendered(false);
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [muteToggleVisible]);
 
   const realtimeVoiceStatus: VoiceStatus = useMemo(() => {
     if (rtcState === "live") return "recording";
@@ -409,7 +436,8 @@ const Composer: React.FC<ComposerProps> = ({
                 onClick={handleMicClick}
                 disabled={micDisabled}
                 ref={micButtonRef}
-                className={`shrink-0 rounded-xl border p-2 transition ${
+                data-vu-state={micVuState}
+                className={`icon-btn mic shrink-0 rounded-xl border p-2 transition ${
                   micDisabled
                     ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                     : micButtonClasses
@@ -423,18 +451,26 @@ const Composer: React.FC<ComposerProps> = ({
                 <IconMic className="h-5 w-5" />
               </button>
             )}
-            {showMute ? (
+            {muteRendered ? (
               <button
                 type="button"
                 onClick={handleMuteToggle}
+                data-test="mute-mic"
+                data-visible={muteToggleVisible ? "true" : "false"}
                 className={`shrink-0 rounded-xl border px-3 py-1 text-xs font-medium transition ${
                   isMuted
                     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
                     : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                } ${
+                  muteToggleVisible
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none opacity-0"
                 }`}
                 title={muteButtonLabel}
                 aria-label={muteButtonLabel}
                 aria-pressed={isMuted}
+                aria-hidden={muteToggleVisible ? undefined : true}
+                tabIndex={muteToggleVisible ? 0 : -1}
               >
                 {isMuted ? "Unmute" : "Mute"}
               </button>

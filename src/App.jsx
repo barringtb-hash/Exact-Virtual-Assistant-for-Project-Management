@@ -8,6 +8,7 @@ import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
 import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { onFileAttached } from "./hooks/useBackgroundExtraction";
+import { startListening, stopListening } from "./hooks/useVoiceEngine.ts";
 import mergeIntoDraftWithLocks from "./lib/preview/mergeIntoDraftWithLocks.js";
 import {
   handleSyncCommand,
@@ -1996,7 +1997,7 @@ const resolveDocTypeForManualSync = useCallback(
     if (rec) return;
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await startListening();
       const preferredMime =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
           ? MediaRecorder.isTypeSupported("audio/webm")
@@ -2040,9 +2041,7 @@ const resolveDocTypeForManualSync = useCallback(
         } catch (error) {
           console.error("Transcription failed", error);
         } finally {
-          if (stream) {
-            stream.getTracks().forEach((track) => track.stop());
-          }
+          stopListening();
           setRec(null);
           voiceActions.setStatus("idle");
         }
@@ -2054,8 +2053,13 @@ const resolveDocTypeForManualSync = useCallback(
     } catch (error) {
       console.error("Microphone access denied", error);
       if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (stopError) {
+          console.error("Error stopping media stream", stopError);
+        }
       }
+      stopListening();
       setRec(null);
       voiceActions.setStatus("idle");
     }
@@ -2066,6 +2070,7 @@ const resolveDocTypeForManualSync = useCallback(
     try {
       rec.stop();
       rec.stream?.getTracks().forEach((track) => track.stop());
+      stopListening();
     } catch (error) {
       console.error("Error stopping recorder", error);
     } finally {

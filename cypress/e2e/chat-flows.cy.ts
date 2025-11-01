@@ -10,22 +10,26 @@ describe('Assistant chat flows', () => {
         req.reply({ statusCode: 500, body: { error: 'temporary failure' } });
         return;
       }
-      req.reply({ reply: 'Here is the updated charter outline.' });
+      // Add a small delay to simulate real API behavior
+      req.reply({ delay: 100, body: { reply: 'Here is the updated charter outline.' } });
     }).as('chatRequest');
 
     cy.intercept('POST', /\/api\/(documents|doc)\/extract/, (req) => {
       const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       const body = JSON.parse(raw);
       req.reply({
-        ok: true,
-        draft: {
-          project_name: 'Aurora Initiative',
-          project_lead: 'Jordan Example',
-          sponsor: 'Casey Example',
+        delay: 50,
+        body: {
+          ok: true,
+          draft: {
+            project_name: 'Aurora Initiative',
+            project_lead: 'Jordan Example',
+            sponsor: 'Casey Example',
+          },
+          locks: { '/project_name': true },
+          metadata: { source: 'AI' },
+          payload: body,
         },
-        locks: { '/project_name': true },
-        metadata: { source: 'AI' },
-        payload: body,
       });
     }).as('extractRequest');
 
@@ -42,7 +46,7 @@ describe('Assistant chat flows', () => {
     cy.get(composer).type('Draft the kickoff agenda for next Monday{enter}');
 
     // Check button is disabled immediately after submission
-    cy.get('button[title="Assistant is responding…"]').should('be.disabled');
+    cy.get('button[title="Assistant is responding…"]').should('exist').and('be.disabled');
 
     cy.wait('@chatRequest').then(({ request }) => {
       const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);

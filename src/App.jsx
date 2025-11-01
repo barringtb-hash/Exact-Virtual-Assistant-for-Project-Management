@@ -58,7 +58,8 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
-const CHAT_EXTRACTION_DEBOUNCE_MS = 500;
+// Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
+const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
@@ -1209,6 +1210,9 @@ export default function ExactVirtualAssistantPM() {
           : [];
         const latestDraft = charterDraftRef.current;
 
+        // Performance tracking: Measure real-time sync latency
+        const syncStartTime = performance.now();
+
         chatActions.setSyncingPreview(true);
         try {
           const result = await triggerExtraction({
@@ -1219,6 +1223,10 @@ export default function ExactVirtualAssistantPM() {
             voice: latestVoice,
             reason,
           });
+
+          // Log sync performance (target: <500ms total)
+          const syncDuration = performance.now() - syncStartTime;
+          console.log(`[Real-time Sync] ${reason}: ${syncDuration.toFixed(0)}ms ${syncDuration > 500 ? '⚠️ SLOW' : '✓'}`);
 
           if (!result?.ok && result?.reason === "attachments-uploading") {
             pushToast({
@@ -2215,6 +2223,8 @@ const resolveDocTypeForManualSync = useCallback(
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
+      // Real-time sync: In intent-only mode, attemptIntentExtraction() handles immediate sync
+      // In non-intent mode, trigger immediate extraction here
       if (intentOnlyExtractionEnabled) {
         const intent = detectCharterIntent(trimmed);
         if (intent) {
@@ -2222,6 +2232,7 @@ const resolveDocTypeForManualSync = useCallback(
             ? voiceTranscriptsRef.current
             : [];
           try {
+            // attemptIntentExtraction already calls triggerExtraction() - this IS the immediate sync
             await attemptIntentExtraction({
               intent,
               reason: source === "voice" ? "voice-intent" : "composer-intent",
@@ -2233,6 +2244,12 @@ const resolveDocTypeForManualSync = useCallback(
           }
           return { status: "intent" };
         }
+        // No intent detected in intent-only mode: fall back to post-LLM sync
+      } else {
+        // Intent-only mode is OFF: trigger immediate sync for all messages
+        scheduleChatPreviewSync({
+          reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
+        });
       }
 
       const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });

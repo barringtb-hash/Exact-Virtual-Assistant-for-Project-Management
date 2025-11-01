@@ -157,12 +157,12 @@ const Composer: React.FC<ComposerProps> = ({
   }, [draft, adjustTextareaHeight]);
 
   useEffect(() => {
-    if (!externallyControlled) {
-      return;
+    if (!externallyControlled) return;
+    const next = recordingOverride ? "recording" : "idle";
+    if (recState !== next) {
+      setRecState(next);
     }
-
-    setRecState(recordingOverride ? "recording" : "idle");
-  }, [externallyControlled, recordingOverride, setRecState]);
+  }, [externallyControlled, recordingOverride, recState, setRecState]);
 
   useEffect(() => {
     if (!isMuted || recState !== "recording") {
@@ -170,7 +170,7 @@ const Composer: React.FC<ComposerProps> = ({
     }
 
     stopListening();
-    setRecState("idle");
+    if (recState !== "idle") setRecState("idle");
 
     if (onStopRecording) {
       onStopRecording();

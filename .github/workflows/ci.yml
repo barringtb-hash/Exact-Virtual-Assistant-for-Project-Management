@@ -20,27 +20,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use Node with cache only when a lockfile exists
-      - name: Use Node ${{ matrix.node-version }} (cached)
-        if: ${{ hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '' || hashFiles('yarn.lock') != '' }}
+      - name: Use Node ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      # Fallback: Node without cache when no lockfile exists
-      - name: Use Node ${{ matrix.node-version }} (no cache)
-        if: ${{ !(hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '' || hashFiles('yarn.lock') != '') }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
       - name: Install Node deps
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-      - name: Install Cypress system deps
-        run: bash scripts/install-cypress-deps.sh
 
       - name: Lint
         run: npm run lint --if-present
@@ -52,15 +40,12 @@ jobs:
         env:
           CI: true
 
-      - name: Build Vite app
-        run: npm run build
-
-      - name: Start preview on strict port
-        run: |
-          npm run preview -- --host --port 5173 --strictPort &
-          npx --yes wait-on http://127.0.0.1:5173
-
-      - name: Cypress E2E (headless via Xvfb)
-        run: xvfb-run -a npm run e2e:ci
+      - name: Cypress end-to-end tests
+        uses: cypress-io/github-action@v6
+        with:
+          build: npm run build
+          start: npm run preview -- --host --port 5173 --strictPort
+          wait-on: http://127.0.0.1:5173
+          browser: electron
         env:
           CI: true

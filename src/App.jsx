@@ -2212,29 +2212,36 @@ const resolveDocTypeForManualSync = useCallback(
       const nextHistory = chatStoreApi.getState().messages;
       messagesRef.current = nextHistory;
 
+      // Lock the input immediately to provide user feedback
+      chatActions.lockField("composer");
+
       if (intentOnlyExtractionEnabled) {
         const intent = detectCharterIntent(trimmed);
         if (intent) {
           const latestVoice = Array.isArray(voiceTranscriptsRef.current)
             ? voiceTranscriptsRef.current
             : [];
-          await attemptIntentExtraction({
-            intent,
-            reason: source === "voice" ? "voice-intent" : "composer-intent",
-            messages: nextHistory,
-            voice: latestVoice,
-          });
+          try {
+            await attemptIntentExtraction({
+              intent,
+              reason: source === "voice" ? "voice-intent" : "composer-intent",
+              messages: nextHistory,
+              voice: latestVoice,
+            });
+          } finally {
+            chatActions.unlockField("composer");
+          }
           return { status: "intent" };
         }
       }
 
       const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
       if (handled) {
+        chatActions.unlockField("composer");
         return { status: "command" };
       }
 
       const runId = createTempId();
-      chatActions.lockField("composer");
       chatActions.startAssistant(runId);
       let reply = "";
       try {

@@ -159,13 +159,18 @@ export function buildExtractionPayload({
 
   const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
   const normalizedIntent = normalizeIntent(intent);
+  const normalizedIntentSource = normalizeIntentSource(intentSource);
+  const normalizedIntentReason = normalizeIntentReason(intentReason);
 
   const shouldDetectIntent =
     intentOnlyExtractionEnabled &&
     normalizedDocType === "charter" &&
     normalizedIntent === null;
 
-  if (shouldDetectIntent && !hasContext) {
+  const hasIntentMetadata =
+    normalizedIntentSource !== null || normalizedIntentReason !== null;
+
+  if (shouldDetectIntent && !hasContext && !hasIntentMetadata) {
     return { skip: true, reason: "no_intent" };
   }
 
@@ -190,12 +195,10 @@ export function buildExtractionPayload({
       payload.intent = normalizedIntent;
     }
 
-    const normalizedIntentSource = normalizeIntentSource(intentSource);
     if (normalizedIntentSource) {
       payload.intentSource = normalizedIntentSource;
     }
 
-    const normalizedIntentReason = normalizeIntentReason(intentReason);
     if (normalizedIntentReason) {
       payload.intentReason = normalizedIntentReason;
     }

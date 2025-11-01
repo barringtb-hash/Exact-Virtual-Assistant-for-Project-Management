@@ -41,11 +41,13 @@ describe('Assistant chat flows', () => {
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
     cy.get(composer).type('Draft the kickoff agenda for next Monday{enter}');
 
+    // Check button is disabled immediately after submission
+    cy.get('button[title="Send"]').should('be.disabled');
+
     cy.wait('@chatRequest').then(({ request }) => {
       const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
       expect(body).to.contain('kickoff agenda');
     });
-    cy.get('button[title="Send"]').should('be.disabled');
 
     cy.wait('@extractRequest').then(({ request }) => {
       const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
@@ -137,7 +139,7 @@ describe('Assistant chat flows', () => {
 
     cy.get(composer).type('trigger retry handling{enter}');
     cy.wait('@chatRequest');
-    cy.contains('OpenAI endpoint error').should('be.visible');
+    cy.contains('Unexpected response (500) from chat stream.').should('be.visible');
 
     cy.intercept('POST', '/api/chat', {
       reply: 'Second attempt succeeded.',

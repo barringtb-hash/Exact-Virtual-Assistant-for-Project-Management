@@ -18,6 +18,7 @@ import {
   PARSE_FALLBACK_MESSAGE,
 } from "../utils/extractAndPopulate.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
+import { detectCharterIntent } from "../utils/detectCharterIntent.js";
 import {
   getDocTypeSnapshot,
   setDocType,
@@ -314,6 +315,87 @@ export async function onFileAttached(options = {}) {
     return legacyOnFileAttached(options);
   }
   return modernOnFileAttached(options);
+}
+
+function getLastUserMessageText(messages) {
+  if (!Array.isArray(messages)) {
+    return "";
+  }
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const entry = messages[i];
+    const role = entry?.role || "user";
+    if (role !== "user") {
+      continue;
+    }
+    const text =
+      typeof entry?.text === "string"
+        ? entry.text
+        : typeof entry?.content === "string"
+        ? entry.content
+        : "";
+    const trimmed = text.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return "";
+}
+
+function resolveIntentForExtraction({
+  providedIntent,
+  docType,
+  messages,
+  attachments,
+  voice,
+}) {
+  if (providedIntent) {
+    return {
+      intent: providedIntent,
+      intentSource: "explicit",
+    };
+  }
+
+  if (!isIntentOnlyExtractionEnabled()) {
+    return {
+      intent: null,
+      intentSource: null,
+    };
+  }
+
+  if (docType !== "charter") {
+    return {
+      intent: null,
+      intentSource: null,
+    };
+  }
+
+  const lastUserMessage = getLastUserMessageText(messages);
+  const detectedIntent = detectCharterIntent(lastUserMessage);
+  if (detectedIntent) {
+    return {
+      intent: detectedIntent,
+      intentSource: "detected_last_message",
+    };
+  }
+
+  const hasInput = hasUserInput(messages);
+  const hasAttachments = sanitizeAttachments(attachments).length > 0;
+  const hasVoice = sanitizeVoiceEvents(voice).length > 0;
+  const hasContext = hasInput || hasAttachments || hasVoice;
+
+  if (hasContext) {
+    return {
+      intent: "update_charter",
+      intentSource: "default_from_context",
+    };
+  }
+
+  return {
+    intent: null,
+    intentSource: null,
+  };
 }
 
 export default function useBackgroundExtraction({
@@ -739,13 +821,28 @@ export default function useBackgroundExtraction({
           ? overrideDocType.trim()
           : base.docType;
 
+      const nextMessages = overrideMessages ?? base.messages;
+      const nextAttachments = overrideAttachments ?? base.attachments;
+      const nextVoice = overrideVoice ?? base.voice;
+      const providedIntent = overrideIntent ?? base.intent;
+
+      const { intent: resolvedIntent, intentSource: resolvedIntentSource } =
+        resolveIntentForExtraction({
+          providedIntent,
+          docType: normalizedDocType,
+          messages: nextMessages,
+          attachments: nextAttachments,
+          voice: nextVoice,
+        });
+
       const nextState = {
         ...base,
-        intent: overrideIntent ?? base.intent,
+        intent: resolvedIntent,
+        intentSource: resolvedIntentSource || base.intentSource,
         docType: normalizedDocType,
-        messages: overrideMessages ?? base.messages,
-        attachments: overrideAttachments ?? base.attachments,
-        voice: overrideVoice ?? base.voice,
+        messages: nextMessages,
+        attachments: nextAttachments,
+        voice: nextVoice,
       };
 
       return executeExtraction(nextState);

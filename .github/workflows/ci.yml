@@ -25,22 +25,6 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Locate package.json
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f package.json ]; then
-            PKG_DIR="."
-          else
-            PKG_DIR=$(dirname "$(find . -not -path '*/node_modules/*' -name package.json | head -n 1 || true)")
-          fi
-          if [ -z "${PKG_DIR:-}" ] || [ ! -f "$PKG_DIR/package.json" ]; then
-            echo "No package.json found in repository" >&2
-            exit 1
-          fi
-          echo "Using PKG_DIR=$PKG_DIR"
-          echo "PKG_DIR=$PKG_DIR" >> "$GITHUB_ENV"
-
       - name: Install Node deps
         working-directory: ${{ env.PKG_DIR }}
         run: |

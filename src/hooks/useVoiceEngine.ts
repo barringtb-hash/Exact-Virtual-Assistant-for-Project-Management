@@ -30,3 +30,11 @@ export const stopListening = (): void => {
 };
 
 export const getStream = (): MediaStream | null => streamRef;
+
+export const useVoiceEngine = () => ({
+  startListening,
+  stopListening,
+  getStream,
+});
+
+export default useVoiceEngine;

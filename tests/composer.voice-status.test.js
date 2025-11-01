@@ -21,16 +21,21 @@ function renderComposer(overrides = {}) {
   return renderToStaticMarkup(React.createElement(Composer, props));
 }
 
-function extractSrOnlyText(markup) {
+function extractSrOnly(markup) {
   const match = markup.match(
-    /<span class="sr-only" aria-live="polite">([^<]*)<\/span>/
+    /<span class="sr-only" aria-live="([^"]+)">([^<]*)<\/span>/
   );
-  return match ? match[1] : null;
+  return match
+    ? {
+        politeness: match[1],
+        text: match[2],
+      }
+    : null;
 }
 
 function hasVisibleStatusText(markup, text) {
   const srOnlyMatch = markup.match(
-    /<span class="sr-only" aria-live="polite">[^<]*<\/span>/
+    /<span class="sr-only" aria-live="[^"]+">[^<]*<\/span>/
   );
   const withoutSrOnly = srOnlyMatch
     ? markup.replace(srOnlyMatch[0], "")
@@ -45,7 +50,9 @@ describe("Composer voice accessibility", () => {
       readyMarkup.includes('aria-label="Ready"'),
       "ready state aria-label"
     );
-    assert.equal(extractSrOnlyText(readyMarkup), "Ready");
+    const readySr = extractSrOnly(readyMarkup);
+    assert.equal(readySr?.text, "Ready");
+    assert.equal(readySr?.politeness, "polite");
     assert.equal(hasVisibleStatusText(readyMarkup, "Ready"), false);
 
     const recordingMarkup = renderComposer({ recording: true });
@@ -53,7 +60,9 @@ describe("Composer voice accessibility", () => {
       recordingMarkup.includes('aria-label="Recording…"'),
       "recording state aria-label"
     );
-    assert.equal(extractSrOnlyText(recordingMarkup), "Recording…");
+    const recordingSr = extractSrOnly(recordingMarkup);
+    assert.equal(recordingSr?.text, "Recording…");
+    assert.equal(recordingSr?.politeness, "assertive");
     assert.equal(hasVisibleStatusText(recordingMarkup, "Recording…"), false);
   });
 });

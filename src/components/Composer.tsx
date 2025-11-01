@@ -7,7 +7,9 @@ import {
   useIsAssistantThinking,
   useIsStreaming,
 } from "../state/chatStore.ts";
-import { useVoiceStatus } from "../state/voiceStore.ts";
+import { useMicStore } from "../state/micStore.ts";
+import useVoiceEngine from "../hooks/useVoiceEngine.ts";
+import { useVuMeter } from "../hooks/useVuMeter.ts";
 
 import { useDocType } from "../state/docType.js";
 
@@ -15,7 +17,7 @@ export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
 type RtcState = "idle" | "connecting" | "live" | "error";
 
-type VoiceStatus = "ready" | "recording" | "processing" | "error";
+type VoiceStatus = "ready" | "recording" | "processing" | "error" | "muted";
 
 const voiceStatusLabel = (status: VoiceStatus): string => {
   switch (status) {
@@ -25,6 +27,8 @@ const voiceStatusLabel = (status: VoiceStatus): string => {
       return "Processing audio…";
     case "error":
       return "Voice connection error";
+    case "muted":
+      return "Microphone muted";
     default:
       return "Ready";
   }
@@ -89,18 +93,57 @@ const Composer: React.FC<ComposerProps> = ({
   children,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const micButtonRef = useRef<HTMLButtonElement | null>(null);
   const textareaId = useId();
   const { previewDocTypeLabel } = useDocType();
   const draft = useComposerDraft();
   const isAssistantThinking = useIsAssistantThinking();
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
-  const voiceStatus = useVoiceStatus();
-  const recording =
-    typeof recordingOverride === "boolean" ? recordingOverride : voiceStatus === "listening";
+  const { startListening, stopListening, getStream } = useVoiceEngine();
+  const { isMuted, recState, setRecState, toggleMute } = useMicStore((state) => ({
+    isMuted: state.isMuted,
+    recState: state.recState,
+    setRecState: state.setRecState,
+    toggleMute: state.toggleMute,
+  }));
+  const externallyControlled = typeof recordingOverride === "boolean";
+  const effectiveRecState = externallyControlled
+    ? recordingOverride
+      ? "recording"
+      : "idle"
+    : recState;
+  const isRecording = effectiveRecState === "recording";
+  const isProcessing = effectiveRecState === "processing";
+  const showMute = isMuted || isRecording || isProcessing;
+  const composerVoiceStatus: VoiceStatus = isMuted
+    ? "muted"
+    : isProcessing
+      ? "processing"
+      : isRecording
+        ? "recording"
+        : "ready";
+  const srVoiceLabel = voiceStatusLabel(composerVoiceStatus);
+  const srPoliteness: "polite" | "assertive" = isMuted || isRecording || isProcessing ? "assertive" : "polite";
+  const micButtonStyle = useMemo(() => ({ ["--vu" as const]: "0" }) as React.CSSProperties, []);
+  const micButtonLabel = srVoiceLabel;
+  const micButtonTitle = isMuted
+    ? "Microphone muted"
+    : isRecording
+      ? "Stop recording"
+      : isProcessing
+        ? "Processing audio…"
+        : "Start voice input";
+  const muteButtonLabel = isMuted ? "Unmute microphone" : "Mute microphone";
   const resolvedSendDisabled =
     sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
+
+  useVuMeter({
+    targetRef: micButtonRef,
+    stream: getStream(),
+    enabled: isRecording && !isMuted,
+  });
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
@@ -112,6 +155,135 @@ const Composer: React.FC<ComposerProps> = ({
   useEffect(() => {
     adjustTextareaHeight();
   }, [draft, adjustTextareaHeight]);
+
+  useEffect(() => {
+    if (!externallyControlled) {
+      return;
+    }
+
+    setRecState(recordingOverride ? "recording" : "idle");
+  }, [externallyControlled, recordingOverride, setRecState]);
+
+  useEffect(() => {
+    if (!isMuted || recState !== "recording") {
+      return;
+    }
+
+    stopListening();
+    setRecState("idle");
+
+    if (onStopRecording) {
+      onStopRecording();
+    } else if (onMicToggle) {
+      onMicToggle();
+    }
+  }, [isMuted, recState, onMicToggle, onStopRecording, setRecState, stopListening]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (event.key.toLowerCase() !== "m") {
+        return;
+      }
+
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName;
+        if (tagName === "INPUT" || tagName === "TEXTAREA") {
+          return;
+        }
+
+        if (target.isContentEditable) {
+          return;
+        }
+      }
+
+      event.preventDefault();
+      toggleMute();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleMute]);
+
+  const handleStartRecording = useCallback(async () => {
+    if (isMuted) {
+      return;
+    }
+
+    setRecState("processing");
+
+    try {
+      await startListening();
+      setRecState("recording");
+    } catch (error) {
+      console.error("Microphone start failed", error);
+      setRecState("idle");
+      return;
+    }
+
+    if (onStartRecording) {
+      onStartRecording();
+    } else {
+      onMicToggle?.();
+    }
+  }, [isMuted, onMicToggle, onStartRecording, setRecState, startListening]);
+
+  const handleStopRecording = useCallback(() => {
+    if (recState === "idle") {
+      if (onStopRecording) {
+        onStopRecording();
+      } else if (onMicToggle) {
+        onMicToggle();
+      }
+
+      return;
+    }
+
+    setRecState("processing");
+
+    try {
+      stopListening();
+    } catch (error) {
+      console.error("Microphone stop failed", error);
+    } finally {
+      setRecState("idle");
+    }
+
+    if (onStopRecording) {
+      onStopRecording();
+    } else {
+      onMicToggle?.();
+    }
+  }, [onMicToggle, onStopRecording, recState, setRecState, stopListening]);
+
+  const handleMuteToggle = useCallback(() => {
+    toggleMute();
+  }, [toggleMute]);
+
+  const handleMicClick = useCallback(() => {
+    if (micDisabled) {
+      return;
+    }
+
+    if (isRecording) {
+      handleStopRecording();
+      return;
+    }
+
+    if (isProcessing || isMuted) {
+      return;
+    }
+
+    void handleStartRecording();
+  }, [handleStartRecording, handleStopRecording, isMuted, isProcessing, isRecording, micDisabled]);
 
   const handleChange: React.ChangeEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
@@ -132,21 +304,6 @@ const Composer: React.FC<ComposerProps> = ({
     },
     [onSend, resolvedSendDisabled]
   );
-
-  const handleMicClick = useCallback(() => {
-    if (recording) {
-      if (onStopRecording) {
-        onStopRecording();
-        return;
-      }
-    } else {
-      if (onStartRecording) {
-        onStartRecording();
-        return;
-      }
-    }
-    onMicToggle?.();
-  }, [onMicToggle, onStartRecording, onStopRecording, recording]);
 
   const resolvedPlaceholder = useMemo(() => {
     if (placeholder) return placeholder;
@@ -169,9 +326,11 @@ const Composer: React.FC<ComposerProps> = ({
     }
   }, [rtcState, startRealtime, stopRealtime]);
 
-  const micButtonClasses = recording
+  const micButtonClasses = isRecording || isProcessing
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
-    : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
+    : isMuted
+      ? "bg-white/60 border-white/50 text-slate-400 hover:bg-white/60 dark:bg-slate-800/60 dark:border-slate-700/50 dark:text-slate-500"
+      : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
 
   const realtimeVoiceStatus: VoiceStatus = useMemo(() => {
     if (rtcState === "live") return "recording";
@@ -185,12 +344,7 @@ const Composer: React.FC<ComposerProps> = ({
     [realtimeVoiceStatus]
   );
 
-  const recordingAriaLabel = useMemo(
-    () => voiceStatusLabel(recording ? "recording" : "ready"),
-    [recording]
-  );
-
-  const liveVoiceLabel = realtimeEnabled ? realtimeAriaLabel : recordingAriaLabel;
+  const liveVoiceLabel = realtimeEnabled ? realtimeAriaLabel : srVoiceLabel;
 
   return (
     <div className="sticky bottom-0 left-0 right-0">
@@ -254,17 +408,37 @@ const Composer: React.FC<ComposerProps> = ({
                 type="button"
                 onClick={handleMicClick}
                 disabled={micDisabled}
+                ref={micButtonRef}
                 className={`shrink-0 rounded-xl border p-2 transition ${
                   micDisabled
                     ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                     : micButtonClasses
                 }`}
-                title={recording ? "Stop recording" : "Voice input (mock)"}
-                aria-label={recordingAriaLabel}
+                style={micButtonStyle}
+                title={micButtonTitle}
+                aria-label={micButtonLabel}
+                aria-pressed={isRecording}
+                aria-disabled={micDisabled || (isMuted && !isRecording && !isProcessing)}
               >
                 <IconMic className="h-5 w-5" />
               </button>
             )}
+            {showMute ? (
+              <button
+                type="button"
+                onClick={handleMuteToggle}
+                className={`shrink-0 rounded-xl border px-3 py-1 text-xs font-medium transition ${
+                  isMuted
+                    ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
+                    : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                }`}
+                title={muteButtonLabel}
+                aria-label={muteButtonLabel}
+                aria-pressed={isMuted}
+              >
+                {isMuted ? "Unmute" : "Mute"}
+              </button>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -282,7 +456,7 @@ const Composer: React.FC<ComposerProps> = ({
             </button>
           </div>
         </div>
-        <span className="sr-only" aria-live="polite">
+        <span className="sr-only" aria-live={srPoliteness}>
           {liveVoiceLabel}
         </span>
       </div>

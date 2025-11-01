@@ -1,0 +1,41 @@
+Target Product Profile – OncoLiquid ctDNA Assay (Demo)
+=====================================================
+
+**Product Summary**
+- Program: Oncology Liquid Biopsy Initiative
+- Assay Name: OncoLiquid ctDNA Assay
+- Therapeutic Area: Solid Tumors
+- Phase: Commercial Pilot
+
+**Project Charter Anchors**
+- Project Title: OncoLiquid ctDNA Assay Launch
+- Executive Sponsor: Dr. Helena Kim, VP Precision Oncology
+- Project Manager: Luis Martinez, PMP
+- Core Team: Regulatory Affairs, Clinical Operations, Bioinformatics, Commercial Enablement
+
+**Objectives**
+1. Launch a CLIA-compliant ctDNA assay targeting metastatic solid tumor indications by Q4.
+2. Achieve >95% analytical sensitivity for actionable variants at 0.5% VAF.
+3. Secure CPT code alignment and payer coverage for initial markets (US, EU5).
+
+**Scope Summary**
+- Included: Assay validation, LIS integration, clinical validation study, market access dossier, commercialization toolkit.
+- Excluded: Companion diagnostic submissions, direct-to-patient marketing, home sample collection kits.
+
+**Key Milestones**
+- Analytical Validation Complete – July 15
+- Clinical Study Enrollment Complete – August 30
+- CLIA Audit Clearance – September 20
+- Commercial Launch Readiness Review – October 31
+
+**Risks & Mitigations**
+- Regulatory delay → Pre-submit package reviewed monthly with FDA liaison.
+- Sample quality variability → Implement plasma QC SOPs and retraining for collection sites.
+- Bioinformatics pipeline drift → Weekly monitoring with automated alert thresholds and rollback plan.
+
+**Success Metrics**
+- 95% positive percent agreement in validation cohort.
+- 90% of target oncologists trained before launch.
+- Net promoter score ≥ 60 within first quarter of release.
+
+Use this document as the canonical acceptance artifact for intent-only extraction demos and tests.

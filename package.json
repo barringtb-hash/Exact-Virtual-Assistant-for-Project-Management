@@ -1,0 +1,54 @@
+{
+  "name": "exact-virtual-assistant-pm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
+    "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
+    "test:e2e": "playwright test",
+    "e2e:ci": "npx --yes cypress run --config-file cypress.config.ts",
+    "e2e:codespace": "bash -lc 'npm run build && (pkill -f \"vite preview\" || true) && npm run preview -- --port 5173 --strictPort & npx --yes wait-on http://localhost:5173 && xvfb-run -a npm run e2e:ci; pkill -f \"vite preview\" || true'",
+    "validate:charter-docx": "node templates/validate-docx-template.mjs",
+    "docx:encode": "node templates/tools/encode-docx.mjs",
+    "docx:lint": "node templates/tools/lint-tokens.mjs",
+    "docx:smoke": "node templates/tools/render-smoke.mjs",
+    "dep:check": "node ./scripts/checkCircularDeps.mjs",
+    "analyze:cycles": "node ./scripts/checkCircularDeps.mjs"
+  },
+  "dependencies": {
+    "@dqbd/tiktoken": "^1.0.7",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^3.0.0",
+    "docxtemplater": "^3.32.0",
+    "dompurify": "^3.1.6",
+    "mammoth": "^1.7.2",
+    "openai": "^4.58.0",
+    "pdf-parse": "^1.1.1",
+    "pdfmake": "^0.2.7",
+    "pizzip": "^3.1.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.2",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^24.9.2",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "cypress": "^15.5.0",
+    "jsdom": "^24.0.0",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.8",
+    "wait-on": "^7.0.1"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

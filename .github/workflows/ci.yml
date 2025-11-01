@@ -24,32 +24,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
 
       - name: Install Node deps
-        working-directory: ${{ env.PKG_DIR }}
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
+      - name: Install Cypress system deps
+        run: bash scripts/install-cypress-deps.sh
+
       - name: Lint
-        working-directory: ${{ env.PKG_DIR }}
         run: npm run lint --if-present
         env:
           CI: true
 
       - name: Unit/Integration tests
-        working-directory: ${{ env.PKG_DIR }}
         run: npm test --if-present
         env:
           CI: true
 
-      - name: Cypress end-to-end tests
-        uses: cypress-io/github-action@v6
-        with:
-          working-directory: ${{ env.PKG_DIR }}
-          install: false
-          build: cd ${{ env.PKG_DIR }} && npm run build
-          start: cd ${{ env.PKG_DIR }} && npm run preview -- --host --port 5173 --strictPort
-          wait-on: http://127.0.0.1:5173
-          browser: electron
+      - name: Build Vite app
+        run: npm run build
+
+      - name: Start preview on strict port
+        run: |
+          npm run preview -- --host --port 5173 --strictPort &
+          npx --yes wait-on http://127.0.0.1:5173
+
+      - name: Cypress E2E (headless via Xvfb)
+        run: xvfb-run -a npm run e2e:ci
         env:
           CI: true

@@ -185,7 +185,7 @@ test("/api/documents/extract derives intent from the last user message", async (
   assert.equal(auditEvent.payload.intent_reason, null);
 });
 
-test("/api/documents/extract rejects charter requests without intent", async () => {
+test("/api/documents/extract skips charter requests without intent", async () => {
   const res = createMockResponse();
   const analyticsEvents = [];
   const originalHook = globalThis.__analyticsHook__;
@@ -217,10 +217,39 @@ test("/api/documents/extract rejects charter requests without intent", async () 
     globalThis.__analyticsHook__ = originalHook;
   }
 
-  assert.equal(res.statusCode, 400);
-  assert.match(res.body?.error || "", /intent/i);
-  assert.equal(res.body?.code, "missing-charter-intent");
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body?.status, "skipped");
+  assert.equal(res.body?.reason, "no_intent");
   assert.equal(analyticsEvents.length, 0);
+});
+
+test("/api/documents/extract returns skipped when detect flag is false", async () => {
+  const res = createMockResponse();
+
+  await withIntentFlag("true", async () => {
+    await extractHandler(
+      {
+        method: "POST",
+        query: { docType: "charter" },
+        body: {
+          docType: "charter",
+          attachments: [],
+          messages: [
+            {
+              role: "user",
+              text: "Let's talk about our upcoming planning meeting agenda for next month in detail.",
+            },
+          ],
+          detect: false,
+        },
+      },
+      res
+    );
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body?.status, "skipped");
+  assert.equal(res.body?.reason, "no_intent");
 });
 
 test("/api/documents/extract enforces context guard even in legacy mode", async () => {

@@ -148,11 +148,32 @@ export function buildExtractionPayload({
   intentReason,
 } = {}) {
   const normalizedDocType = normalizeDocType(docType);
+  const sanitizedMessages = sanitizeMessages(messages);
+  const sanitizedAttachments = sanitizeAttachments(attachments);
+  const sanitizedVoice = sanitizeVoiceEvents(voice);
+
+  const hasContext =
+    sanitizedAttachments.length > 0 ||
+    sanitizedVoice.length > 0 ||
+    sanitizedMessages.length > 0;
+
+  const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
+  const normalizedIntent = normalizeIntent(intent);
+
+  const shouldDetectIntent =
+    intentOnlyExtractionEnabled &&
+    normalizedDocType === "charter" &&
+    normalizedIntent === null;
+
+  if (shouldDetectIntent && !hasContext) {
+    return { skip: true, reason: "no_intent" };
+  }
+
   const payload = {
     docType: normalizedDocType,
-    messages: sanitizeMessages(messages),
-    attachments: sanitizeAttachments(attachments),
-    voice: sanitizeVoiceEvents(voice),
+    messages: sanitizedMessages,
+    attachments: sanitizedAttachments,
+    voice: sanitizedVoice,
   };
 
   if (seed && typeof seed === "object") {
@@ -164,8 +185,7 @@ export function buildExtractionPayload({
     payload.docTypeDetection = detection;
   }
 
-  if (isIntentOnlyExtractionEnabled()) {
-    const normalizedIntent = normalizeIntent(intent);
+  if (intentOnlyExtractionEnabled) {
     if (normalizedIntent !== null) {
       payload.intent = normalizedIntent;
     }
@@ -178,6 +198,10 @@ export function buildExtractionPayload({
     const normalizedIntentReason = normalizeIntentReason(intentReason);
     if (normalizedIntentReason) {
       payload.intentReason = normalizedIntentReason;
+    }
+
+    if (shouldDetectIntent) {
+      payload.detect = true;
     }
   }
 
@@ -230,6 +254,11 @@ export async function extractAndPopulate({
     intentSource,
     intentReason,
   });
+
+  if (payload?.skip) {
+    const skipReason = payload.reason || "skipped";
+    return { ok: false, reason: "skipped", data: { status: "skipped", reason: skipReason } };
+  }
 
   const normalizedDocType = payload.docType;
 
@@ -291,6 +320,10 @@ export async function extractAndPopulate({
       }
     }
     throw extractionError;
+  }
+
+  if (data?.status === "skipped") {
+    return { ok: false, reason: "skipped", data };
   }
 
   if (Object.prototype.hasOwnProperty.call(data, "result")) {

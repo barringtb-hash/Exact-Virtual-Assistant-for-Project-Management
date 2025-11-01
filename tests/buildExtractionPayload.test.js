@@ -36,6 +36,38 @@ test("buildExtractionPayload includes intent metadata when enabled", () => {
   });
 });
 
+test("buildExtractionPayload skips extraction when intent and context are missing", () => {
+  withIntentFlag("true", () => {
+    const payload = buildExtractionPayload({
+      docType: "charter",
+      messages: [{ role: "user", text: "   " }],
+      attachments: [],
+      voice: [],
+    });
+
+    assert.deepEqual(payload, { skip: true, reason: "no_intent" });
+  });
+});
+
+test("buildExtractionPayload sets detect flag when intent is absent", () => {
+  withIntentFlag("true", () => {
+    const payload = buildExtractionPayload({
+      docType: "charter",
+      messages: [
+        {
+          role: "user",
+          text: "Please create a project charter for the Phoenix initiative.",
+        },
+      ],
+      attachments: [],
+      voice: [],
+    });
+
+    assert.equal(payload.detect, true);
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "intent"));
+  });
+});
+
 test("buildExtractionPayload omits intent metadata when disabled", () => {
   withIntentFlag("false", () => {
     const payload = buildExtractionPayload({

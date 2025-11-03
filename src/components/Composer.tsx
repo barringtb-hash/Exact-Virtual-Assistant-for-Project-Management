@@ -11,7 +11,7 @@ import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
-import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
+import { MicButtonWithMeter } from "./MicButtonWithMeter.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
@@ -271,29 +271,35 @@ const Composer: React.FC<ComposerProps> = ({
                 )}
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleMicClick}
+              <MicButtonWithMeter
+                isActive={recording || (micLevel?.isActive ?? false)}
+                level={micLevel?.level ?? 0}
+                onStart={async () => {
+                  if (onStartRecording) {
+                    onStartRecording();
+                  }
+                  if (micLevel) {
+                    await micLevel.start(micLevel.selectedDeviceId);
+                  }
+                  if (!onStartRecording) {
+                    onMicToggle?.();
+                  }
+                }}
+                onStop={async () => {
+                  if (onStopRecording) {
+                    onStopRecording();
+                  }
+                  if (micLevel) {
+                    await micLevel.stop();
+                  }
+                  if (!onStopRecording) {
+                    onMicToggle?.();
+                  }
+                }}
+                size={44}
+                ariaLabelStart={voiceStatusLabel("ready")}
+                ariaLabelStop={voiceStatusLabel("recording")}
                 disabled={micDisabled}
-                className={`shrink-0 rounded-xl border p-2 transition ${
-                  micDisabled
-                    ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
-                    : micButtonClasses
-                }`}
-                title={recording ? "Stop recording" : "Voice input (mock)"}
-                aria-label={recordingAriaLabel}
-              >
-                <IconMic className="h-5 w-5" />
-              </button>
-            )}
-            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
-              <MicLevelIndicator
-                level={micLevel.level}
-                peak={micLevel.peak}
-                db={micLevel.db}
-                variant="bar"
-                showDb={false}
-                ariaLabel="Live microphone level"
               />
             )}
           </div>

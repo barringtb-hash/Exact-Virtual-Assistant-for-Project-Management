@@ -1,11 +1,77 @@
-/* Mic level indicator styles */
-@import './components/mic-meter.css';
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+
+.mic-button {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border, #2a2a2a);
+  background: var(--bg, #111);
+  transition: transform 80ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.mic-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mic-button:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.mic-button__icon {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.9;
+  fill: currentColor;
+}
+
+.mic-button__meter {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%) scaleY(0.05);
+  transform-origin: bottom;
+  width: 6px;
+  height: calc(100% - 8px);
+  border-radius: 3px;
+  will-change: transform;
+  opacity: 0.85;
+  background: linear-gradient(to top, #22c55e, #facc15 60%, #ef4444 100%);
+  filter: saturate(1.15);
+}
+
+.mic-button[data-state="idle"] .mic-button__meter {
+  opacity: 0.25;
+}
+
+.mic-button[data-state="listening"] .mic-button__meter {
+  opacity: 0.9;
+}
+
+.mic-button[data-clip="true"] {
+  outline: 2px solid #ef4444;
+  outline-offset: 0;
+}
+
+.mic-button[data-blocked="true"] {
+  outline: 2px solid #ef4444;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic-button__meter {
+    transition: none;
+  }
+}
 
 .assistant-feedback-section {
   margin-bottom: 1rem;

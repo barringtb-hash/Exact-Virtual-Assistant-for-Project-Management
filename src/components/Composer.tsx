@@ -10,6 +10,9 @@ import {
 import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
+import { useMicLevel } from "../hooks/useMicLevel";
+import { MicLevelIndicator } from "./MicLevelIndicator";
+import { FEATURE_MIC_LEVEL } from "../config/flags";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
@@ -102,6 +105,9 @@ const Composer: React.FC<ComposerProps> = ({
     sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
 
+  // Mic level monitoring (optional feature)
+  const micLevel = FEATURE_MIC_LEVEL ? useMicLevel() : null;
+
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
@@ -133,20 +139,29 @@ const Composer: React.FC<ComposerProps> = ({
     [onSend, resolvedSendDisabled]
   );
 
-  const handleMicClick = useCallback(() => {
+  const handleMicClick = useCallback(async () => {
     if (recording) {
       if (onStopRecording) {
         onStopRecording();
-        return;
+      }
+      if (micLevel) {
+        await micLevel.stop();
+      }
+      if (!onStopRecording) {
+        onMicToggle?.();
       }
     } else {
       if (onStartRecording) {
         onStartRecording();
-        return;
+      }
+      if (micLevel) {
+        await micLevel.start(micLevel.selectedDeviceId);
+      }
+      if (!onStartRecording) {
+        onMicToggle?.();
       }
     }
-    onMicToggle?.();
-  }, [onMicToggle, onStartRecording, onStopRecording, recording]);
+  }, [onMicToggle, onStartRecording, onStopRecording, recording, micLevel]);
 
   const resolvedPlaceholder = useMemo(() => {
     if (placeholder) return placeholder;
@@ -161,13 +176,19 @@ const Composer: React.FC<ComposerProps> = ({
     return "Start realtime voice";
   }, [rtcState]);
 
-  const handleRealtimeClick = useCallback(() => {
+  const handleRealtimeClick = useCallback(async () => {
     if (rtcState === "live" || rtcState === "connecting") {
       stopRealtime?.();
+      if (micLevel) {
+        await micLevel.stop();
+      }
     } else {
       startRealtime?.();
+      if (micLevel) {
+        await micLevel.start(micLevel.selectedDeviceId);
+      }
     }
-  }, [rtcState, startRealtime, stopRealtime]);
+  }, [rtcState, startRealtime, stopRealtime, micLevel]);
 
   const micButtonClasses = recording
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
@@ -264,6 +285,16 @@ const Composer: React.FC<ComposerProps> = ({
               >
                 <IconMic className="h-5 w-5" />
               </button>
+            )}
+            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
+              <MicLevelIndicator
+                level={micLevel.level}
+                peak={micLevel.peak}
+                db={micLevel.db}
+                variant="bar"
+                showDb={false}
+                ariaLabel="Live microphone level"
+              />
             )}
           </div>
           <div className="flex items-center gap-2">

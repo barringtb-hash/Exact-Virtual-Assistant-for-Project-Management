@@ -34,7 +34,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Find and click the mic button (updated to work with the new component)
-      cy.get('button.mic-btn[aria-label*="Voice"]').click();
+      cy.get('button.mic-btn[aria-label="Ready"]').click();
 
       // Verify button state changes
       cy.get('button.mic-btn[aria-pressed="true"]').should("exist");
@@ -143,7 +143,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Try to start the mic
-      cy.get('button.mic-btn[aria-label*="Voice"]').click();
+      cy.get('button.mic-btn[aria-label="Ready"]').click();
 
       // Wait for error handling
       cy.wait(500);
@@ -155,14 +155,16 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("works across different button sizes", () => {
     // This test verifies the meter scales properly with button size
-    cy.get(".mic-btn").should("exist").then(($btn) => {
-      const btnSize = $btn.width() || 0;
+    cy.window().then((win) => {
+      cy.get(".mic-btn").should("exist").then(($btn) => {
+        const btnSize = $btn.width() || 0;
 
-      // Verify meter rail is positioned correctly relative to button size
-      cy.get(".mic-btn .meter").should("exist").then(($meter) => {
-        const meterLeft = parseInt(win.getComputedStyle($meter[0]).left || "0");
-        expect(meterLeft).to.be.greaterThan(0);
-        expect(meterLeft).to.be.lessThan(btnSize / 2);
+        // Verify meter rail is positioned correctly relative to button size
+        cy.get(".mic-btn .meter").should("exist").then(($meter) => {
+          const meterLeft = parseInt(win.getComputedStyle($meter[0]).left || "0");
+          expect(meterLeft).to.be.greaterThan(0);
+          expect(meterLeft).to.be.lessThan(btnSize / 2);
+        });
       });
     });
   });

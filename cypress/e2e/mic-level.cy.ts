@@ -43,7 +43,7 @@ describe("Microphone Level Indicator", () => {
       // Find and click the mic button
       // Note: This assumes the mic button is available in the UI
       // Adjust selector based on actual implementation
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Ready"]').click({ force: true });
 
       // Wait a bit for the audio engine to start
       cy.wait(500);
@@ -59,7 +59,7 @@ describe("Microphone Level Indicator", () => {
       });
 
       // Stop the mic
-      cy.get('button[title*="Stop"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Recording…"]').click({ force: true });
 
       // Cleanup
       osc.stop();
@@ -80,7 +80,7 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Ready"]').click({ force: true });
 
       // Should show an error or handle gracefully
       // Note: The exact error handling depends on your implementation
@@ -100,7 +100,7 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Ready"]').click({ force: true });
 
       // Should handle gracefully
       cy.wait(500);
@@ -139,7 +139,7 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Start mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Ready"]').click({ force: true });
       cy.wait(500);
 
       // Check that peak indicator exists
@@ -150,7 +150,7 @@ describe("Microphone Level Indicator", () => {
       cy.wait(1000);
 
       // Stop and cleanup
-      cy.get('button[title*="Stop"]').first().click({ force: true });
+      cy.get('button.mic-btn[aria-label="Recording…"]').click({ force: true });
       osc.stop();
       ctx.close();
       (win.navigator.mediaDevices.getUserMedia as any).restore?.();

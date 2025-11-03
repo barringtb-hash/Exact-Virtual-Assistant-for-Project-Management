@@ -25,6 +25,7 @@ function createDocTypeManifest({
   schemaId,
   manifestPath,
   schema,
+  form,
   extract,
   docx,
   metadata,
@@ -43,6 +44,7 @@ function createDocTypeManifest({
     schemaId,
     manifestPath,
     schema,
+    form,
     extract,
     docx,
     metadata,
@@ -67,6 +69,9 @@ function buildTemplateRegistry() {
     schema: {
       path: "charter/schema.json",
       fieldRules: "field_rules.json",
+    },
+    form: {
+      schema: "charter/formSchema.json",
     },
     extract: {
       fallbackPrompt: "extract_prompt.txt",
@@ -115,6 +120,7 @@ function buildTemplateRegistry() {
       path: "doc-types/ddp/schema.json",
       fieldRules: "doc-types/ddp/field_rules.json",
     },
+    form: null,
     extract: {
       fallbackPrompt: "extract_prompt.txt",
       prompts: [

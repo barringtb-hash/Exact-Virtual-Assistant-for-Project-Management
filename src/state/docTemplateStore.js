@@ -16,10 +16,14 @@ const DEFAULT_STATE = {
   schemaStatus: "idle",
   schema: null,
   schemaError: null,
+  formStatus: "idle",
+  form: null,
+  formError: null,
 };
 
 const manifestResources = new Map();
 const schemaResources = new Map();
+const formResources = new Map();
 
 function normalizeDocType(value) {
   if (typeof value !== "string") {
@@ -55,6 +59,10 @@ function normalizeManifestValue(value) {
 }
 
 function normalizeSchemaValue(value) {
+  return value && typeof value === "object" ? value : null;
+}
+
+function normalizeFormValue(value) {
   return value && typeof value === "object" ? value : null;
 }
 
@@ -101,6 +109,7 @@ function updateStateFromResources(docType) {
   const template = normalized ? getTemplateManifest(normalized) : null;
   const manifestResource = normalized ? manifestResources.get(normalized) : null;
   const schemaResource = normalized ? schemaResources.get(normalized) : null;
+  const formResource = normalized ? formResources.get(normalized) : null;
 
   const manifestStatus = normalized
     ? template?.manifestPath
@@ -110,6 +119,11 @@ function updateStateFromResources(docType) {
   const schemaStatus = normalized
     ? template?.schema?.path
       ? schemaResource?.status ?? "idle"
+      : "missing"
+    : "idle";
+  const formStatus = normalized
+    ? template?.form?.schema
+      ? formResource?.status ?? "idle"
       : "missing"
     : "idle";
 
@@ -125,6 +139,9 @@ function updateStateFromResources(docType) {
     schemaStatus,
     schema: schemaResource?.data ?? null,
     schemaError: schemaResource?.error ?? null,
+    formStatus,
+    form: formResource?.data ?? null,
+    formError: formResource?.error ?? null,
   });
 }
 
@@ -208,6 +225,46 @@ function loadSchemaForDocType(docType, schemaPath) {
     });
 }
 
+function loadFormForDocType(docType, formPath) {
+  const resource = getResource(formResources, docType);
+  if (!formPath) {
+    resource.status = "missing";
+    resource.data = null;
+    resource.error = null;
+    resource.promise = null;
+    return;
+  }
+  if (resource.status === "loading" || resource.status === "ready") {
+    return;
+  }
+  resource.status = "loading";
+  resource.data = resource.data ?? null;
+  resource.error = null;
+  resource.promise = loadTemplateJson(formPath)
+    .then((value) => normalizeFormValue(value))
+    .then((form) => {
+      resource.status = "ready";
+      resource.data = form;
+      resource.error = null;
+      resource.promise = null;
+      if (state.docType === docType) {
+        updateStateFromResources(docType);
+      }
+      return form;
+    })
+    .catch((error) => {
+      console.error("Failed to load form for doc type", docType, error);
+      resource.status = "error";
+      resource.error = error;
+      resource.data = null;
+      resource.promise = null;
+      if (state.docType === docType) {
+        updateStateFromResources(docType);
+      }
+      return null;
+    });
+}
+
 function setActiveDocType(nextValue) {
   const docType = normalizeDocType(nextValue);
   if (!docType) {
@@ -229,12 +286,16 @@ function setActiveDocType(nextValue) {
       schemaStatus: "missing",
       schema: null,
       schemaError: null,
+      formStatus: "missing",
+      form: null,
+      formError: null,
     });
     return;
   }
 
   loadManifestForDocType(docType, template.manifestPath ?? null);
   loadSchemaForDocType(docType, template.schema?.path ?? null);
+  loadFormForDocType(docType, template.form?.schema ?? null);
   updateStateFromResources(docType);
 }
 
@@ -281,3 +342,19 @@ export function getDocTemplateSnapshot() {
 }
 
 export { setActiveDocType };
+
+export function useDocTemplateForm() {
+  return useDocTemplate((snapshot) => ({
+    status: snapshot.formStatus,
+    form: snapshot.form,
+    error: snapshot.formError,
+  }));
+}
+
+export function getDocTemplateFormState() {
+  return {
+    status: state.formStatus,
+    form: state.form,
+    error: state.formError,
+  };
+}

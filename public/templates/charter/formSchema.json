@@ -1,0 +1,246 @@
+{
+  "document_type": "charter",
+  "version": "2024.10",
+  "fields": [
+    {
+      "id": "project_name",
+      "label": "Project Title",
+      "help_text": "Use the user-provided project title or the first heading from the uploaded scope document.",
+      "required": true,
+      "type": "string",
+      "options": [],
+      "max_length": 160,
+      "placeholder": "Enter project title",
+      "example": "Phoenix CRM Migration",
+      "visibility": null
+    },
+    {
+      "id": "sponsor",
+      "label": "Sponsor",
+      "help_text": "Identify the primary project sponsor responsible for funding or approvals.",
+      "required": true,
+      "type": "string",
+      "options": [],
+      "max_length": 120,
+      "placeholder": "Primary sponsor",
+      "example": "Jordan Patel",
+      "visibility": null
+    },
+    {
+      "id": "project_lead",
+      "label": "Project Lead",
+      "help_text": "Capture the name of the project lead (usually the logged-in PM).",
+      "required": true,
+      "type": "string",
+      "options": [],
+      "max_length": 120,
+      "placeholder": "Project lead",
+      "example": "Alex Morgan",
+      "visibility": null
+    },
+    {
+      "id": "start_date",
+      "label": "Start Date",
+      "help_text": "Parse the project start date in ISO format (YYYY-MM-DD).",
+      "required": true,
+      "type": "date",
+      "options": [],
+      "max_length": null,
+      "placeholder": "YYYY-MM-DD",
+      "example": "2024-01-08",
+      "visibility": null
+    },
+    {
+      "id": "end_date",
+      "label": "End Date",
+      "help_text": "Parse the project end date in ISO format (YYYY-MM-DD).",
+      "required": true,
+      "type": "date",
+      "options": [],
+      "max_length": null,
+      "placeholder": "YYYY-MM-DD",
+      "example": "2024-07-31",
+      "visibility": null
+    },
+    {
+      "id": "vision",
+      "label": "Vision",
+      "help_text": "Summarize the high-level vision or objectives of the project.",
+      "required": true,
+      "type": "textarea",
+      "options": [],
+      "max_length": 2000,
+      "placeholder": "Describe the vision",
+      "example": "Deliver a unified CRM platform to improve sales visibility.",
+      "visibility": null
+    },
+    {
+      "id": "problem",
+      "label": "Problem",
+      "help_text": "Describe the problem or opportunity addressed by the project.",
+      "required": true,
+      "type": "textarea",
+      "options": [],
+      "max_length": 2000,
+      "placeholder": "Outline the problem",
+      "example": "Disconnected legacy systems limit customer insights.",
+      "visibility": null
+    },
+    {
+      "id": "description",
+      "label": "Project Description",
+      "help_text": "Provide a brief narrative description of the project including context and goals.",
+      "required": true,
+      "type": "textarea",
+      "options": [],
+      "max_length": 2500,
+      "placeholder": "Explain the project",
+      "example": "Implement Salesforce across regions with phased adoption.",
+      "visibility": null
+    },
+    {
+      "id": "scope_in",
+      "label": "Scope In",
+      "help_text": "List the items explicitly included in scope.",
+      "required": false,
+      "type": "string_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Items that are included in scope",
+      "example": "Regional sales onboarding",
+      "visibility": null
+    },
+    {
+      "id": "scope_out",
+      "label": "Scope Out",
+      "help_text": "List the items explicitly excluded from scope.",
+      "required": false,
+      "type": "string_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Items that are excluded from scope",
+      "example": "Post-launch support",
+      "visibility": null
+    },
+    {
+      "id": "risks",
+      "label": "Risks",
+      "help_text": "Capture the known project risks.",
+      "required": false,
+      "type": "string_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Describe a risk",
+      "example": "Vendor availability",
+      "visibility": null
+    },
+    {
+      "id": "assumptions",
+      "label": "Assumptions",
+      "help_text": "Capture any project assumptions.",
+      "required": false,
+      "type": "string_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Describe an assumption",
+      "example": "Funding approved in Q1",
+      "visibility": null
+    },
+    {
+      "id": "milestones",
+      "label": "Milestones",
+      "help_text": "List project milestones with associated phases, deliverables, and target dates.",
+      "required": false,
+      "type": "object_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Add milestone",
+      "example": "Planning complete / Execution kickoff / 2024-03-15",
+      "visibility": null,
+      "fields": [
+        {
+          "id": "phase",
+          "label": "Phase",
+          "type": "string",
+          "placeholder": "Phase"
+        },
+        {
+          "id": "deliverable",
+          "label": "Deliverable",
+          "type": "string",
+          "placeholder": "Key deliverable"
+        },
+        {
+          "id": "date",
+          "label": "Target Date",
+          "type": "date",
+          "placeholder": "YYYY-MM-DD"
+        }
+      ]
+    },
+    {
+      "id": "success_metrics",
+      "label": "Success Metrics",
+      "help_text": "List success metrics with benefit, metric, and system of measurement.",
+      "required": false,
+      "type": "object_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Add success metric",
+      "example": "Reduce onboarding time / Cycle time / HRIS analytics",
+      "visibility": null,
+      "fields": [
+        {
+          "id": "benefit",
+          "label": "Benefit",
+          "type": "string",
+          "placeholder": "What improves?"
+        },
+        {
+          "id": "metric",
+          "label": "Metric",
+          "type": "string",
+          "placeholder": "Measurement"
+        },
+        {
+          "id": "system_of_measurement",
+          "label": "Measurement System",
+          "type": "string",
+          "placeholder": "How it's measured"
+        }
+      ]
+    },
+    {
+      "id": "core_team",
+      "label": "Core Team",
+      "help_text": "Create one entry per team member with name, role, and optional responsibilities.",
+      "required": false,
+      "type": "object_list",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Add team member",
+      "example": "Taylor Reed / Technical Lead / Owns integrations",
+      "visibility": null,
+      "fields": [
+        {
+          "id": "name",
+          "label": "Name",
+          "type": "string",
+          "placeholder": "Full name"
+        },
+        {
+          "id": "role",
+          "label": "Role",
+          "type": "string",
+          "placeholder": "Role or title"
+        },
+        {
+          "id": "responsibilities",
+          "label": "Responsibilities",
+          "type": "textarea",
+          "placeholder": "Responsibilities"
+        }
+      ]
+    }
+  ]
+}

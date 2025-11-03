@@ -48,11 +48,11 @@ describe("Microphone Level Indicator", () => {
       // Wait a bit for the audio engine to start
       cy.wait(500);
 
-      // Check if the embedded meter in the button is visible
-      cy.get(".mic-button .mic-button__meter").should("exist");
+      // Check if the meter next to the button is visible
+      cy.get(".mic-button__meter").should("exist");
 
       // The meter should have a transform scale > 0 (indicating audio level)
-      cy.get(".mic-button .mic-button__meter").should(($fill) => {
+      cy.get(".mic-button__meter").should(($fill) => {
         const style = win.getComputedStyle($fill[0]);
         expect(style.transform).to.match(/matrix/);
       });
@@ -142,7 +142,7 @@ describe("Microphone Level Indicator", () => {
       cy.wait(500);
 
       // Check that meter fill exists and responds to audio
-      cy.get(".mic-button .mic-button__meter").should("exist");
+      cy.get(".mic-button__meter").should("exist");
 
       // Reduce volume to test meter responsiveness
       gain.gain.value = 0.1;
@@ -158,7 +158,7 @@ describe("Microphone Level Indicator", () => {
 
       let highLevel = 0;
 
-      cy.get(".mic-button .mic-button__meter").should(($meter) => {
+      cy.get(".mic-button__meter").should(($meter) => {
         highLevel = parseScale($meter[0]);
         expect(highLevel).to.be.greaterThan(0.1);
       });
@@ -166,7 +166,7 @@ describe("Microphone Level Indicator", () => {
       gain.gain.value = 0.05;
       cy.wait(800);
 
-      cy.get(".mic-button .mic-button__meter").then(($lowMeter) => {
+      cy.get(".mic-button__meter").then(($lowMeter) => {
         const lowLevel = parseScale($lowMeter[0]);
         expect(lowLevel).to.be.lessThan(highLevel);
       });

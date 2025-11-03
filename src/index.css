@@ -8,6 +8,9 @@ html, body, #root { height: 100%; }
   position: relative;
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
   border-radius: 9999px;
   overflow: hidden;
   display: inline-flex;
@@ -37,7 +40,7 @@ html, body, #root { height: 100%; }
 
 .mic-button__meter {
   position: absolute;
-  left: 50%;
+  left: calc(50% - 1px);
   bottom: 4px;
   transform: translateX(-50%) scaleY(0.05);
   transform-origin: bottom;

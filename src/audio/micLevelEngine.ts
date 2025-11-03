@@ -12,6 +12,7 @@ export class MicLevelEngine {
   private data: Uint8Array | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
+  private silence: GainNode | null = null;
   private level = 0;
   private currentDeviceId?: string;
 
@@ -41,6 +42,10 @@ export class MicLevelEngine {
     this.data = new Uint8Array(this.analyser.fftSize);
 
     this.source.connect(this.analyser);
+    this.silence = this.ctx.createGain();
+    this.silence.gain.value = 0;
+    this.analyser.connect(this.silence);
+    this.silence.connect(this.ctx.destination);
   }
 
   getLevel(): number {
@@ -104,6 +109,13 @@ export class MicLevelEngine {
         // ignore
       }
     }
+    if (this.analyser) {
+      try {
+        this.analyser.disconnect();
+      } catch {
+        // ignore
+      }
+    }
     if (this.stream) {
       this.stream.getTracks().forEach((track) => {
         try {
@@ -113,10 +125,18 @@ export class MicLevelEngine {
         }
       });
     }
+    if (this.silence) {
+      try {
+        this.silence.disconnect();
+      } catch {
+        // ignore
+      }
+    }
     this.stream = null;
     this.source = null;
     this.analyser = null;
     this.data = null;
+    this.silence = null;
     this.level = 0;
     this.currentDeviceId = undefined;
   }

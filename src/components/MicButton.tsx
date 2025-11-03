@@ -38,13 +38,14 @@ export default function MicButton({
       if (!mounted) return;
       if (engineRef.current && meterRef.current && isActive && !blockedRef.current) {
         const level = engineRef.current.getLevel();
-        meterRef.current.style.transform = `scaleY(${Math.max(0.05, level)})`;
+        const clamped = Math.max(0.05, level);
+        meterRef.current.style.transform = `translateX(-50%) scaleY(${clamped})`;
         const clip = level > 0.95;
         if (btnRef.current) {
           btnRef.current.dataset.clip = clip ? "true" : "false";
         }
       } else if (meterRef.current) {
-        meterRef.current.style.transform = "scaleY(0.05)";
+        meterRef.current.style.transform = "translateX(-50%) scaleY(0.05)";
         if (btnRef.current) {
           btnRef.current.dataset.clip = "false";
         }
@@ -55,7 +56,6 @@ export default function MicButton({
     const ensureEngine = async () => {
       if (!isActive) {
         engineRef.current?.stop();
-        setBlocked(false);
         return;
       }
 
@@ -78,7 +78,7 @@ export default function MicButton({
       if (isActive && !blockedRef.current) {
         raf = requestAnimationFrame(loop);
       } else if (meterRef.current) {
-        meterRef.current.style.transform = "scaleY(0.05)";
+        meterRef.current.style.transform = "translateX(-50%) scaleY(0.05)";
       }
     });
 

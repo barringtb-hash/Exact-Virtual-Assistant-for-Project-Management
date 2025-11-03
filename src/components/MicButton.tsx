@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEventHandler,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { MicLevelEngine } from "../audio/micLevelEngine.ts";
 
 type MicButtonProps = {
@@ -49,10 +54,20 @@ export default function MicButton({
     if (!isActive && blockedProp === undefined) {
       try {
         if (!engineRef.current) engineRef.current = engine ?? new MicLevelEngine();
-        await engineRef.current.start(deviceId);
-        setBlocked(false);
-        blockedRef.current = false;
-        if (btnRef.current) btnRef.current.dataset.blocked = "false";
+        void engineRef.current
+          .start(deviceId)
+          .then(() => {
+            setBlocked(false);
+            blockedRef.current = false;
+            if (btnRef.current) btnRef.current.dataset.blocked = "false";
+          })
+          .catch(() => {
+            setBlocked(true);
+            blockedRef.current = true;
+            if (btnRef.current) btnRef.current.dataset.blocked = "true";
+            engineRef.current?.stop();
+            engineRef.current = null;
+          });
       } catch {
         setBlocked(true);
         blockedRef.current = true;
@@ -63,6 +78,15 @@ export default function MicButton({
     }
 
     await onToggle();
+  };
+
+  const handleKeyDown: KeyboardEventHandler<HTMLButtonElement> = async (event) => {
+    if (disabled) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleClick();
+    }
   };
 
   useEffect(() => {
@@ -153,6 +177,7 @@ export default function MicButton({
       data-state={isActive ? "listening" : "idle"}
       data-blocked={blocked ? "true" : "false"}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       disabled={disabled}
     >
       <div ref={meterRef} className="mic-button__meter" aria-hidden />

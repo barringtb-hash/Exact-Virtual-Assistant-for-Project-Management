@@ -1,0 +1,98 @@
+/**
+ * Styles for MicLevelIndicator component
+ * Supports bar and ring variants with peak indicators
+ */
+
+.mic-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* Bar variant styles */
+.mic-meter--bar .bar-track {
+  position: relative;
+  width: 160px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.mic-meter--bar .bar-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transition: transform 60ms linear;
+  background: linear-gradient(90deg, #8bc34a, #fbc02d, #f57c00, #d32f2f);
+}
+
+.mic-meter--bar .bar-peak {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  transform: translateX(-1px);
+}
+
+/* Ring variant styles */
+.mic-meter--ring {
+  position: relative;
+}
+
+.mic-meter--ring svg {
+  display: block;
+}
+
+.mic-meter--ring .ring-bg {
+  fill: none;
+  stroke: rgba(0,0,0,0.12);
+  stroke-width: 4;
+}
+
+.mic-meter--ring .ring-level {
+  fill: none;
+  stroke: #4caf50;
+  stroke-width: 4;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray 60ms linear;
+}
+
+.mic-meter--ring .ring-peak {
+  fill: none;
+  stroke: rgba(0,0,0,0.4);
+  stroke-width: 2;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+
+/* dB label */
+.db-label {
+  font-size: 12px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  min-width: 50px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .mic-meter--bar .bar-track {
+    background: rgba(255,255,255,0.1);
+  }
+
+  .mic-meter--bar .bar-peak {
+    background: rgba(255,255,255,0.6);
+  }
+
+  .mic-meter--ring .ring-bg {
+    stroke: rgba(255,255,255,0.15);
+  }
+
+  .mic-meter--ring .ring-peak {
+    stroke: rgba(255,255,255,0.5);
+  }
+}

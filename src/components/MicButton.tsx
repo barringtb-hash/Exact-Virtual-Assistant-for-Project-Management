@@ -127,13 +127,13 @@ export default function MicButton({
       if (engineRef.current && meterRef.current && isActive && !blockedRef.current) {
         const level = engineRef.current.getLevel();
         const clamped = Math.max(0.05, level);
-        meterRef.current.style.transform = `translateX(-50%) scaleY(${clamped})`;
+        meterRef.current.style.transform = `scaleY(${clamped})`;
         const clip = level > 0.95;
         if (btnRef.current) {
           btnRef.current.dataset.clip = clip ? "true" : "false";
         }
       } else if (meterRef.current) {
-        meterRef.current.style.transform = "translateX(-50%) scaleY(0.05)";
+        meterRef.current.style.transform = "scaleY(0.05)";
         if (btnRef.current) {
           btnRef.current.dataset.clip = "false";
         }
@@ -174,7 +174,7 @@ export default function MicButton({
       if (isActive && !blockedRef.current) {
         raf = requestAnimationFrame(loop);
       } else if (meterRef.current) {
-        meterRef.current.style.transform = "translateX(-50%) scaleY(0.05)";
+        meterRef.current.style.transform = "scaleY(0.05)";
       }
     });
 
@@ -212,17 +212,21 @@ export default function MicButton({
       onKeyUp={handleKeyUp}
       disabled={disabled}
     >
-      <div ref={meterRef} className="mic-button__meter" aria-hidden />
-      <svg
-        className="mic-button__icon"
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        role="img"
-        aria-hidden
-      >
-        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM11 19h2v3h-2z" />
-      </svg>
+      <span className="mic-button__icon-wrapper" aria-hidden>
+        <svg
+          className="mic-button__icon"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          role="img"
+          aria-hidden
+        >
+          <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM11 19h2v3h-2z" />
+        </svg>
+      </span>
+      <div className="mic-button__meter-rail" data-test="voice-meter" aria-hidden>
+        <div ref={meterRef} className="mic-button__meter-fill" aria-hidden />
+      </div>
     </button>
   );
 }

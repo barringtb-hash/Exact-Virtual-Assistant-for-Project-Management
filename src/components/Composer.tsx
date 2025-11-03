@@ -10,8 +10,7 @@ import {
 import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
-import { useMicLevel } from "../hooks/useMicLevel.ts";
-import { MicButtonWithMeter } from "./MicButtonWithMeter.tsx";
+import MicButton from "./MicButton.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
@@ -105,9 +104,6 @@ const Composer: React.FC<ComposerProps> = ({
     sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
 
-  // Mic level monitoring (optional feature)
-  const micLevel = FEATURE_MIC_LEVEL ? useMicLevel() : null;
-
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
@@ -142,26 +138,20 @@ const Composer: React.FC<ComposerProps> = ({
   const handleMicClick = useCallback(async () => {
     if (recording) {
       if (onStopRecording) {
-        onStopRecording();
-      }
-      if (micLevel) {
-        await micLevel.stop();
+        await onStopRecording();
       }
       if (!onStopRecording) {
         onMicToggle?.();
       }
     } else {
       if (onStartRecording) {
-        onStartRecording();
-      }
-      if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
+        await onStartRecording();
       }
       if (!onStartRecording) {
         onMicToggle?.();
       }
     }
-  }, [onMicToggle, onStartRecording, onStopRecording, recording, micLevel]);
+  }, [onMicToggle, onStartRecording, onStopRecording, recording]);
 
   const resolvedPlaceholder = useMemo(() => {
     if (placeholder) return placeholder;
@@ -179,16 +169,10 @@ const Composer: React.FC<ComposerProps> = ({
   const handleRealtimeClick = useCallback(async () => {
     if (rtcState === "live" || rtcState === "connecting") {
       stopRealtime?.();
-      if (micLevel) {
-        await micLevel.stop();
-      }
     } else {
       startRealtime?.();
-      if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
-      }
     }
-  }, [rtcState, startRealtime, stopRealtime, micLevel]);
+  }, [rtcState, startRealtime, stopRealtime]);
 
   const micButtonClasses = recording
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
@@ -270,37 +254,27 @@ const Composer: React.FC<ComposerProps> = ({
                   </button>
                 )}
               </div>
-            ) : (
-              <MicButtonWithMeter
-                isActive={recording || (micLevel?.isActive ?? false)}
-                level={micLevel?.level ?? 0}
-                onStart={async () => {
-                  if (onStartRecording) {
-                    onStartRecording();
-                  }
-                  if (micLevel) {
-                    await micLevel.start(micLevel.selectedDeviceId);
-                  }
-                  if (!onStartRecording) {
-                    onMicToggle?.();
-                  }
+            ) : FEATURE_MIC_LEVEL ? (
+              <MicButton
+                isActive={recording}
+                onToggle={() => {
+                  void handleMicClick();
                 }}
-                onStop={async () => {
-                  if (onStopRecording) {
-                    onStopRecording();
-                  }
-                  if (micLevel) {
-                    await micLevel.stop();
-                  }
-                  if (!onStopRecording) {
-                    onMicToggle?.();
-                  }
-                }}
-                size={44}
-                ariaLabelStart={voiceStatusLabel("ready")}
-                ariaLabelStop={voiceStatusLabel("recording")}
                 disabled={micDisabled}
+                title={voiceStatusLabel(recording ? "recording" : "ready")}
               />
+            ) : (
+              <button
+                type="button"
+                onClick={handleMicClick}
+                disabled={micDisabled}
+                className={`shrink-0 rounded-xl border p-2 transition ${micButtonClasses}`}
+                title={voiceStatusLabel(recording ? "recording" : "ready")}
+                aria-pressed={recording}
+                aria-label={voiceStatusLabel(recording ? "recording" : "ready")}
+              >
+                <IconMic className="h-5 w-5" />
+              </button>
             )}
           </div>
           <div className="flex items-center gap-2">

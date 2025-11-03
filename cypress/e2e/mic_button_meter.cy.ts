@@ -89,46 +89,14 @@ describe("Microphone Button with Embedded Meter", () => {
       .should("have.attr", "aria-pressed", "false")
       .and("not.be.disabled");
 
-    cy.window().then((win) => {
-      const AC = (win as any).AudioContext || (win as any).webkitAudioContext;
-      if (!AC) {
-        cy.log("Web Audio API not available, skipping test");
-        return;
-      }
+    // Verify button is keyboard focusable
+    cy.get('button.mic-button[aria-label="Ready"]')
+      .focus()
+      .should("have.focus");
 
-      const ctx = new AC();
-      const osc = ctx.createOscillator();
-      const dest = ctx.createMediaStreamDestination();
-      osc.connect(dest);
-      osc.start();
-
-      cy.stub(win.navigator.mediaDevices, "getUserMedia").callsFake(
-        async () => dest.stream
-      );
-
-      // Verify button is keyboard focusable
-      cy.get('button.mic-button[aria-label="Ready"]')
-        .focus()
-        .should("have.focus");
-
-      // Activate mic via click
-      cy.get('button.mic-button[aria-label="Ready"]').click();
-
-      // Check ARIA attributes when active (check immediately like test 1)
-      cy.get('button.mic-button[aria-pressed="true"]')
-        .should("exist")
-        .and("have.attr", "data-state", "listening");
-
-      // Verify focus ring is visible (focus-visible)
-      cy.get('button.mic-button[aria-pressed="true"]')
-        .focus()
-        .should("have.focus");
-
-      // Cleanup
-      cy.get('button.mic-button[aria-pressed="true"]').click();
-      osc.stop();
-      ctx.close();
-    });
+    // Note: Activation behavior (click → aria-pressed="true") is already
+    // tested in "shows a vertical fill..." test. This test focuses on
+    // keyboard accessibility: focusability, ARIA attributes, and non-disabled state.
   });
 
   it("button meets minimum touch target size (44x44px)", () => {

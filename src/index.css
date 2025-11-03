@@ -42,13 +42,13 @@ html, body, #root { height: 100%; }
 
 .mic-button__meter {
   position: absolute;
-  right: 6px;
+  right: 8px;
   bottom: 4px;
   transform: scaleY(0.05);
   transform-origin: bottom;
-  width: 4px;
+  width: 6px;
   height: calc(100% - 8px);
-  border-radius: 2px;
+  border-radius: 3px;
   will-change: transform;
   opacity: 0.85;
   background: linear-gradient(to top, #22c55e, #facc15 60%, #ef4444 100%);

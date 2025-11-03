@@ -161,11 +161,13 @@ describe("Microphone Button with Embedded Meter", () => {
       cy.get(".mic-button").should("exist").then(($btn) => {
         const btnSize = $btn.width() || 0;
 
-        // Verify meter rail is positioned correctly relative to button size
+        // Verify meter rail is positioned correctly on right side of button
         cy.get(".mic-button .mic-button__meter").should("exist").then(($meter) => {
-          const meterLeft = parseInt(win.getComputedStyle($meter[0]).left || "0");
-          expect(meterLeft).to.be.greaterThan(0);
-          expect(meterLeft).to.be.lessThan(btnSize / 2);
+          const meterRight = parseInt(win.getComputedStyle($meter[0]).right || "0");
+          const meterWidth = parseInt(win.getComputedStyle($meter[0]).width || "0");
+          // Meter should be positioned on the right side with some margin from edge
+          expect(meterRight).to.be.greaterThan(0);
+          expect(meterRight + meterWidth).to.be.lessThan(btnSize / 2);
         });
       });
     });

@@ -72,7 +72,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("meter is empty when mic is off", () => {
     // Verify the button exists
-    cy.get('button.mic-btn[aria-label*="Voice"]').should("exist");
+    cy.get('button.mic-btn[aria-label="Ready"]').should("exist");
 
     // Check that meter fill has scaleY(0) when inactive
     cy.get(".mic-btn .meter-fill").should(($el) => {
@@ -83,7 +83,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("button is keyboard accessible with proper ARIA attributes", () => {
     // Check ARIA attributes when inactive
-    cy.get('button.mic-btn[aria-label*="Voice"]')
+    cy.get('button.mic-btn[aria-label="Ready"]')
       .should("have.attr", "aria-pressed", "false")
       .and("not.be.disabled");
 
@@ -105,7 +105,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Start mic via keyboard (Enter)
-      cy.get('button.mic-btn[aria-label*="Voice"]').type("{enter}");
+      cy.get('button.mic-btn[aria-label="Ready"]').type("{enter}");
       cy.wait(300);
 
       // Check ARIA attributes when active

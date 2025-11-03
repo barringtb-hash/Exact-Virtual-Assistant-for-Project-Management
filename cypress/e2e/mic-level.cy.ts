@@ -48,13 +48,13 @@ describe("Microphone Level Indicator", () => {
       // Wait a bit for the audio engine to start
       cy.wait(500);
 
-      // Check if the mic level indicator is visible
-      cy.get(".mic-meter").should("exist");
-      cy.get(".bar-fill").should("exist");
+      // Check if the embedded meter in the button is visible
+      cy.get(".mic-btn .meter").should("exist");
+      cy.get(".mic-btn .meter-fill").should("exist");
 
-      // The bar-fill should have a transform scale > 0 (indicating audio level)
-      cy.get(".bar-fill").should(($bar) => {
-        const style = win.getComputedStyle($bar[0]);
+      // The meter-fill should have a transform scale > 0 (indicating audio level)
+      cy.get(".mic-btn .meter-fill").should(($fill) => {
+        const style = win.getComputedStyle($fill[0]);
         expect(style.transform).to.match(/matrix/);
       });
 
@@ -142,12 +142,15 @@ describe("Microphone Level Indicator", () => {
       cy.get('button.mic-btn[aria-label="Ready"]').click({ force: true });
       cy.wait(500);
 
-      // Check that peak indicator exists
-      cy.get(".bar-peak").should("exist");
+      // Check that meter fill exists and responds to audio
+      cy.get(".mic-btn .meter-fill").should("exist");
 
-      // Reduce volume to cause peak to decay
+      // Reduce volume to test meter responsiveness
       gain.gain.value = 0.1;
       cy.wait(1000);
+
+      // Verify meter is still visible (though level will be lower)
+      cy.get(".mic-btn .meter-fill").should("exist");
 
       // Stop and cleanup
       cy.get('button.mic-btn[aria-label="Recording…"]').click({ force: true });

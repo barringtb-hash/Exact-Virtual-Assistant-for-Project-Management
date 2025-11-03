@@ -108,11 +108,14 @@ describe("Microphone Button with Embedded Meter", () => {
 
       // Start mic via keyboard (Enter)
       cy.get('button.mic-button[aria-label="Ready"]').type("{enter}");
-      cy.wait(300);
 
-      // Check ARIA attributes when active
-      cy.get('button.mic-button[aria-pressed="true"]')
-        .should("exist");
+      // Wait a bit for async operations to complete in CI
+      cy.wait(500);
+
+      // Check ARIA attributes when active (Cypress auto-retries for up to 5s)
+      cy.get('button.mic-button[aria-pressed="true"]', { timeout: 5000 })
+        .should("exist")
+        .and("have.attr", "data-state", "listening");
 
       // Verify focus ring is visible (focus-visible)
       cy.get('button.mic-button[aria-pressed="true"]')

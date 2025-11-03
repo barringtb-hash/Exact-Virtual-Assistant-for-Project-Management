@@ -248,29 +248,33 @@ test('End-to-end: Complete minimal form', async () => {
     { value: 'John Lead', field: 'project_lead' },
     { value: '2025-01-15', field: 'start_date' },
     { value: '2025-12-31', field: 'end_date' },
-    { value: 'This is the vision statement with enough words to pass validation rules', field: 'vision' },
-    { value: 'This is the problem statement with enough words to pass the validation rules', field: 'problem' },
-    { value: 'This is a detailed project description with enough words to pass all validation rules', field: 'description' }
+    { value: 'This is the vision statement with enough words to pass all validation rules successfully', field: 'vision' }, // 15+ words for min_word_count_10
+    { value: 'This is the problem statement with enough words to pass all the validation rules successfully and completely', field: 'problem' }, // 18+ words for min_word_count_15
+    { value: 'This is a detailed project description with enough words to pass all validation rules successfully and meet all requirements completely and thoroughly', field: 'description' } // 25+ words for min_word_count_20
   ];
 
   for (const fieldData of requiredFields) {
     // Submit answer
     result = await processMessage(state, fieldData.value, 'charter');
+    state = result.state; // Always update state
 
     // Should ask for confirmation
-    if (result.action === 'confirm_value') {
-      state = result.state;
+    assert.equal(result.action, 'confirm_value', `Expected confirm_value for ${fieldData.field}, got ${result.action}`);
 
-      // Confirm
-      result = await processMessage(state, 'yes', 'charter');
-      state = result.state;
+    // Confirm
+    result = await processMessage(state, 'yes', 'charter');
+    state = result.state; // Update state after confirmation
 
-      // Verify answer was saved
-      assert.equal(state.answers[fieldData.field], fieldData.value);
+    // Verify answer was saved
+    assert.equal(state.answers[fieldData.field], fieldData.value);
+
+    // Should move to next field or end review
+    if (result.action !== 'end_review') {
+      assert.equal(result.action, 'ask_field', `Expected ask_field or end_review, got ${result.action}`);
     }
   }
 
-  // After all required fields, should reach end review
+  // After all required fields, should reach end review or have all answers
   assert.ok(state.answers.project_name);
   assert.equal(Object.keys(state.answers).length, requiredFields.length);
 });

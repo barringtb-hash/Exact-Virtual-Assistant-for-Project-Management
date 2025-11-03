@@ -198,39 +198,32 @@ export default function MicButton({
   const pressed = !blocked && (isActive || optimisticPressed);
 
   return (
-    <div className="mic-button-wrapper">
-      <button
-        ref={btnRef}
-        type="button"
-        className="mic-button"
-        aria-pressed={pressed}
-        aria-label={blocked ? BLOCKED_TITLE : title}
-        title={blocked ? BLOCKED_TITLE : title}
-        data-state={pressed ? "listening" : "idle"}
-        data-blocked={blocked ? "true" : "false"}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
-        disabled={disabled}
-      >
-        <svg
-          className="mic-button__icon"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          role="img"
-          aria-hidden
-        >
-          <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM11 19h2v3h-2z" />
-        </svg>
-      </button>
-      <div
-        className="mic-button__meter-container"
-        data-test="voice-meter"
+    <button
+      ref={btnRef}
+      type="button"
+      className="mic-button"
+      aria-pressed={pressed}
+      aria-label={blocked ? BLOCKED_TITLE : title}
+      title={blocked ? BLOCKED_TITLE : title}
+      data-state={pressed ? "listening" : "idle"}
+      data-blocked={blocked ? "true" : "false"}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      disabled={disabled}
+      data-test="voice-meter"
+    >
+      <div ref={meterRef} className="mic-button__fill" aria-hidden />
+      <svg
+        className="mic-button__icon"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        role="img"
         aria-hidden
       >
-        <div ref={meterRef} className="mic-button__meter" />
-      </div>
-    </div>
+        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM11 19h2v3h-2z" />
+      </svg>
+    </button>
   );
 }

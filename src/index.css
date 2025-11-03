@@ -4,13 +4,6 @@
 
 html, body, #root { height: 100%; }
 
-.mic-button-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-}
-
 .mic-button {
   position: relative;
   /* Ensure Cypress .width()/.height() read the content box as 44px even with borders. */
@@ -21,7 +14,7 @@ html, body, #root { height: 100%; }
   min-height: 44px;
   flex: 0 0 44px;
   border-radius: 9999px;
-  overflow: visible;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -41,48 +34,39 @@ html, body, #root { height: 100%; }
 
 .mic-button__icon {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
   opacity: 0.9;
   fill: currentColor;
 }
 
-.mic-button__meter-container {
-  position: relative;
-  width: 6px;
-  height: 44px;
-  border-radius: 3px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  background: linear-gradient(to top, #e8e8e8, #f4f4f4);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.mic-button-wrapper:hover .mic-button__meter-container {
-  border-color: rgba(0, 0, 0, 0.3);
-}
-
-.mic-button__meter {
+.mic-button__fill {
   position: absolute;
+  bottom: 0;
   left: 0;
   right: 0;
-  bottom: 0;
   height: 100%;
   transform: scaleY(0.05);
   transform-origin: bottom center;
   will-change: transform;
   transition: transform 60ms linear;
+  background: linear-gradient(
+    to top,
+    rgba(34, 197, 94, 0.7),
+    rgba(250, 204, 21, 0.7) 60%,
+    rgba(239, 68, 68, 0.7)
+  );
+  opacity: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.mic-button[data-state="idle"] .mic-button__fill {
+  opacity: 0.2;
+}
+
+.mic-button[data-state="listening"] .mic-button__fill {
   opacity: 0.85;
-  background: linear-gradient(to top, #22c55e, #facc15 60%, #ef4444 100%);
-  filter: saturate(1.15);
-}
-
-.mic-button[data-state="idle"] ~ .mic-button__meter-container .mic-button__meter {
-  opacity: 0.4;
-}
-
-.mic-button[data-state="listening"] ~ .mic-button__meter-container .mic-button__meter {
-  opacity: 1;
 }
 
 .mic-button[data-clip="true"] {

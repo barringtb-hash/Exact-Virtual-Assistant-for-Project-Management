@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MicLevelEngine } from "../audio/micLevelEngine";
+import { MicLevelEngine } from "../audio/micLevelEngine.ts";
 
 export type MicState = {
   isActive: boolean;

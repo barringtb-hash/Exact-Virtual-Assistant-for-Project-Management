@@ -1,10 +1,11 @@
 /**
  * MicLevelIndicator - Real-time microphone audio level indicator
  * Supports bar, ring, and wave variants
+ *
+ * Note: Styles are in src/components/mic-meter.css and loaded via the build system
  */
 
 import React from "react";
-import "./mic-meter.css";
 
 type Props = {
   level: number;       // 0..1

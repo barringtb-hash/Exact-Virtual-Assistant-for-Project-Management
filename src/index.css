@@ -1,3 +1,6 @@
+/* Mic level indicator styles */
+@import './components/mic-meter.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

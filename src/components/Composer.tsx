@@ -10,9 +10,9 @@ import {
 import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
-import { useMicLevel } from "../hooks/useMicLevel";
-import { MicLevelIndicator } from "./MicLevelIndicator";
-import { FEATURE_MIC_LEVEL } from "../config/flags";
+import { useMicLevel } from "../hooks/useMicLevel.ts";
+import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
+import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 

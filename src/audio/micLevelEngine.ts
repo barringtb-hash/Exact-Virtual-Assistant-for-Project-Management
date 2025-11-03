@@ -3,8 +3,8 @@
  * Provides real-time audio level analysis
  */
 
-import { rmsToDb, dbToUnit } from "./audioMath";
-import { buildAudioConstraints } from "./audioConstraints";
+import { rmsToDb, dbToUnit } from "./audioMath.ts";
+import { buildAudioConstraints } from "./audioConstraints.ts";
 
 type OnLevel = (data: { level: number; db: number; peak: number }) => void;
 

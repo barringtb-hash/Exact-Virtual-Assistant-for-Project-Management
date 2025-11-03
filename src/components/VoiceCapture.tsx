@@ -4,10 +4,10 @@
  */
 
 import React from "react";
-import { useMicLevel } from "../hooks/useMicLevel";
-import { MicLevelIndicator } from "./MicLevelIndicator";
-import { MicDeviceSelector } from "./MicDeviceSelector";
-import { FEATURE_MIC_LEVEL } from "../config/flags";
+import { useMicLevel } from "../hooks/useMicLevel.ts";
+import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
+import { MicDeviceSelector } from "./MicDeviceSelector.tsx";
+import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export function VoiceCapture() {
   const mic = useMicLevel();

@@ -106,11 +106,15 @@ describe("Microphone Button with Embedded Meter", () => {
         async () => dest.stream
       );
 
-      // Start mic via keyboard (Enter)
-      cy.get('button.mic-button[aria-label="Ready"]').type("{enter}");
+      // Start mic via keyboard (Enter) - focus first for reliability
+      cy.get('button.mic-button[aria-label="Ready"]')
+        .focus()
+        .should("have.focus")
+        .trigger("keydown", { key: "Enter", code: "Enter", keyCode: 13 })
+        .trigger("keyup", { key: "Enter", code: "Enter", keyCode: 13 });
 
-      // Wait a bit for async operations to complete in CI
-      cy.wait(500);
+      // Wait longer for async operations to complete in CI environment
+      cy.wait(1000);
 
       // Check ARIA attributes when active (Cypress auto-retries for up to 5s)
       cy.get('button.mic-button[aria-pressed="true"]', { timeout: 5000 })

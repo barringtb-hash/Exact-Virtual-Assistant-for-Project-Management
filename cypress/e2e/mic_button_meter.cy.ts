@@ -42,11 +42,11 @@ describe("Microphone Button with Embedded Meter", () => {
       // Wait for audio engine to start
       cy.wait(500);
 
-      // Check that the meter fill exists inside the mic button
-      cy.get(".mic-button .mic-button__meter").should("exist");
+      // Check that the meter fill exists next to the mic button
+      cy.get(".mic-button__meter").should("exist");
 
       // The meter should have a transform with scaleY > 0 (matrix with d value)
-      cy.get(".mic-button .mic-button__meter").then(($el) => {
+      cy.get(".mic-button__meter").then(($el) => {
         const style = win.getComputedStyle($el[0]);
         // matrix(a, b, c, d, e, f), we care about d (scaleY)
         expect(style.transform).to.contain("matrix");
@@ -72,7 +72,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("meter is empty when mic is off", () => {
     cy.get('button.mic-button[aria-label="Ready"]').should("exist");
-    cy.get(".mic-button .mic-button__meter").should(($el) => {
+    cy.get(".mic-button__meter").should(($el) => {
       const style = getComputedStyle($el[0]);
       if (!style.transform || style.transform === "none") {
         throw new Error("Expected transform to be set");
@@ -164,13 +164,11 @@ describe("Microphone Button with Embedded Meter", () => {
       cy.get(".mic-button").should("exist").then(($btn) => {
         const btnSize = $btn.width() || 0;
 
-        // Verify meter rail is positioned correctly on right side of button
-        cy.get(".mic-button .mic-button__meter").should("exist").then(($meter) => {
-          const meterRight = parseInt(win.getComputedStyle($meter[0]).right || "0");
+        // Verify meter is visible next to button
+        cy.get(".mic-button__meter").should("exist").then(($meter) => {
           const meterWidth = parseInt(win.getComputedStyle($meter[0]).width || "0");
-          // Meter should be positioned on the right side with some margin from edge
-          expect(meterRight).to.be.greaterThan(0);
-          expect(meterRight + meterWidth).to.be.lessThan(btnSize / 2);
+          // Meter should be 6px wide and visible
+          expect(meterWidth).to.equal(6);
         });
       });
     });
@@ -180,7 +178,7 @@ describe("Microphone Button with Embedded Meter", () => {
     cy.window().then((win) => {
       // Note: This is a simplified test. In a real scenario, you'd need to
       // set the prefers-reduced-motion media query
-      cy.get(".mic-button .mic-button__meter").should(($fill) => {
+      cy.get(".mic-button__meter").should(($fill) => {
         const style = win.getComputedStyle($fill[0]);
         // When reduced motion is preferred, transition should be none
         // In normal mode, transition should be present

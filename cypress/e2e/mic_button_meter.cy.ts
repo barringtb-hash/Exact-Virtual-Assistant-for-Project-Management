@@ -1,14 +1,14 @@
 /**
  * E2E tests for the MicButton component
- * Tests the vertical audio meter embedded in the microphone button
+ * Tests the vertical audio meter positioned next to the microphone button
  */
 
-describe("Microphone Button with Embedded Meter", () => {
+describe("Microphone Button with Adjacent Meter", () => {
   beforeEach(() => {
     cy.visit("/");
   });
 
-  it("shows a vertical fill inside the mic button when audio is present", () => {
+  it("shows a vertical fill next to the mic button when audio is present", () => {
     cy.window().then(async (win) => {
       // Create a synthetic audio stream using Web Audio API
       const AC = (win as any).AudioContext || (win as any).webkitAudioContext;
@@ -42,11 +42,11 @@ describe("Microphone Button with Embedded Meter", () => {
       // Wait for audio engine to start
       cy.wait(500);
 
-      // Check that the meter fill exists inside the mic button
-      cy.get(".mic-button .mic-button__meter").should("exist");
+      // Check that the meter fill exists next to the mic button
+      cy.get('[data-test="voice-meter"] .mic-button__meter').should("exist");
 
       // The meter should have a transform with scaleY > 0 (matrix with d value)
-      cy.get(".mic-button .mic-button__meter").then(($el) => {
+      cy.get('[data-test="voice-meter"] .mic-button__meter').then(($el) => {
         const style = win.getComputedStyle($el[0]);
         // matrix(a, b, c, d, e, f), we care about d (scaleY)
         expect(style.transform).to.contain("matrix");
@@ -72,7 +72,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("meter is empty when mic is off", () => {
     cy.get('button.mic-button[aria-label="Ready"]').should("exist");
-    cy.get(".mic-button .mic-button__meter").should(($el) => {
+    cy.get('[data-test="voice-meter"] .mic-button__meter').should(($el) => {
       const style = getComputedStyle($el[0]);
       if (!style.transform || style.transform === "none") {
         throw new Error("Expected transform to be set");
@@ -156,16 +156,17 @@ describe("Microphone Button with Embedded Meter", () => {
   });
 
   it("works across different button sizes", () => {
-    // This test verifies the meter scales properly with button size
+    // This test verifies the meter is positioned next to the button
     cy.window().then((win) => {
       cy.get(".mic-button").should("exist").then(($btn) => {
         const btnSize = $btn.width() || 0;
 
-        // Verify meter rail is positioned correctly relative to button size
-        cy.get(".mic-button .mic-button__meter").should("exist").then(($meter) => {
-          const meterLeft = parseInt(win.getComputedStyle($meter[0]).left || "0");
-          expect(meterLeft).to.be.greaterThan(0);
-          expect(meterLeft).to.be.lessThan(btnSize / 2);
+        // Verify meter container is positioned next to the button
+        cy.get('[data-test="voice-meter"]').should("exist").then(($container) => {
+          const containerWidth = $container.width() || 0;
+          // Meter should be a vertical bar (width should be small, like 6px)
+          expect(containerWidth).to.be.lessThan(20);
+          expect(containerWidth).to.be.greaterThan(0);
         });
       });
     });
@@ -175,7 +176,7 @@ describe("Microphone Button with Embedded Meter", () => {
     cy.window().then((win) => {
       // Note: This is a simplified test. In a real scenario, you'd need to
       // set the prefers-reduced-motion media query
-      cy.get(".mic-button .mic-button__meter").should(($fill) => {
+      cy.get('[data-test="voice-meter"] .mic-button__meter').should(($fill) => {
         const style = win.getComputedStyle($fill[0]);
         // When reduced motion is preferred, transition should be none
         // In normal mode, transition should be present

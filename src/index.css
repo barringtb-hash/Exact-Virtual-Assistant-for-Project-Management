@@ -4,6 +4,13 @@
 
 html, body, #root { height: 100%; }
 
+.mic-button-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+}
+
 .mic-button {
   position: relative;
   /* Ensure Cypress .width()/.height() read the content box as 44px even with borders. */
@@ -14,7 +21,7 @@ html, body, #root { height: 100%; }
   min-height: 44px;
   flex: 0 0 44px;
   border-radius: 9999px;
-  overflow: hidden;
+  overflow: visible;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -40,26 +47,36 @@ html, body, #root { height: 100%; }
   fill: currentColor;
 }
 
+.mic-button__meter-container {
+  position: relative;
+  width: 6px;
+  height: 44px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border, rgba(42, 42, 42, 0.3));
+  background: linear-gradient(to top, rgba(232, 232, 232, 0.5), rgba(244, 244, 244, 0.5));
+}
+
 .mic-button__meter {
   position: absolute;
-  left: calc(50% - 1px);
-  bottom: 4px;
-  transform: translateX(-50%) scaleY(0.05);
-  transform-origin: bottom;
-  width: 6px;
-  height: calc(100% - 8px);
-  border-radius: 3px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  transform: scaleY(0.05);
+  transform-origin: bottom center;
   will-change: transform;
+  transition: transform 60ms linear;
   opacity: 0.85;
   background: linear-gradient(to top, #22c55e, #facc15 60%, #ef4444 100%);
   filter: saturate(1.15);
 }
 
-.mic-button[data-state="idle"] .mic-button__meter {
+.mic-button[data-state="idle"] ~ .mic-button__meter-container .mic-button__meter {
   opacity: 0.25;
 }
 
-.mic-button[data-state="listening"] .mic-button__meter {
+.mic-button[data-state="listening"] ~ .mic-button__meter-container .mic-button__meter {
   opacity: 0.9;
 }
 

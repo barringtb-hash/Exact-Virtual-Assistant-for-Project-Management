@@ -111,14 +111,11 @@ describe("Microphone Button with Embedded Meter", () => {
         .focus()
         .should("have.focus");
 
-      // Activate mic (keyboard events are unreliable in headless CI, use click)
+      // Activate mic via click
       cy.get('button.mic-button[aria-label="Ready"]').click();
 
-      // Wait for async operations to complete
-      cy.wait(1000);
-
-      // Check ARIA attributes when active
-      cy.get('button.mic-button[aria-pressed="true"]', { timeout: 5000 })
+      // Check ARIA attributes when active (check immediately like test 1)
+      cy.get('button.mic-button[aria-pressed="true"]')
         .should("exist")
         .and("have.attr", "data-state", "listening");
 

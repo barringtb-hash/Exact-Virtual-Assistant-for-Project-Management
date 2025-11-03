@@ -13,6 +13,7 @@ export type MicState = {
   error?: string;
   devices: MediaDeviceInfo[];
   selectedDeviceId?: string;
+  blocked: boolean;
 };
 
 async function getPermissionState(): Promise<boolean | null> {
@@ -35,6 +36,7 @@ export function useMicLevel() {
     error: undefined,
     devices: [],
     selectedDeviceId: undefined,
+    blocked: false,
   });
 
   const refreshDevices = useCallback(async () => {
@@ -72,9 +74,16 @@ export function useMicLevel() {
           error: undefined,
           selectedDeviceId: deviceId,
           hasPermission: true,
+          blocked: false,
         }));
       } catch (e: any) {
-        setState((s) => ({ ...s, error: e?.message || "Microphone start failed", isActive: false }));
+        setState((s) => ({
+          ...s,
+          error: e?.message || "Microphone start failed",
+          isActive: false,
+          hasPermission: false,
+          blocked: true,
+        }));
       }
     },
     [refreshDevices]

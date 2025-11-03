@@ -5,7 +5,17 @@ import { MicDeviceSelector } from "./MicDeviceSelector.tsx";
 
 export function VoiceCapture() {
   const mic = useMicLevel();
-  const { isActive, devices, selectedDeviceId, selectDevice, start, stop, error, getLevel } = mic;
+  const {
+    isActive,
+    devices,
+    selectedDeviceId,
+    selectDevice,
+    start,
+    stop,
+    error,
+    getLevel,
+    blocked,
+  } = mic;
   const levelDisplayRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
@@ -50,6 +60,7 @@ export function VoiceCapture() {
           title={isActive ? "Stop microphone" : "Start microphone"}
           engine={mic.engine}
           deviceId={selectedDeviceId}
+          blocked={blocked}
         />
 
         {devices.length > 0 && (

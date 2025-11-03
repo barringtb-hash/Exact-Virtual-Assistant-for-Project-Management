@@ -156,17 +156,19 @@ describe("Microphone Level Indicator", () => {
         return Number.isNaN(d) ? 0 : d;
       };
 
-      cy.get(".mic-button .mic-button__meter").then(($meter) => {
-        const highLevel = parseScale($meter[0]);
+      let highLevel = 0;
+
+      cy.get(".mic-button .mic-button__meter").should(($meter) => {
+        highLevel = parseScale($meter[0]);
         expect(highLevel).to.be.greaterThan(0.1);
+      });
 
-        gain.gain.value = 0.05;
-        cy.wait(800);
+      gain.gain.value = 0.05;
+      cy.wait(800);
 
-        cy.get(".mic-button .mic-button__meter").then(($lowMeter) => {
-          const lowLevel = parseScale($lowMeter[0]);
-          expect(lowLevel).to.be.lessThan(highLevel);
-        });
+      cy.get(".mic-button .mic-button__meter").then(($lowMeter) => {
+        const lowLevel = parseScale($lowMeter[0]);
+        expect(lowLevel).to.be.lessThan(highLevel);
       });
 
       // Stop and cleanup

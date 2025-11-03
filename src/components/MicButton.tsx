@@ -8,6 +8,7 @@ type MicButtonProps = {
   title?: string;
   engine?: MicLevelEngine | null;
   deviceId?: string;
+  blocked?: boolean;
 };
 
 const BLOCKED_TITLE = "Microphone blocked";
@@ -19,6 +20,7 @@ export default function MicButton({
   title = "Microphone",
   engine,
   deviceId,
+  blocked: blockedProp,
 }: MicButtonProps) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const meterRef = useRef<HTMLDivElement | null>(null);
@@ -31,6 +33,15 @@ export default function MicButton({
       engineRef.current = engine;
     }
   }, [engine]);
+
+  useEffect(() => {
+    if (blockedProp !== undefined) {
+      setBlocked(blockedProp);
+      if (btnRef.current) {
+        btnRef.current.dataset.blocked = blockedProp ? "true" : "false";
+      }
+    }
+  }, [blockedProp]);
 
   useEffect(() => {
     let raf = 0;
@@ -67,12 +78,16 @@ export default function MicButton({
 
       try {
         await engineRef.current.start(deviceId);
-        setBlocked(false);
-        if (btnRef.current) btnRef.current.dataset.blocked = "false";
+        if (blockedProp === undefined) {
+          setBlocked(false);
+          if (btnRef.current) btnRef.current.dataset.blocked = "false";
+        }
       } catch (error) {
         engineRef.current?.stop();
-        setBlocked(true);
-        if (btnRef.current) btnRef.current.dataset.blocked = "true";
+        if (blockedProp === undefined) {
+          setBlocked(true);
+          if (btnRef.current) btnRef.current.dataset.blocked = "true";
+        }
         engineRef.current = null;
       }
     };
@@ -91,7 +106,7 @@ export default function MicButton({
       cancelAnimationFrame(raf);
       engineRef.current?.stop();
     };
-  }, [engine, isActive]);
+  }, [engine, isActive, deviceId, blockedProp]);
 
   useEffect(() => {
     blockedRef.current = blocked;

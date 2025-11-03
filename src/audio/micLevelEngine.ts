@@ -9,7 +9,7 @@ import { buildAudioConstraints } from "./audioConstraints.ts";
 export class MicLevelEngine {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private data: Uint8Array | null = null;
+  private floatBuf: Float32Array | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
   private silence: GainNode | null = null;
@@ -22,7 +22,7 @@ export class MicLevelEngine {
       this.ctx = new AudioCtx();
     }
 
-    if (this.analyser && this.data && this.currentDeviceId === deviceId) {
+    if (this.analyser && this.floatBuf && this.currentDeviceId === deviceId) {
       return;
     }
 
@@ -40,7 +40,7 @@ export class MicLevelEngine {
     // Smaller window + lighter smoothing ensures a quicker visible response.
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0.6;
-    this.data = new Uint8Array(this.analyser.fftSize);
+    this.floatBuf = new Float32Array(this.analyser.fftSize);
 
     this.source.connect(this.analyser);
     this.silence = this.ctx.createGain();
@@ -50,21 +50,21 @@ export class MicLevelEngine {
   }
 
   getLevel(): number {
-    if (!this.analyser || !this.data) return 0;
-    this.analyser.getByteTimeDomainData(this.data);
+    if (!this.analyser || !this.floatBuf) return 0;
+    this.analyser.getFloatTimeDomainData(this.floatBuf);
 
     let sum = 0;
-    for (let i = 0; i < this.data.length; i++) {
-      const v = (this.data[i] - 128) / 128;
+    for (let i = 0; i < this.floatBuf.length; i++) {
+      const v = this.floatBuf[i];
       sum += v * v;
     }
 
-    const rms = Math.sqrt(sum / this.data.length);
+    const rms = Math.sqrt(sum / this.floatBuf.length);
     // Stronger normalization helps small gains clear the visible threshold in CI.
-    const norm = Math.min(1, rms * 4.5);
+    const norm = Math.min(1, rms * 6);
     const prev = this.level;
     const attack = 0.8;
-    const release = 0.2;
+    const release = 0.25;
     this.level = norm > prev ? prev + (norm - prev) * attack : prev + (norm - prev) * release;
     return this.level;
   }
@@ -97,7 +97,7 @@ export class MicLevelEngine {
     }
     this.ctx = null;
     this.analyser = null;
-    this.data = null;
+    this.floatBuf = null;
     this.source = null;
     this.currentDeviceId = undefined;
     this.level = 0;
@@ -137,7 +137,7 @@ export class MicLevelEngine {
     this.stream = null;
     this.source = null;
     this.analyser = null;
-    this.data = null;
+    this.floatBuf = null;
     this.silence = null;
     this.level = 0;
     this.currentDeviceId = undefined;

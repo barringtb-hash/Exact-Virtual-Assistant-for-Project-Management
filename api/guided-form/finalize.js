@@ -7,7 +7,7 @@
 
 import { renderDocument } from '../../lib/doc/render.js';
 import { validateDocument } from '../../lib/doc/validation.js';
-import { logAudit } from '../../lib/doc/audit.js';
+import { recordDocumentAudit } from '../../lib/doc/audit.js';
 import { getDocTypeConfig } from '../../lib/doc/registry.js';
 
 /**
@@ -76,18 +76,16 @@ export default async function handler(req, res) {
     }
 
     // Log audit trail
-    await logAudit({
+    await recordDocumentAudit({
       event: 'guided_form_completed',
-      doc_type: docType,
-      output_format: outputFormat,
-      metadata: {
-        field_count: Object.keys(documentData).length,
-        required_gaps: conversationState.flags?.has_required_gaps || false,
-        total_re_asks: conversationState.metadata?.total_re_asks || 0,
-        duration_ms: conversationState.metadata?.started_at
-          ? Date.now() - new Date(conversationState.metadata.started_at).getTime()
-          : null
-      }
+      docType: docType,
+      outputFormat: outputFormat,
+      fieldCount: Object.keys(documentData).length,
+      requiredGaps: conversationState.flags?.has_required_gaps || false,
+      totalReAsks: conversationState.metadata?.total_re_asks || 0,
+      durationMs: conversationState.metadata?.started_at
+        ? Date.now() - new Date(conversationState.metadata.started_at).getTime()
+        : null
     });
 
     return res.status(200).json({

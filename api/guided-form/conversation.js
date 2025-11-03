@@ -25,7 +25,7 @@ const anthropic = new Anthropic({
 /**
  * Configuration
  */
-const config = {
+const claudeConfig = {
   model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
   maxTokens: 300,
   temperature: 0.3
@@ -100,9 +100,9 @@ async function callClaude(prompts, conversationHistory = []) {
 
     // Call Claude
     const response = await anthropic.messages.create({
-      model: config.model,
-      max_tokens: prompts.max_tokens || config.maxTokens,
-      temperature: prompts.temperature || config.temperature,
+      model: claudeConfig.model,
+      max_tokens: prompts.max_tokens || claudeConfig.maxTokens,
+      temperature: prompts.temperature || claudeConfig.temperature,
       system: [
         {
           type: 'text',
@@ -154,7 +154,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    import {
+    const {
       message: userMessage,
       conversation_state: conversationState,
       doc_type: docType = 'charter',

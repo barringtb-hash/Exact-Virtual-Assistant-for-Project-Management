@@ -33,6 +33,7 @@ export default function MicButton({
   const [blocked, setBlocked] = useState(false);
   const blockedRef = useRef(blocked);
   const [optimisticPressed, setOptimisticPressed] = useState(false);
+  const keyActivationGuard = useRef(false);
 
   useEffect(() => {
     if (engine) {
@@ -84,15 +85,30 @@ export default function MicButton({
       }
     }
 
-    await onToggle();
+    try {
+      void onToggle();
+    } catch {
+      // ignore
+    }
+    btnRef.current?.focus();
   };
 
-  const handleKeyDown: KeyboardEventHandler<HTMLButtonElement> = async (event) => {
+  const handleKeyDown: KeyboardEventHandler<HTMLButtonElement> = (event) => {
     if (disabled) return;
-    if (event.key === "Enter" || event.key === " ") {
+    if (
+      (event.key === "Enter" || event.key === " " || event.key === "Spacebar") &&
+      !keyActivationGuard.current
+    ) {
       event.preventDefault();
       event.stopPropagation();
-      await handleClick();
+      keyActivationGuard.current = true;
+      void handleClick();
+    }
+  };
+
+  const handleKeyUp: KeyboardEventHandler<HTMLButtonElement> = (event) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      keyActivationGuard.current = false;
     }
   };
 
@@ -193,6 +209,7 @@ export default function MicButton({
       data-blocked={blocked ? "true" : "false"}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
       disabled={disabled}
     >
       <div ref={meterRef} className="mic-button__meter" aria-hidden />

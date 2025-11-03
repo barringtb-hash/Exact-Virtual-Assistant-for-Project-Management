@@ -1,0 +1,416 @@
+{
+  "document_type": "project_charter",
+  "version": "1.0",
+  "metadata": {
+    "title": "Project Charter Guided Form",
+    "description": "Step-by-step guided form for creating a comprehensive project charter",
+    "estimated_time_minutes": 20
+  },
+  "fields": [
+    {
+      "id": "project_name",
+      "label": "Project Title",
+      "help_text": "Provide a short, descriptive name for the project.",
+      "required": true,
+      "type": "short_text",
+      "min_length": 3,
+      "max_length": 120,
+      "placeholder": "e.g., EMEA Ordering Modernization",
+      "example": "Customer Portal Redesign 2025",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["no_special_chars_start"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 1
+    },
+    {
+      "id": "sponsor",
+      "label": "Executive Sponsor",
+      "help_text": "Who is the executive sponsor providing oversight and resources?",
+      "required": true,
+      "type": "person_name",
+      "max_length": 100,
+      "placeholder": "e.g., Jane Smith",
+      "example": "A. Rivera",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["single_name_only"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 2
+    },
+    {
+      "id": "project_lead",
+      "label": "Project Manager / Lead",
+      "help_text": "Who is leading the day-to-day execution of this project?",
+      "required": true,
+      "type": "person_name",
+      "max_length": 100,
+      "placeholder": "e.g., John Doe",
+      "example": "Sarah Johnson",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["single_name_only"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 3
+    },
+    {
+      "id": "start_date",
+      "label": "Project Start Date",
+      "help_text": "When will the project begin?",
+      "required": true,
+      "type": "date",
+      "placeholder": "YYYY-MM-DD",
+      "example": "2025-01-15",
+      "validation": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "custom_rules": ["valid_date", "not_in_past"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 4
+    },
+    {
+      "id": "end_date",
+      "label": "Project End Date",
+      "help_text": "When is the project expected to complete?",
+      "required": true,
+      "type": "date",
+      "placeholder": "YYYY-MM-DD",
+      "example": "2025-12-31",
+      "validation": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "custom_rules": ["valid_date", "after_start_date"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 5
+    },
+    {
+      "id": "vision",
+      "label": "Vision Statement",
+      "help_text": "What is the high-level vision or desired future state?",
+      "required": true,
+      "type": "long_text",
+      "min_length": 20,
+      "max_length": 500,
+      "placeholder": "Describe the vision...",
+      "example": "Create a seamless, mobile-first customer experience that increases satisfaction and reduces support calls by 40%.",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["min_word_count_10"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 6
+    },
+    {
+      "id": "problem",
+      "label": "Problem Statement",
+      "help_text": "What problem or opportunity is this project addressing?",
+      "required": true,
+      "type": "long_text",
+      "min_length": 30,
+      "max_length": 1000,
+      "placeholder": "Describe the problem or opportunity...",
+      "example": "Our current ordering system is outdated, leading to 25% cart abandonment and frustrated customers across EMEA markets.",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["min_word_count_15"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 7
+    },
+    {
+      "id": "description",
+      "label": "Project Description",
+      "help_text": "Provide a brief narrative description including context and goals.",
+      "required": true,
+      "type": "long_text",
+      "min_length": 50,
+      "max_length": 1500,
+      "placeholder": "Describe the project in detail...",
+      "example": "This project will modernize our ordering platform by implementing a new microservices architecture, redesigning the user interface, and integrating with our updated payment gateway.",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["min_word_count_20"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 8
+    },
+    {
+      "id": "scope_in",
+      "label": "In Scope",
+      "help_text": "What is explicitly included in this project? List key items.",
+      "required": false,
+      "type": "array_of_strings",
+      "min_items": 1,
+      "max_items": 15,
+      "item_max_length": 200,
+      "placeholder": "Enter scope items one at a time...",
+      "example": "User interface redesign for mobile and desktop",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["no_empty_items"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 9,
+      "input_mode": "iterative"
+    },
+    {
+      "id": "scope_out",
+      "label": "Out of Scope",
+      "help_text": "What is explicitly excluded from this project?",
+      "required": false,
+      "type": "array_of_strings",
+      "min_items": 0,
+      "max_items": 15,
+      "item_max_length": 200,
+      "placeholder": "Enter exclusions one at a time...",
+      "example": "Integration with legacy ERP system",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["no_empty_items"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 10,
+      "input_mode": "iterative"
+    },
+    {
+      "id": "risks",
+      "label": "Project Risks",
+      "help_text": "What are the known risks to project success?",
+      "required": false,
+      "type": "array_of_strings",
+      "min_items": 0,
+      "max_items": 20,
+      "item_max_length": 300,
+      "placeholder": "Enter risks one at a time...",
+      "example": "Dependency on third-party API availability",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["no_empty_items"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 11,
+      "input_mode": "iterative"
+    },
+    {
+      "id": "assumptions",
+      "label": "Project Assumptions",
+      "help_text": "What assumptions are we making for planning purposes?",
+      "required": false,
+      "type": "array_of_strings",
+      "min_items": 0,
+      "max_items": 20,
+      "item_max_length": 300,
+      "placeholder": "Enter assumptions one at a time...",
+      "example": "Engineering team availability remains stable throughout the project",
+      "validation": {
+        "pattern": null,
+        "custom_rules": ["no_empty_items"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 12,
+      "input_mode": "iterative"
+    },
+    {
+      "id": "milestones",
+      "label": "Project Milestones",
+      "help_text": "Define key milestones with phase, deliverable, and target date.",
+      "required": false,
+      "type": "array_of_objects",
+      "min_items": 0,
+      "max_items": 12,
+      "object_schema": {
+        "phase": {
+          "type": "string",
+          "label": "Phase",
+          "required": true,
+          "max_length": 50,
+          "example": "Planning"
+        },
+        "deliverable": {
+          "type": "string",
+          "label": "Deliverable",
+          "required": true,
+          "max_length": 200,
+          "example": "Requirements document approved"
+        },
+        "date": {
+          "type": "date",
+          "label": "Target Date",
+          "required": true,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "example": "2025-02-28"
+        }
+      },
+      "placeholder": "I'll ask for phase, deliverable, and date for each milestone...",
+      "example": "Phase: Initiation | Deliverable: Charter Approved | Date: 2025-01-31",
+      "validation": {
+        "custom_rules": ["dates_in_sequence"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 13,
+      "input_mode": "structured_iterative"
+    },
+    {
+      "id": "success_metrics",
+      "label": "Success Metrics",
+      "help_text": "How will we measure success? Include benefit, metric, and measurement system.",
+      "required": false,
+      "type": "array_of_objects",
+      "min_items": 0,
+      "max_items": 10,
+      "object_schema": {
+        "benefit": {
+          "type": "string",
+          "label": "Benefit",
+          "required": true,
+          "max_length": 200,
+          "example": "Improved customer satisfaction"
+        },
+        "metric": {
+          "type": "string",
+          "label": "Metric",
+          "required": true,
+          "max_length": 150,
+          "example": "Net Promoter Score (NPS)"
+        },
+        "system_of_measurement": {
+          "type": "string",
+          "label": "How Measured",
+          "required": true,
+          "max_length": 200,
+          "example": "Quarterly customer survey"
+        }
+      },
+      "placeholder": "I'll ask for benefit, metric, and measurement approach...",
+      "example": "Benefit: Faster checkout | Metric: Average order time | Measurement: Analytics dashboard",
+      "validation": {
+        "custom_rules": ["no_vague_metrics"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 14,
+      "input_mode": "structured_iterative"
+    },
+    {
+      "id": "core_team",
+      "label": "Core Team Members",
+      "help_text": "Who are the key team members and their roles?",
+      "required": false,
+      "type": "array_of_objects",
+      "min_items": 0,
+      "max_items": 20,
+      "object_schema": {
+        "name": {
+          "type": "string",
+          "label": "Name",
+          "required": true,
+          "max_length": 100,
+          "example": "Michael Chen"
+        },
+        "role": {
+          "type": "string",
+          "label": "Role",
+          "required": true,
+          "max_length": 100,
+          "example": "Lead Engineer"
+        },
+        "responsibilities": {
+          "type": "string",
+          "label": "Key Responsibilities",
+          "required": false,
+          "max_length": 300,
+          "example": "Architecture design and technical oversight"
+        }
+      },
+      "placeholder": "I'll ask for name, role, and optionally responsibilities...",
+      "example": "Name: Maria Garcia | Role: UX Designer | Responsibilities: User research and interface design",
+      "validation": {
+        "custom_rules": ["unique_names"]
+      },
+      "visibility": {
+        "when": "always"
+      },
+      "order": 15,
+      "input_mode": "structured_iterative"
+    }
+  ],
+  "commands": {
+    "back": {
+      "enabled": true,
+      "description": "Go back to the previous field"
+    },
+    "edit": {
+      "enabled": true,
+      "description": "Edit a specific field by name",
+      "syntax": "edit <field_name>"
+    },
+    "skip": {
+      "enabled": true,
+      "description": "Skip the current field (required fields will be flagged)",
+      "requires_confirmation": true
+    },
+    "preview": {
+      "enabled": true,
+      "description": "Show all captured values so far"
+    },
+    "cancel": {
+      "enabled": true,
+      "description": "Cancel the form and discard progress",
+      "requires_confirmation": true
+    },
+    "help": {
+      "enabled": true,
+      "description": "Show available commands"
+    }
+  },
+  "validation_rules": {
+    "no_special_chars_start": "Project name should not start with special characters",
+    "single_name_only": "Please provide a single person's name",
+    "valid_date": "Date must be in YYYY-MM-DD format",
+    "not_in_past": "Start date should not be in the past",
+    "after_start_date": "End date must be after start date",
+    "min_word_count_10": "Please provide at least 10 words",
+    "min_word_count_15": "Please provide at least 15 words",
+    "min_word_count_20": "Please provide at least 20 words",
+    "no_empty_items": "Items cannot be empty",
+    "dates_in_sequence": "Milestone dates should be in chronological order",
+    "no_vague_metrics": "Metrics must be specific and measurable",
+    "unique_names": "Team member names should be unique"
+  },
+  "final_review": {
+    "enabled": true,
+    "show_required_gaps": true,
+    "allow_edits": true,
+    "confirmation_required": true
+  }
+}

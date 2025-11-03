@@ -119,9 +119,21 @@
             "title": "Milestones",
             "addLabel": "Add milestone",
             "fields": [
-              { "key": "phase", "label": "Phase", "placeholder": "Phase" },
-              { "key": "deliverable", "label": "Deliverable", "placeholder": "Key deliverable" },
-              { "key": "date", "label": "Target Date", "placeholder": "YYYY-MM-DD" }
+              {
+                "key": "phase",
+                "label": "Phase",
+                "placeholder": "Phase"
+              },
+              {
+                "key": "deliverable",
+                "label": "Deliverable",
+                "placeholder": "Key deliverable"
+              },
+              {
+                "key": "date",
+                "label": "Target Date",
+                "placeholder": "YYYY-MM-DD"
+              }
             ]
           },
           {
@@ -130,9 +142,21 @@
             "title": "Success Metrics",
             "addLabel": "Add success metric",
             "fields": [
-              { "key": "benefit", "label": "Benefit", "placeholder": "What improves?" },
-              { "key": "metric", "label": "Metric", "placeholder": "Measurement" },
-              { "key": "system_of_measurement", "label": "Measurement System", "placeholder": "How it's measured" }
+              {
+                "key": "benefit",
+                "label": "Benefit",
+                "placeholder": "What improves?"
+              },
+              {
+                "key": "metric",
+                "label": "Metric",
+                "placeholder": "Measurement"
+              },
+              {
+                "key": "system_of_measurement",
+                "label": "Measurement System",
+                "placeholder": "How it's measured"
+              }
             ]
           },
           {
@@ -141,13 +165,31 @@
             "title": "Core Team",
             "addLabel": "Add team member",
             "fields": [
-              { "key": "name", "label": "Name", "placeholder": "Full name" },
-              { "key": "role", "label": "Role", "placeholder": "Role or title" },
-              { "key": "responsibilities", "label": "Responsibilities", "placeholder": "Responsibilities" }
+              {
+                "key": "name",
+                "label": "Name",
+                "placeholder": "Full name"
+              },
+              {
+                "key": "role",
+                "label": "Role",
+                "placeholder": "Role or title"
+              },
+              {
+                "key": "responsibilities",
+                "label": "Responsibilities",
+                "placeholder": "Responsibilities"
+              }
             ]
           }
         ]
       }
     ]
+  },
+  "form": {
+    "schema": "charter/formSchema.json"
+  },
+  "source": {
+    "docx": "charter/source/Project_Charter_Template.docx"
   }
 }

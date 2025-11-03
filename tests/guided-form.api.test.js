@@ -4,14 +4,14 @@
  * Tests for the API endpoints.
  */
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 
 // Mock setup
 process.env.ANTHROPIC_API_KEY = 'test-key';
 
 test('API: Conversation endpoint - initialization', async () => {
-  const conversationHandler = require('../api/guided-form/conversation');
+  const { default: conversationHandler } = await import('../api/guided-form/conversation.js');
 
   const mockReq = {
     method: 'POST',
@@ -53,7 +53,7 @@ test('API: Conversation endpoint - initialization', async () => {
 });
 
 test('API: Conversation endpoint - answer field', async () => {
-  const conversationHandler = require('../api/guided-form/conversation');
+  const { default: conversationHandler } = await import('../api/guided-form/conversation.js');
 
   // First, initialize
   const initReq = {
@@ -127,7 +127,7 @@ test('API: Conversation endpoint - answer field', async () => {
 });
 
 test('API: Finalize endpoint - validation', async () => {
-  const finalizeHandler = require('../api/guided-form/finalize');
+  const { default: finalizeHandler } = await import('../api/guided-form/finalize.js');
 
   const mockReq = {
     method: 'POST',
@@ -172,7 +172,7 @@ test('API: Finalize endpoint - validation', async () => {
 });
 
 test('API: CORS headers', async () => {
-  const conversationHandler = require('../api/guided-form/conversation');
+  const { default: conversationHandler } = await import('../api/guided-form/conversation.js');
 
   const mockReq = {
     method: 'OPTIONS'
@@ -201,7 +201,7 @@ test('API: CORS headers', async () => {
 });
 
 test('API: Method not allowed', async () => {
-  const conversationHandler = require('../api/guided-form/conversation');
+  const { default: conversationHandler } = await import('../api/guided-form/conversation.js');
 
   const mockReq = {
     method: 'GET'

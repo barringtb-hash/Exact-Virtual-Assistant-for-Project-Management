@@ -5,14 +5,15 @@
  * Supports Google Doc, DOCX, and PDF export.
  */
 
-const { renderDocument } = require('../../lib/doc/render');
-const { validateDocument } = require('../../lib/doc/validation');
-const { logAudit } = require('../../lib/doc/audit');
+import { renderDocument } from '../../lib/doc/render.js';
+import { validateDocument } from '../../lib/doc/validation.js';
+import { logAudit } from '../../lib/doc/audit.js';
+import { getDocTypeConfig } from '../../lib/doc/registry.js';
 
 /**
  * Main handler
  */
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -44,10 +45,18 @@ module.exports = async (req, res) => {
     // Transform answers to document format
     const documentData = conversationState.answers;
 
-    // Validate against schema
-    const validation = await validateDocument(docType, documentData);
+    // Get document configuration
+    const config = getDocTypeConfig(docType);
+    if (!config) {
+      return res.status(400).json({
+        error: `Unsupported document type: ${docType}`
+      });
+    }
 
-    if (!validation.valid) {
+    // Validate against schema
+    const validation = await validateDocument(docType, config, documentData);
+
+    if (!validation.isValid) {
       return res.status(400).json({
         error: 'Validation failed',
         errors: validation.errors,
@@ -97,7 +106,7 @@ module.exports = async (req, res) => {
       message: error.message
     });
   }
-};
+}
 
 /**
  * Generate Google Doc (placeholder for Google Drive integration)
@@ -114,7 +123,7 @@ async function generateGoogleDoc(documentData, docType, options) {
 }
 
 // Export for Vercel
-module.exports.config = {
+export const config = {
   api: {
     bodyParser: {
       sizeLimit: '10mb'

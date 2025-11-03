@@ -5,9 +5,9 @@
  * and the state machine orchestrator.
  */
 
-const Anthropic = require('@anthropic-ai/sdk');
-const { processMessage } = require('../../lib/guided-form/orchestrator');
-const {
+import Anthropic from '@anthropic-ai/sdk';
+import { processMessage } from '../../lib/guided-form/orchestrator.js';
+import {
   buildClaudePrompts,
   formatFieldAsk,
   formatConfirmation,
@@ -15,7 +15,7 @@ const {
   formatPreview,
   formatEndReview,
   STOP_SEQUENCES
-} = require('../../lib/guided-form/prompts');
+} from '../../lib/guided-form/prompts.js';
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -29,7 +29,7 @@ const config = {
   model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
   maxTokens: 300,
   temperature: 0.3
-};
+}
 
 /**
  * Formats response based on orchestrator action
@@ -138,7 +138,7 @@ async function callClaude(prompts, conversationHistory = []) {
 /**
  * Main handler
  */
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -154,7 +154,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const {
+    import {
       message: userMessage,
       conversation_state: conversationState,
       doc_type: docType = 'charter',
@@ -239,13 +239,13 @@ module.exports = async (req, res) => {
       message: error.message
     });
   }
-};
+}
 
 // Export for Vercel
-module.exports.config = {
+export const config = {
   api: {
     bodyParser: {
       sizeLimit: '10mb'
     }
   }
-};
+}

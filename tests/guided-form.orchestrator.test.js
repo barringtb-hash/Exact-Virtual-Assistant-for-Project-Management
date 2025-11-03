@@ -4,15 +4,15 @@
  * Tests for the state machine and conversation flow.
  */
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const {
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
   processMessage,
   createInitialState,
   validateField,
   normalizeValue,
   IntentType
-} = require('../lib/guided-form/orchestrator');
+} from '../lib/guided-form/orchestrator.js';
 
 test('Orchestrator: Create initial state', () => {
   const state = createInitialState('charter', { version: '1.0', fields: [] });

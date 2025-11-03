@@ -297,8 +297,8 @@ const Composer: React.FC<ComposerProps> = ({
                   }
                 }}
                 size={44}
-                ariaLabelStart="Voice input (mock)"
-                ariaLabelStop="Stop recording"
+                ariaLabelStart={voiceStatusLabel("ready")}
+                ariaLabelStop={voiceStatusLabel("recording")}
                 disabled={micDisabled}
               />
             )}

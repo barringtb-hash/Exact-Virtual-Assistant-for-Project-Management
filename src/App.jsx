@@ -574,7 +574,7 @@ export default function ExactVirtualAssistantPM() {
       draftActions.hydrate(initialDraftValue);
       draftHydratedRef.current = true;
     }
-  }, [initialDraftValue]);
+  }, []);
   useEffect(() => {
     return () => {
       if (chatExtractionTimerRef.current) {

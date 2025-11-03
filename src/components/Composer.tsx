@@ -11,7 +11,6 @@ import { useVoiceStatus } from "../state/voiceStore.ts";
 
 import { useDocType } from "../state/docType.js";
 import MicButton from "./MicButton.tsx";
-import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
@@ -174,10 +173,6 @@ const Composer: React.FC<ComposerProps> = ({
     }
   }, [rtcState, startRealtime, stopRealtime]);
 
-  const micButtonClasses = recording
-    ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
-    : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
-
   const realtimeVoiceStatus: VoiceStatus = useMemo(() => {
     if (rtcState === "live") return "recording";
     if (rtcState === "connecting") return "processing";
@@ -254,7 +249,7 @@ const Composer: React.FC<ComposerProps> = ({
                   </button>
                 )}
               </div>
-            ) : FEATURE_MIC_LEVEL ? (
+            ) : (
               <MicButton
                 isActive={recording}
                 onToggle={() => {
@@ -263,18 +258,6 @@ const Composer: React.FC<ComposerProps> = ({
                 disabled={micDisabled}
                 title={voiceStatusLabel(recording ? "recording" : "ready")}
               />
-            ) : (
-              <button
-                type="button"
-                onClick={handleMicClick}
-                disabled={micDisabled}
-                className={`shrink-0 rounded-xl border p-2 transition ${micButtonClasses}`}
-                title={voiceStatusLabel(recording ? "recording" : "ready")}
-                aria-pressed={recording}
-                aria-label={voiceStatusLabel(recording ? "recording" : "ready")}
-              >
-                <IconMic className="h-5 w-5" />
-              </button>
             )}
           </div>
           <div className="flex items-center gap-2">

@@ -53,10 +53,12 @@ html, body, #root { height: 100%; }
   opacity: 0.85;
   background: linear-gradient(to top, #22c55e, #facc15 60%, #ef4444 100%);
   filter: saturate(1.15);
+  /* add a faint rail behind the fill so the control reads as "metered" even when idle */
+  box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.08);
 }
 
 .mic-button[data-state="idle"] .mic-button__meter {
-  opacity: 0.25;
+  opacity: 0.35;
 }
 
 .mic-button[data-state="listening"] .mic-button__meter {

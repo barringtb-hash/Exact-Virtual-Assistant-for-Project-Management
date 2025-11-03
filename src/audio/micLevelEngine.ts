@@ -1,145 +1,114 @@
 /**
- * Microphone level engine using Web Audio API.
- * Provides a single AudioContext instance and exposes a pull-based API so
- * callers can request the latest RMS value without triggering React renders.
+ * Microphone level engine using Web Audio API
+ * Provides real-time audio level analysis
  */
 
+import { rmsToDb, dbToUnit } from "./audioMath.ts";
 import { buildAudioConstraints } from "./audioConstraints.ts";
+
+type OnLevel = (data: { level: number; db: number; peak: number }) => void;
 
 export class MicLevelEngine {
   private ctx: AudioContext | null = null;
-  private analyser: AnalyserNode | null = null;
-  private floatBuf: Float32Array | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
-  private silence: GainNode | null = null;
-  private level = 0;
-  private currentDeviceId?: string;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private rafId: number | null = null;
+  private onLevel: OnLevel;
+  private smoothing: number;
+  private minDb: number;
+  private buffer!: Float32Array;
+  private prevDb: number = -100;
+  private peakHold: number = 0;
+  private peakDecayPerSec = 0.75; // visible peak "comet tail"
 
-  async init(deviceId?: string): Promise<void> {
-    if (!this.ctx) {
-      const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
-      this.ctx = new AudioCtx();
-    }
-
-    if (this.analyser && this.floatBuf && this.currentDeviceId === deviceId) {
-      return;
-    }
-
-    if (this.stream) {
-      this.cleanupStream();
-    }
-
-    this.stream = await navigator.mediaDevices.getUserMedia(buildAudioConstraints(deviceId));
-    this.currentDeviceId = deviceId;
-
-    if (!this.ctx) return;
-
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    this.analyser = this.ctx.createAnalyser();
-    // Smaller window + lighter smoothing ensures a quicker visible response.
-    this.analyser.fftSize = 1024;
-    this.analyser.smoothingTimeConstant = 0.6;
-    this.floatBuf = new Float32Array(this.analyser.fftSize);
-
-    this.source.connect(this.analyser);
-    this.silence = this.ctx.createGain();
-    this.silence.gain.value = 0;
-    this.analyser.connect(this.silence);
-    this.silence.connect(this.ctx.destination);
+  constructor(opts: {
+    onLevel: OnLevel;
+    smoothing?: number; // 0..1
+    minDb?: number; // floor
+  }) {
+    this.onLevel = opts.onLevel;
+    this.smoothing = opts.smoothing ?? 0.75;
+    this.minDb = opts.minDb ?? -100;
   }
 
-  getLevel(): number {
-    if (!this.analyser || !this.floatBuf) return 0;
-    this.analyser.getFloatTimeDomainData(this.floatBuf);
+  async start(deviceId?: string) {
+    await this.stop(); // clean start
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    this.ctx = new AudioCtx();
 
-    let sum = 0;
-    for (let i = 0; i < this.floatBuf.length; i++) {
-      const v = this.floatBuf[i];
-      sum += v * v;
-    }
-
-    const rms = Math.sqrt(sum / this.floatBuf.length);
-    // Stronger normalization helps small gains clear the visible threshold in CI.
-    const norm = Math.min(1, rms * 6);
-    const prev = this.level;
-    const attack = 0.8;
-    const release = 0.25;
-    this.level = norm > prev ? prev + (norm - prev) * attack : prev + (norm - prev) * release;
-    return this.level;
-  }
-
-  async start(deviceId?: string): Promise<void> {
-    await this.init(deviceId);
-    if (!this.ctx) return;
+    // Must be in response to a user gesture on iOS Safari:
     if (this.ctx.state === "suspended") {
       await this.ctx.resume();
     }
+
+    this.stream = await navigator.mediaDevices.getUserMedia(buildAudioConstraints(deviceId));
+    this.source = this.ctx.createMediaStreamSource(this.stream);
+
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 1024;
+    this.analyser.smoothingTimeConstant = this.smoothing; // visual smoothing
+    this.source.connect(this.analyser);
+
+    this.buffer = new Float32Array(this.analyser.fftSize);
+    this.loop();
   }
 
-  stop(): void {
-    try {
-      this.ctx?.suspend?.();
-    } catch {
-      // ignore
+  private loop = () => {
+    if (!this.analyser) return;
+    this.analyser.getFloatTimeDomainData(this.buffer);
+    // RMS
+    let sum = 0;
+    for (let i = 0; i < this.buffer.length; i++) {
+      const v = this.buffer[i];
+      sum += v * v;
     }
-    this.cleanupStream();
+    const rms = Math.sqrt(sum / this.buffer.length);
+    const db = rmsToDb(rms, this.minDb);
+    // Smooth dB (EMA)
+    const alpha = 0.25;
+    this.prevDb = this.prevDb === -100 ? db : (1 - alpha) * this.prevDb + alpha * db;
+
+    const level = dbToUnit(this.prevDb, this.minDb);
+
+    // Track a simple peak with decay
+    this.peakHold = Math.max(this.peakHold - this.peakDecayPerFrame(), level);
+    this.onLevel({ level, db: this.prevDb, peak: this.peakHold });
+
+    this.rafId = requestAnimationFrame(this.loop);
+  };
+
+  private peakDecayPerFrame() {
+    // Approximate per-frame decay at 60fps
+    return this.peakDecayPerSec / 60;
   }
 
-  destroy(): void {
-    this.stop();
-    if (this.ctx) {
-      try {
-        this.ctx.close();
-      } catch {
-        // ignore
-      }
-    }
-    this.ctx = null;
-    this.analyser = null;
-    this.floatBuf = null;
+  async stop() {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+
+    if (this.source) this.source.disconnect();
     this.source = null;
-    this.currentDeviceId = undefined;
-    this.level = 0;
-  }
 
-  private cleanupStream() {
-    if (this.source) {
-      try {
-        this.source.disconnect();
-      } catch {
-        // ignore
-      }
-    }
-    if (this.analyser) {
-      try {
-        this.analyser.disconnect();
-      } catch {
-        // ignore
-      }
-    }
+    if (this.analyser) this.analyser.disconnect();
+    this.analyser = null;
+
     if (this.stream) {
-      this.stream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch {
-          // ignore
-        }
-      });
-    }
-    if (this.silence) {
-      try {
-        this.silence.disconnect();
-      } catch {
-        // ignore
-      }
+      this.stream.getTracks().forEach(t => t.stop());
     }
     this.stream = null;
-    this.source = null;
-    this.analyser = null;
-    this.floatBuf = null;
-    this.silence = null;
-    this.level = 0;
-    this.currentDeviceId = undefined;
+
+    if (this.ctx) {
+      // Keep the AudioContext for reuse to avoid user-gesture requirements; suspend to save power
+      try { await this.ctx.suspend(); } catch {}
+    }
+  }
+
+  destroy() {
+    this.stop();
+    if (this.ctx) {
+      try { this.ctx.close(); } catch {}
+    }
+    this.ctx = null;
   }
 }

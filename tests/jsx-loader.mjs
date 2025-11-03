@@ -9,16 +9,6 @@ const LOADERS = [
 ];
 
 export async function load(url, context, defaultLoad) {
-  // Stub CSS imports for Node.js test runner
-  // CSS files are handled by the build system (Vite) in production
-  if (url.endsWith(".css")) {
-    return {
-      format: "module",
-      source: "export default {};",
-      shortCircuit: true,
-    };
-  }
-
   const entry = LOADERS.find(([extension]) => url.endsWith(extension));
   if (entry) {
     const [, loader] = entry;

@@ -101,7 +101,7 @@ describe('Assistant chat flows', () => {
       win.MediaRecorder = MockRecorder as unknown as typeof MediaRecorder;
     });
 
-    cy.get('button.mic-btn[aria-label="Ready"]').click();
+    cy.get('button[title="Voice input (mock)"]').click();
     cy.wait('@transcribeRequest');
 
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';

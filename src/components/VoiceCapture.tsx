@@ -5,8 +5,9 @@
 
 import React from "react";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
-import { MicButtonWithMeter } from "./MicButtonWithMeter.tsx";
+import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
 import { MicDeviceSelector } from "./MicDeviceSelector.tsx";
+import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export function VoiceCapture() {
   const mic = useMicLevel();
@@ -25,13 +26,31 @@ export function VoiceCapture() {
   return (
     <div style={{ display: "grid", gap: 12, padding: 16 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <MicButtonWithMeter
-          isActive={mic.isActive}
-          level={mic.level}
-          onStart={onStart}
-          onStop={onStop}
-          size={48}
-        />
+        <button
+          onClick={mic.isActive ? onStop : onStart}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 8,
+            border: "1px solid rgba(0,0,0,0.15)",
+            background: mic.isActive ? "#ef4444" : "#10b981",
+            color: "white",
+            fontWeight: 500,
+            cursor: "pointer"
+          }}
+        >
+          {mic.isActive ? "Stop" : "Start"} Mic
+        </button>
+
+        {FEATURE_MIC_LEVEL && mic.isActive && (
+          <MicLevelIndicator
+            level={mic.level}
+            peak={mic.peak}
+            db={mic.db}
+            variant="bar"
+            showDb
+            ariaLabel="Live microphone level"
+          />
+        )}
 
         {mic.devices.length > 0 && (
           <MicDeviceSelector

@@ -37,11 +37,33 @@ export default function MicButton({
   useEffect(() => {
     if (blockedProp !== undefined) {
       setBlocked(blockedProp);
+      blockedRef.current = blockedProp;
       if (btnRef.current) {
         btnRef.current.dataset.blocked = blockedProp ? "true" : "false";
       }
     }
   }, [blockedProp]);
+
+  const handleClick = async () => {
+    if (disabled) return;
+    if (!isActive && blockedProp === undefined) {
+      try {
+        if (!engineRef.current) engineRef.current = engine ?? new MicLevelEngine();
+        await engineRef.current.start(deviceId);
+        setBlocked(false);
+        blockedRef.current = false;
+        if (btnRef.current) btnRef.current.dataset.blocked = "false";
+      } catch {
+        setBlocked(true);
+        blockedRef.current = true;
+        if (btnRef.current) btnRef.current.dataset.blocked = "true";
+        engineRef.current?.stop();
+        engineRef.current = null;
+      }
+    }
+
+    await onToggle();
+  };
 
   useEffect(() => {
     let raf = 0;
@@ -80,12 +102,14 @@ export default function MicButton({
         await engineRef.current.start(deviceId);
         if (blockedProp === undefined) {
           setBlocked(false);
+          blockedRef.current = false;
           if (btnRef.current) btnRef.current.dataset.blocked = "false";
         }
       } catch (error) {
         engineRef.current?.stop();
         if (blockedProp === undefined) {
           setBlocked(true);
+          blockedRef.current = true;
           if (btnRef.current) btnRef.current.dataset.blocked = "true";
         }
         engineRef.current = null;
@@ -128,7 +152,7 @@ export default function MicButton({
       title={blocked ? BLOCKED_TITLE : title}
       data-state={isActive ? "listening" : "idle"}
       data-blocked={blocked ? "true" : "false"}
-      onClick={onToggle}
+      onClick={handleClick}
       disabled={disabled}
     >
       <div ref={meterRef} className="mic-button__meter" aria-hidden />

@@ -1,7 +1,18 @@
 {
   "name": "Exact Sciences Virtual Assistant for Project Management",
   "short_name": "EVSPM",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
-  "icons": []
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
 }

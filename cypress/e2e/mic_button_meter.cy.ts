@@ -34,7 +34,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Find and click the mic button (updated to work with the new component)
-      cy.get('button.mic-btn[aria-label*="Start"]').click();
+      cy.get('button.mic-btn[aria-label*="Voice"]').click();
 
       // Verify button state changes
       cy.get('button.mic-btn[aria-pressed="true"]').should("exist");
@@ -72,7 +72,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("meter is empty when mic is off", () => {
     // Verify the button exists
-    cy.get('button.mic-btn[aria-label*="Start"]').should("exist");
+    cy.get('button.mic-btn[aria-label*="Voice"]').should("exist");
 
     // Check that meter fill has scaleY(0) when inactive
     cy.get(".mic-btn .meter-fill").should(($el) => {
@@ -83,7 +83,7 @@ describe("Microphone Button with Embedded Meter", () => {
 
   it("button is keyboard accessible with proper ARIA attributes", () => {
     // Check ARIA attributes when inactive
-    cy.get('button.mic-btn[aria-label*="Start"]')
+    cy.get('button.mic-btn[aria-label*="Voice"]')
       .should("have.attr", "aria-pressed", "false")
       .and("not.be.disabled");
 
@@ -105,7 +105,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Start mic via keyboard (Enter)
-      cy.get('button.mic-btn[aria-label*="Start"]').type("{enter}");
+      cy.get('button.mic-btn[aria-label*="Voice"]').type("{enter}");
       cy.wait(300);
 
       // Check ARIA attributes when active
@@ -129,7 +129,7 @@ describe("Microphone Button with Embedded Meter", () => {
       const width = $btn.width() || 0;
       const height = $btn.height() || 0;
 
-      // Verify button is at least 44x44px (or configured size)
+      // Verify button is at least 44x44px (WCAG 2.1 Level AAA minimum touch target)
       expect(width).to.be.at.least(44);
       expect(height).to.be.at.least(44);
     });
@@ -143,7 +143,7 @@ describe("Microphone Button with Embedded Meter", () => {
       );
 
       // Try to start the mic
-      cy.get('button.mic-btn[aria-label*="Start"]').click();
+      cy.get('button.mic-btn[aria-label*="Voice"]').click();
 
       // Wait for error handling
       cy.wait(500);

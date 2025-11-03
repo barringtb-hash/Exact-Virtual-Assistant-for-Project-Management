@@ -7,6 +7,7 @@ type MicButtonProps = {
   disabled?: boolean;
   title?: string;
   engine?: MicLevelEngine | null;
+  deviceId?: string;
 };
 
 const BLOCKED_TITLE = "Microphone blocked";
@@ -17,6 +18,7 @@ export default function MicButton({
   disabled,
   title = "Microphone",
   engine,
+  deviceId,
 }: MicButtonProps) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const meterRef = useRef<HTMLDivElement | null>(null);
@@ -64,11 +66,13 @@ export default function MicButton({
       }
 
       try {
-        await engineRef.current.start();
+        await engineRef.current.start(deviceId);
         setBlocked(false);
+        if (btnRef.current) btnRef.current.dataset.blocked = "false";
       } catch (error) {
         engineRef.current?.stop();
         setBlocked(true);
+        if (btnRef.current) btnRef.current.dataset.blocked = "true";
         engineRef.current = null;
       }
     };

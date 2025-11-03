@@ -49,6 +49,7 @@ export function VoiceCapture() {
           disabled={false}
           title={isActive ? "Stop microphone" : "Start microphone"}
           engine={mic.engine}
+          deviceId={selectedDeviceId}
         />
 
         {devices.length > 0 && (

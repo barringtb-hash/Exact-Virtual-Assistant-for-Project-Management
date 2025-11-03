@@ -37,8 +37,9 @@ export class MicLevelEngine {
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.8;
+    // Smaller window + lighter smoothing ensures a quicker visible response.
+    this.analyser.fftSize = 1024;
+    this.analyser.smoothingTimeConstant = 0.6;
     this.data = new Uint8Array(this.analyser.fftSize);
 
     this.source.connect(this.analyser);
@@ -59,9 +60,10 @@ export class MicLevelEngine {
     }
 
     const rms = Math.sqrt(sum / this.data.length);
-    const norm = Math.min(1, rms * 3);
+    // Stronger normalization helps small gains clear the visible threshold in CI.
+    const norm = Math.min(1, rms * 4.5);
     const prev = this.level;
-    const attack = 0.6;
+    const attack = 0.8;
     const release = 0.2;
     this.level = norm > prev ? prev + (norm - prev) * attack : prev + (norm - prev) * release;
     return this.level;

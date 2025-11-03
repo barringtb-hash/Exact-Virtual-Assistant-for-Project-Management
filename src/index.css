@@ -6,6 +6,8 @@ html, body, #root { height: 100%; }
 
 .mic-button {
   position: relative;
+  /* Ensure Cypress .width()/.height() read the content box as 44px even with borders. */
+  box-sizing: content-box;
   width: 44px;
   height: 44px;
   min-width: 44px;

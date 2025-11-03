@@ -32,6 +32,7 @@ export default function MicButton({
   const engineRef = useRef<MicLevelEngine | null>(null);
   const [blocked, setBlocked] = useState(false);
   const blockedRef = useRef(blocked);
+  const [optimisticPressed, setOptimisticPressed] = useState(false);
 
   useEffect(() => {
     if (engine) {
@@ -51,6 +52,10 @@ export default function MicButton({
 
   const handleClick = async () => {
     if (disabled) return;
+
+    const targetPressed = !isActive;
+    setOptimisticPressed(targetPressed);
+
     if (!isActive && blockedProp === undefined) {
       try {
         if (!engineRef.current) engineRef.current = engine ?? new MicLevelEngine();
@@ -65,6 +70,7 @@ export default function MicButton({
             setBlocked(true);
             blockedRef.current = true;
             if (btnRef.current) btnRef.current.dataset.blocked = "true";
+            setOptimisticPressed(false);
             engineRef.current?.stop();
             engineRef.current = null;
           });
@@ -72,6 +78,7 @@ export default function MicButton({
         setBlocked(true);
         blockedRef.current = true;
         if (btnRef.current) btnRef.current.dataset.blocked = "true";
+        setOptimisticPressed(false);
         engineRef.current?.stop();
         engineRef.current = null;
       }
@@ -88,6 +95,12 @@ export default function MicButton({
       await handleClick();
     }
   };
+
+  useEffect(() => {
+    if (optimisticPressed && isActive) {
+      setOptimisticPressed(false);
+    }
+  }, [isActive, optimisticPressed]);
 
   useEffect(() => {
     let raf = 0;
@@ -166,15 +179,17 @@ export default function MicButton({
     }
   }, [blocked]);
 
+  const pressed = !blocked && (isActive || optimisticPressed);
+
   return (
     <button
       ref={btnRef}
       type="button"
       className="mic-button"
-      aria-pressed={isActive}
+      aria-pressed={pressed}
       aria-label={blocked ? BLOCKED_TITLE : title}
       title={blocked ? BLOCKED_TITLE : title}
-      data-state={isActive ? "listening" : "idle"}
+      data-state={pressed ? "listening" : "idle"}
       data-blocked={blocked ? "true" : "false"}
       onClick={handleClick}
       onKeyDown={handleKeyDown}

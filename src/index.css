@@ -53,8 +53,13 @@ html, body, #root { height: 100%; }
   height: 44px;
   border-radius: 3px;
   overflow: hidden;
-  border: 1px solid var(--border, rgba(42, 42, 42, 0.3));
-  background: linear-gradient(to top, rgba(232, 232, 232, 0.5), rgba(244, 244, 244, 0.5));
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: linear-gradient(to top, #e8e8e8, #f4f4f4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.mic-button-wrapper:hover .mic-button__meter-container {
+  border-color: rgba(0, 0, 0, 0.3);
 }
 
 .mic-button__meter {
@@ -73,11 +78,11 @@ html, body, #root { height: 100%; }
 }
 
 .mic-button[data-state="idle"] ~ .mic-button__meter-container .mic-button__meter {
-  opacity: 0.25;
+  opacity: 0.4;
 }
 
 .mic-button[data-state="listening"] ~ .mic-button__meter-container .mic-button__meter {
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .mic-button[data-clip="true"] {

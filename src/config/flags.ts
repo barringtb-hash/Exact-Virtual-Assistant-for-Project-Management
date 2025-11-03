@@ -10,8 +10,18 @@ const rawMicLevelFlag =
     ? import.meta.env.VITE_FEATURE_MIC_LEVEL
     : undefined;
 
-// Default ON (true) when the env variable is not provided.
-export const FEATURE_MIC_LEVEL =
-  rawMicLevelFlag === undefined
-    ? true
-    : rawMicLevelFlag === "1" || rawMicLevelFlag === "true";
+const truthyValues = new Set(["1", "true", "on", "yes"]);
+const falsyValues = new Set(["0", "false", "off", "no"]);
+
+const parseEnvBoolean = (value: string | undefined, defaultValue: boolean): boolean => {
+  if (value === undefined) return defaultValue;
+
+  const normalized = value.trim().toLowerCase();
+  if (truthyValues.has(normalized)) return true;
+  if (falsyValues.has(normalized)) return false;
+
+  return defaultValue;
+};
+
+// Default ON (true) when the env variable is not provided or unrecognised.
+export const FEATURE_MIC_LEVEL = parseEnvBoolean(rawMicLevelFlag, true);

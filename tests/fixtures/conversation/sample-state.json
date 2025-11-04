@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "documentType": "charter",
+  "schemaVersion": "test-1.0",
+  "step": "NEXT_FIELD",
+  "mode": "session",
+  "fieldOrder": ["project_name", "executive_summary", "risks"],
+  "currentFieldId": "project_name",
+  "currentIndex": 0,
+  "fields": {
+    "project_name": {
+      "id": "project_name",
+      "status": "confirmed",
+      "value": "Apollo Expansion",
+      "confirmedValue": "Apollo Expansion",
+      "error": null,
+      "skippedReason": null,
+      "history": ["Apollo Expansion"],
+      "lastUpdatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    "executive_summary": {
+      "id": "executive_summary",
+      "status": "pending",
+      "value": "",
+      "confirmedValue": null,
+      "error": null,
+      "skippedReason": null,
+      "history": [],
+      "lastUpdatedAt": null
+    },
+    "risks": {
+      "id": "risks",
+      "status": "pending",
+      "value": "",
+      "confirmedValue": null,
+      "error": null,
+      "skippedReason": null,
+      "history": [],
+      "lastUpdatedAt": null
+    }
+  },
+  "finalizedAt": null,
+  "lastEvent": "CONFIRM"
+}

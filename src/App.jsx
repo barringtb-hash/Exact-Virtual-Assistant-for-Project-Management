@@ -45,6 +45,8 @@ import {
   pointerMapToPathObject,
   pointerSetToPathSet,
 } from "./utils/jsonPointer.js";
+import CharterFieldSession from "./chat/CharterFieldSession.tsx";
+import { conversationActions } from "./state/conversationStore.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -521,6 +523,11 @@ export default function ExactVirtualAssistantPM() {
     }
     return [];
   });
+  useEffect(() => {
+    if (templateDocType !== "charter") {
+      conversationActions.reset();
+    }
+  }, [templateDocType]);
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [pendingIntentExtraction, setPendingIntentExtraction] = useState(null);
   const messagesRef = useRef(messages);
@@ -2655,6 +2662,7 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
+                  <CharterFieldSession className="mb-3" />
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
                   <Composer
                     onSend={handleSend}

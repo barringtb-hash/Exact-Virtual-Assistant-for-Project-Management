@@ -1,0 +1,42 @@
+{
+  "document_type": "charter",
+  "version": "test-1.0",
+  "fields": [
+    {
+      "id": "project_name",
+      "label": "Project name",
+      "help_text": "Name of the chartered project.",
+      "required": true,
+      "type": "string",
+      "options": [],
+      "max_length": null,
+      "placeholder": "e.g. Apollo Expansion",
+      "example": null,
+      "visibility": null
+    },
+    {
+      "id": "executive_summary",
+      "label": "Executive summary",
+      "help_text": "Summarize goals, metrics, and decision points.",
+      "required": true,
+      "type": "text",
+      "options": [],
+      "max_length": null,
+      "placeholder": "What outcomes are we targeting?",
+      "example": null,
+      "visibility": null
+    },
+    {
+      "id": "risks",
+      "label": "Key risks",
+      "help_text": "List the top risks and mitigation plans.",
+      "required": false,
+      "type": "text",
+      "options": [],
+      "max_length": null,
+      "placeholder": "Major unknowns, dependencies",
+      "example": null,
+      "visibility": null
+    }
+  ]
+}

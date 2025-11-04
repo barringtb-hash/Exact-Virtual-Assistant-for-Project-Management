@@ -8,8 +8,15 @@ describe("Microphone Level Indicator", () => {
     cy.visit("/");
     // Wait for the page to be fully loaded
     cy.contains("Chat Assistant").should("be.visible");
-    // Wait for the composer to be ready
-    cy.get("textarea").should("exist").and("not.be.disabled");
+
+    // Wait for the composer to be ready with longer timeout
+    // The schema loads asynchronously and can cause re-renders
+    cy.get("textarea", { timeout: 10000 })
+      .should("exist")
+      .and("not.be.disabled");
+
+    // Wait a bit more to ensure the page is stable after schema loading
+    cy.wait(500);
   });
 
   it("shows level indicator when mic starts with synthetic audio", () => {
@@ -47,7 +54,8 @@ describe("Microphone Level Indicator", () => {
       // Find and click the mic button
       // Note: This assumes the mic button is available in the UI
       // Adjust selector based on actual implementation
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button[title*="Voice"]').first().as('micBtn');
+      cy.get('@micBtn').should('be.visible').click({ force: true });
 
       // Wait a bit for the audio engine to start
       cy.wait(500);
@@ -63,7 +71,8 @@ describe("Microphone Level Indicator", () => {
       });
 
       // Stop the mic
-      cy.get('button[title*="Stop"]').first().click({ force: true });
+      cy.get('button[title*="Stop"]').first().as('stopBtn');
+      cy.get('@stopBtn').should('be.visible').click({ force: true });
 
       // Cleanup
       osc.stop();
@@ -84,7 +93,8 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button[title*="Voice"]').first().as('micBtn2');
+      cy.get('@micBtn2').should('be.visible').click({ force: true });
 
       // Should show an error or handle gracefully
       // Note: The exact error handling depends on your implementation
@@ -104,7 +114,8 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button[title*="Voice"]').first().as('micBtn3');
+      cy.get('@micBtn3').should('be.visible').click({ force: true });
 
       // Should handle gracefully
       cy.wait(500);
@@ -143,7 +154,8 @@ describe("Microphone Level Indicator", () => {
       );
 
       // Start mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+      cy.get('button[title*="Voice"]').first().as('micBtn4');
+      cy.get('@micBtn4').should('be.visible').click({ force: true });
       cy.wait(500);
 
       // Check that peak indicator exists
@@ -154,7 +166,8 @@ describe("Microphone Level Indicator", () => {
       cy.wait(1000);
 
       // Stop and cleanup
-      cy.get('button[title*="Stop"]').first().click({ force: true });
+      cy.get('button[title*="Stop"]').first().as('stopBtn2');
+      cy.get('@stopBtn2').should('be.visible').click({ force: true });
       osc.stop();
       ctx.close();
       (win.navigator.mediaDevices.getUserMedia as any).restore?.();

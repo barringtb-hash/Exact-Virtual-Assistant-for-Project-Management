@@ -39,13 +39,23 @@ describe('Assistant chat flows', () => {
 
     cy.visit('/');
     cy.contains('Chat Assistant').should('be.visible');
-    // Wait for the composer to be ready (not disabled)
-    cy.get('textarea[placeholder="Type here… (paste scope or attach files)"]').should('not.be.disabled');
+
+    // Wait for the page to fully initialize
+    // The schema loads asynchronously and can cause re-renders
+    cy.get('textarea[placeholder="Type here… (paste scope or attach files)"]', { timeout: 10000 })
+      .should('exist')
+      .and('not.be.disabled');
+
+    // Wait a bit more to ensure the page is stable after schema loading
+    cy.wait(500);
   });
 
   it('streams typed messages, syncs preview, and allows resending', () => {
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
-    cy.get(composer).type('Draft the kickoff agenda for next Monday{enter}');
+    // Use alias and separate get to prevent detachment issues
+    cy.get(composer).as('composerInput');
+    cy.get('@composerInput').should('be.visible').and('not.be.disabled');
+    cy.get('@composerInput').type('Draft the kickoff agenda for next Monday{enter}');
 
     // Check button is disabled immediately after submission
     cy.get('button[title="Assistant is responding…"]').should('exist').and('be.disabled');
@@ -103,12 +113,16 @@ describe('Assistant chat flows', () => {
       win.MediaRecorder = MockRecorder as unknown as typeof MediaRecorder;
     });
 
-    cy.get('button[title="Voice input (mock)"]').click();
+    // Use alias to prevent detachment issues
+    cy.get('button[title="Voice input (mock)"]').as('voiceBtn');
+    cy.get('@voiceBtn').should('be.visible').click();
     cy.wait('@transcribeRequest');
 
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
-    cy.get(composer).should('have.value', 'Voice triggered follow-up');
-    cy.get('button[title="Send"]').click();
+    cy.get(composer).as('composer2');
+    cy.get('@composer2').should('have.value', 'Voice triggered follow-up');
+    cy.get('button[title="Send"]').as('sendBtn');
+    cy.get('@sendBtn').should('be.visible').click();
 
     cy.wait('@chatRequest');
     cy.wait('@extractRequest');
@@ -133,8 +147,11 @@ describe('Assistant chat flows', () => {
       }
     }).as('cancellableChat');
 
-    cy.get(composer).type('First attempt that will be cancelled{enter}');
+    cy.get(composer).as('composer3');
+    cy.get('@composer3').should('be.visible').and('not.be.disabled');
+    cy.get('@composer3').type('First attempt that will be cancelled{enter}');
     cy.wait(50);
+    cy.get(composer).should('be.visible').and('not.be.disabled');
     cy.get(composer).type('retry this request with new context{enter}');
 
     cy.wait('@cancellableChat');
@@ -144,7 +161,9 @@ describe('Assistant chat flows', () => {
   it('recovers from network errors by allowing resend', () => {
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
 
-    cy.get(composer).type('trigger retry handling{enter}');
+    cy.get(composer).as('composer4');
+    cy.get('@composer4').should('be.visible').and('not.be.disabled');
+    cy.get('@composer4').type('trigger retry handling{enter}');
     cy.wait('@chatRequest');
     cy.contains('Unexpected response (500) from chat stream.').scrollIntoView().should('be.visible');
 
@@ -152,6 +171,7 @@ describe('Assistant chat flows', () => {
       reply: 'Second attempt succeeded.',
     }).as('retryChat');
 
+    cy.get(composer).should('be.visible').and('not.be.disabled');
     cy.get(composer).type('retry this request with new context{enter}');
     cy.wait('@retryChat');
     cy.contains('Second attempt succeeded.').scrollIntoView().should('be.visible');

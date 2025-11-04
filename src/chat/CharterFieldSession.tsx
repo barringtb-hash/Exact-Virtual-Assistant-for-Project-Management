@@ -372,6 +372,7 @@ export function CharterFieldSession({ className }: { className?: string }) {
     <section
       className={classNames(
         "rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/40",
+        "max-h-72 overflow-y-auto",
         className,
       )}
       data-mode={state.mode}

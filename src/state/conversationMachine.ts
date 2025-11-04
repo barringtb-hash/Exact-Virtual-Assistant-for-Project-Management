@@ -3,6 +3,13 @@ import {
   type CharterFormSchema,
   createCharterFieldLookup,
 } from "../lib/charter/formSchema.ts";
+import {
+  createFormValidator,
+  type FieldRuleMap,
+  type FieldValidationIssue,
+  type FieldValidationResult,
+  type FormValidator,
+} from "../lib/forms/validation.ts";
 
 export type ConversationStep =
   | "INIT"
@@ -27,9 +34,11 @@ export interface ConversationFieldState {
   status: ConversationFieldStatus;
   value: string;
   confirmedValue: string | null;
-  error: string | null;
+  normalizedValue: unknown;
+  issues: FieldValidationIssue[];
   skippedReason: string | null;
   history: string[];
+  reaskCount: number;
   lastUpdatedAt: string | null;
 }
 
@@ -91,17 +100,24 @@ export type ConversationAction =
   | {
       type: "VALIDATION_ERROR";
       field: CharterFormField;
-      message: string;
+      issues: FieldValidationIssue[];
+      attempt: number;
+      maxAttempts: number;
+      escalated: boolean;
+      result: FieldValidationResult;
     }
   | {
       type: "READY_TO_CONFIRM";
       field: CharterFormField;
       value: string;
+      normalized: unknown;
+      issues: FieldValidationIssue[];
     }
   | {
       type: "FIELD_CONFIRMED";
       field: CharterFormField;
       value: string;
+      normalized: unknown;
     }
   | {
       type: "FIELD_SKIPPED";
@@ -122,15 +138,34 @@ export interface ConversationTransition {
   actions: ConversationAction[];
 }
 
+export interface ConversationTelemetryHooks {
+  onValidationAttempt?: (payload: {
+    field: CharterFormField;
+    result: FieldValidationResult;
+    attempt: number;
+    maxAttempts: number;
+    state: ConversationState;
+  }) => void;
+}
+
+export interface ConversationMachineOptions {
+  validator?: FormValidator;
+  fieldRules?: FieldRuleMap;
+  maxValidationAttempts?: number;
+  telemetry?: ConversationTelemetryHooks;
+}
+
 function buildInitialFieldState(field: CharterFormField): ConversationFieldState {
   return {
     id: field.id,
     status: "pending",
     value: "",
     confirmedValue: null,
-    error: null,
+    normalizedValue: null,
+    issues: [],
     skippedReason: null,
     history: [],
+    reaskCount: 0,
     lastUpdatedAt: null,
   };
 }
@@ -169,10 +204,6 @@ function cloneState(state: ConversationState): ConversationState {
     fields,
     fieldOrder: state.fieldOrder.slice(),
   };
-}
-
-function normalizeValue(value: string): string {
-  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
 
 function findPreviousIndex(state: ConversationState): number {
@@ -238,11 +269,11 @@ function updateCurrentField(state: ConversationState, index: number) {
   state.currentIndex = index;
 }
 
-function resetError(state: ConversationState, fieldId: string | null) {
+function resetIssues(state: ConversationState, fieldId: string | null) {
   if (!fieldId) return;
   const fieldState = state.fields[fieldId];
   if (!fieldState) return;
-  fieldState.error = null;
+  fieldState.issues = [];
 }
 
 function appendHistory(fieldState: ConversationFieldState, value: string) {
@@ -254,14 +285,41 @@ function appendHistory(fieldState: ConversationFieldState, value: string) {
   }
 }
 
+function gatherNormalizedValues(state: ConversationState): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const fieldId of state.fieldOrder) {
+    const fieldState = fieldId ? state.fields[fieldId] : undefined;
+    if (!fieldState) continue;
+    if (fieldState.status === "skipped" && fieldState.skippedReason === "hidden") {
+      continue;
+    }
+    if (fieldState.normalizedValue !== undefined && fieldState.normalizedValue !== null) {
+      values[fieldId] = fieldState.normalizedValue;
+    } else if (fieldState.value) {
+      values[fieldId] = fieldState.value;
+    }
+  }
+  return values;
+}
+
 export function applyConversationEvent(
   schema: CharterFormSchema,
   state: ConversationState,
-  event: ConversationEvent
+  event: ConversationEvent,
+  options: ConversationMachineOptions = {}
 ): ConversationTransition {
   const next = cloneState(state);
   const actions: ConversationAction[] = [];
   next.lastEvent = event.type;
+
+  const validator =
+    options.validator ??
+    createFormValidator(
+      schema,
+      options.fieldRules ? { fieldRules: options.fieldRules } : undefined
+    );
+  const maxAttempts = Math.max(1, options.maxValidationAttempts ?? 2);
+  const telemetry = options.telemetry;
 
   const lookup = createCharterFieldLookup(schema);
   const getFieldById = (fieldId: string | null): CharterFormField | null =>
@@ -269,23 +327,62 @@ export function applyConversationEvent(
   const getCurrentField = (): CharterFormField | null =>
     getFieldById(next.currentFieldId);
 
+  const ensureVisibleField = (): CharterFormField | null => {
+    let guard = 0;
+    while (guard < next.fieldOrder.length) {
+      const current = getCurrentField();
+      if (!current) {
+        return null;
+      }
+      const values = gatherNormalizedValues(next);
+      if (validator.isFieldVisible(current, values)) {
+        return current;
+      }
+      const fieldState = next.fields[current.id];
+      if (fieldState) {
+        fieldState.status = "skipped";
+        fieldState.value = "";
+        fieldState.confirmedValue = null;
+        fieldState.normalizedValue = null;
+        fieldState.issues = [];
+        fieldState.reaskCount = 0;
+        fieldState.skippedReason = "hidden";
+        fieldState.lastUpdatedAt = new Date().toISOString();
+        actions.push({ type: "FIELD_SKIPPED", field: current, reason: "hidden" });
+      }
+      const nextIndex = findNextIndex(next);
+      if (nextIndex < 0 || nextIndex === next.currentIndex) {
+        updateCurrentField(next, -1);
+        return null;
+      }
+      updateCurrentField(next, nextIndex);
+      guard += 1;
+    }
+    return getCurrentField();
+  };
+
+  const askCurrentField = () => {
+    const field = ensureVisibleField();
+    if (!field) {
+      return;
+    }
+    resetIssues(next, field.id);
+    actions.push({
+      type: "ASK_FIELD",
+      field,
+      index: next.currentIndex,
+      total: next.fieldOrder.length,
+      required: field.required,
+    });
+  };
+
   switch (event.type) {
     case "INIT": {
       next.step = "ASK";
       if (next.currentIndex < 0 && next.fieldOrder.length > 0) {
         updateCurrentField(next, 0);
       }
-      const field = getCurrentField();
-      if (field) {
-        resetError(next, field.id);
-        actions.push({
-          type: "ASK_FIELD",
-          field,
-          index: next.currentIndex,
-          total: next.fieldOrder.length,
-          required: field.required,
-        });
-      }
+      askCurrentField();
       break;
     }
     case "ASK": {
@@ -296,18 +393,8 @@ export function applyConversationEvent(
           updateCurrentField(next, index);
         }
       }
-      const field = getCurrentField();
-      if (field) {
-        resetError(next, field.id);
-        next.step = "ASK";
-        actions.push({
-          type: "ASK_FIELD",
-          field,
-          index: next.currentIndex,
-          total: next.fieldOrder.length,
-          required: field.required,
-        });
-      }
+      next.step = "ASK";
+      askCurrentField();
       break;
     }
     case "CAPTURE": {
@@ -323,14 +410,21 @@ export function applyConversationEvent(
       if (!fieldState) {
         break;
       }
-      const normalized = normalizeValue(event.value);
-      fieldState.value = normalized;
+      const normalizedInput = validator.normalizeFieldValue(field, event.value);
+      const value =
+        typeof normalizedInput.text === "string"
+          ? normalizedInput.text
+          : String(normalizedInput.text ?? "");
+      fieldState.value = value;
+      fieldState.normalizedValue = normalizedInput.structured;
       fieldState.status = "captured";
-      fieldState.error = null;
+      fieldState.issues = [];
+      fieldState.reaskCount = 0;
+      fieldState.skippedReason = null;
       fieldState.lastUpdatedAt = new Date().toISOString();
-      appendHistory(fieldState, normalized);
+      appendHistory(fieldState, value);
       next.step = "CAPTURE";
-      actions.push({ type: "FIELD_CAPTURED", field, value: normalized });
+      actions.push({ type: "FIELD_CAPTURED", field, value });
       break;
     }
     case "VALIDATE": {
@@ -346,19 +440,111 @@ export function applyConversationEvent(
       if (!fieldState) {
         break;
       }
-      const value = normalizeValue(fieldState.value);
-      if (field.required && !value) {
-        const message = `${field.label} is required.`;
-        fieldState.error = message;
-        fieldState.status = "pending";
-        next.step = "ASK";
-        actions.push({ type: "VALIDATION_ERROR", field, message });
+      const contextValues = gatherNormalizedValues(next);
+      if (fieldState.normalizedValue !== undefined && fieldState.normalizedValue !== null) {
+        contextValues[field.id] = fieldState.normalizedValue;
+      } else if (fieldState.value) {
+        contextValues[field.id] = fieldState.value;
+      }
+      const result = validator.validateField(field, fieldState.value, {
+        values: contextValues,
+      });
+
+      const attempt = fieldState.reaskCount + 1;
+      telemetry?.onValidationAttempt?.({
+        field,
+        result,
+        attempt,
+        maxAttempts,
+        state: next,
+      });
+
+      if (result.status === "hidden") {
+        fieldState.status = "skipped";
+        fieldState.value = "";
+        fieldState.confirmedValue = null;
+        fieldState.normalizedValue = null;
+        fieldState.issues = [];
+        fieldState.reaskCount = 0;
+        fieldState.skippedReason = "hidden";
+        fieldState.lastUpdatedAt = new Date().toISOString();
+        next.step = "NEXT_FIELD";
+        actions.push({ type: "FIELD_SKIPPED", field, reason: "hidden" });
         break;
       }
-      fieldState.error = null;
+
+      const normalizedValue =
+        typeof result.normalized.text === "string"
+          ? result.normalized.text
+          : String(result.normalized.text ?? "");
+
+      if (result.status === "invalid") {
+        const escalated = attempt >= maxAttempts;
+        fieldState.issues = result.issues;
+        fieldState.reaskCount = attempt;
+        fieldState.lastUpdatedAt = new Date().toISOString();
+
+        if (escalated) {
+          const skipReason = "validation-max-attempts";
+          fieldState.status = "skipped";
+          fieldState.value = "";
+          fieldState.confirmedValue = null;
+          fieldState.normalizedValue = null;
+          fieldState.skippedReason = skipReason;
+          next.step = "NEXT_FIELD";
+
+          actions.push({
+            type: "VALIDATION_ERROR",
+            field,
+            issues: result.issues,
+            attempt,
+            maxAttempts,
+            escalated,
+            result,
+          });
+          actions.push({ type: "FIELD_SKIPPED", field, reason: skipReason });
+
+          const nextIndex = findNextIndex(next);
+          if (nextIndex >= 0) {
+            updateCurrentField(next, nextIndex);
+            next.step = "ASK";
+            askCurrentField();
+          } else {
+            updateCurrentField(next, -1);
+          }
+        } else {
+          fieldState.status = "pending";
+          fieldState.skippedReason = null;
+          next.step = "ASK";
+
+          actions.push({
+            type: "VALIDATION_ERROR",
+            field,
+            issues: result.issues,
+            attempt,
+            maxAttempts,
+            escalated,
+            result,
+          });
+        }
+        break;
+      }
+
+      fieldState.value = normalizedValue;
+      fieldState.normalizedValue = result.normalized.structured;
       fieldState.status = "captured";
+      fieldState.issues = result.issues;
+      fieldState.reaskCount = 0;
+      fieldState.skippedReason = null;
+      fieldState.lastUpdatedAt = new Date().toISOString();
       next.step = "CONFIRM";
-      actions.push({ type: "READY_TO_CONFIRM", field, value });
+      actions.push({
+        type: "READY_TO_CONFIRM",
+        field,
+        value: normalizedValue,
+        normalized: result.normalized.structured,
+        issues: result.issues,
+      });
       break;
     }
     case "CONFIRM": {
@@ -374,12 +560,19 @@ export function applyConversationEvent(
       if (!fieldState) {
         break;
       }
-      const value = normalizeValue(fieldState.value);
-      fieldState.confirmedValue = value;
+      fieldState.confirmedValue = fieldState.value;
       fieldState.status = "confirmed";
-      fieldState.error = null;
+      fieldState.issues = [];
+      fieldState.reaskCount = 0;
+      fieldState.skippedReason = null;
+      fieldState.lastUpdatedAt = new Date().toISOString();
       next.step = "NEXT_FIELD";
-      actions.push({ type: "FIELD_CONFIRMED", field, value });
+      actions.push({
+        type: "FIELD_CONFIRMED",
+        field,
+        value: fieldState.value,
+        normalized: fieldState.normalizedValue ?? fieldState.value,
+      });
       break;
     }
     case "NEXT_FIELD": {
@@ -387,18 +580,7 @@ export function applyConversationEvent(
       if (nextIndex >= 0) {
         updateCurrentField(next, nextIndex);
         next.step = "ASK";
-        const field = getCurrentField();
-        if (field) {
-          const fieldState = next.fields[field.id];
-          fieldState.error = null;
-          actions.push({
-            type: "ASK_FIELD",
-            field,
-            index: next.currentIndex,
-            total: next.fieldOrder.length,
-            required: field.required,
-          });
-        }
+        askCurrentField();
       } else {
         updateCurrentField(next, -1);
         next.step = "NEXT_FIELD";
@@ -410,10 +592,8 @@ export function applyConversationEvent(
       if (previousIndex >= 0) {
         updateCurrentField(next, previousIndex);
         next.step = "ASK";
-        const field = getCurrentField();
+        const field = ensureVisibleField();
         if (field) {
-          const fieldState = next.fields[field.id];
-          fieldState.error = null;
           actions.push({
             type: "BACK_TO_FIELD",
             field,
@@ -441,10 +621,8 @@ export function applyConversationEvent(
       }
       updateCurrentField(next, index);
       next.step = "ASK";
-      const field = getCurrentField();
+      const field = ensureVisibleField();
       if (field) {
-        const fieldState = next.fields[field.id];
-        fieldState.error = null;
         actions.push({
           type: "BACK_TO_FIELD",
           field,
@@ -476,7 +654,9 @@ export function applyConversationEvent(
       fieldState.status = "skipped";
       fieldState.value = "";
       fieldState.confirmedValue = null;
-      fieldState.error = null;
+      fieldState.normalizedValue = null;
+      fieldState.issues = [];
+      fieldState.reaskCount = 0;
       fieldState.skippedReason = event.reason ?? null;
       fieldState.lastUpdatedAt = new Date().toISOString();
       next.step = "NEXT_FIELD";
@@ -499,16 +679,7 @@ export function applyConversationEvent(
       if (pendingIndex >= 0) {
         updateCurrentField(next, pendingIndex);
         next.step = "ASK";
-        const field = getCurrentField();
-        if (field) {
-          actions.push({
-            type: "ASK_FIELD",
-            field,
-            index: next.currentIndex,
-            total: next.fieldOrder.length,
-            required: field.required,
-          });
-        }
+        askCurrentField();
       } else {
         next.step = next.currentFieldId ? "ASK" : "NEXT_FIELD";
       }
@@ -526,15 +697,6 @@ export function applyConversationEvent(
       break;
   }
 
-  if (next.step !== "VALIDATE" && next.step !== "CAPTURE") {
-    if (next.currentFieldId) {
-      const fieldState = next.fields[next.currentFieldId];
-      if (fieldState && next.step !== "ASK" && next.step !== "PREVIEW") {
-        fieldState.error = null;
-      }
-    }
-  }
-
   const completedCount = getCompletedCount(next);
   if (completedCount >= next.fieldOrder.length && next.mode === "session" && next.step === "NEXT_FIELD") {
     next.mode = "review";
@@ -544,7 +706,6 @@ export function applyConversationEvent(
 
   return { state: next, actions };
 }
-
 export function getConversationSnapshot(
   state: ConversationState
 ): ConversationState {

@@ -73,8 +73,10 @@ test("required field validation triggers an error", async () => {
   });
   state = validation.state;
   assert.equal(state.step, "ASK");
-  assert.equal(state.fields.project_name.error, "Project name is required.");
+  assert.equal(state.fields.project_name.status, "pending");
+  assert.equal(state.fields.project_name.issues[0]?.message, "Project name is required.");
   assert.equal(validation.actions[0]?.type, "VALIDATION_ERROR");
+  assert.equal(validation.actions[0]?.issues[0]?.message, "Project name is required.");
 });
 
 test("skipping optional field marks it skipped", async () => {

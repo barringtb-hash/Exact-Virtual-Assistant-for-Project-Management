@@ -7,6 +7,7 @@ import {
   mergeConversationSnapshot,
   type ConversationAction,
   type ConversationEvent,
+  type ConversationMachineOptions,
   type ConversationState,
 } from "./conversationMachine.ts";
 
@@ -22,6 +23,8 @@ const conversationStore = createStore<ConversationStoreState>({
   lastActions: [],
 });
 
+let machineOptions: ConversationMachineOptions = {};
+
 function schemasMatch(a: CharterFormSchema | null, b: CharterFormSchema | null): boolean {
   if (!a || !b) return false;
   if (a.document_type !== b.document_type) return false;
@@ -35,7 +38,12 @@ function dispatchEvent(event: ConversationEvent): ConversationAction[] {
   if (!schema || !state) {
     return [];
   }
-  const { state: nextState, actions } = applyConversationEvent(schema, state, event);
+  const { state: nextState, actions } = applyConversationEvent(
+    schema,
+    state,
+    event,
+    machineOptions,
+  );
   conversationStore.setState({ state: nextState, lastActions: actions });
   return actions;
 }
@@ -145,3 +153,9 @@ export const useConversationLastActions = () =>
   useStore(conversationStore, (store) => store.lastActions);
 
 export const conversationStoreApi = conversationStore;
+
+export function configureConversationMachineOptions(
+  options: ConversationMachineOptions | null,
+) {
+  machineOptions = options ?? {};
+}

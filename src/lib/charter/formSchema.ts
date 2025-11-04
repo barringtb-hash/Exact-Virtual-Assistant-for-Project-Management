@@ -23,6 +23,7 @@ export interface CharterFormField {
   type: string;
   options: unknown[];
   max_length: number | null;
+  pattern?: string | null;
   placeholder: string | null;
   example: string | null;
   visibility: Record<string, unknown> | null;
@@ -116,6 +117,7 @@ function normalizeField(value: unknown): CharterFormField | null {
   const options = toOptionsArray(value.options);
   const required = toBoolean(value.required);
   const maxLength = toOptionalNumber(value.max_length);
+  const pattern = toOptionalString(value.pattern);
   const visibility = toVisibility(value.visibility);
 
   let nestedFields: CharterFormChildField[] | undefined;
@@ -136,6 +138,7 @@ function normalizeField(value: unknown): CharterFormField | null {
     type,
     options,
     max_length: maxLength,
+    pattern,
     placeholder,
     example,
     visibility,

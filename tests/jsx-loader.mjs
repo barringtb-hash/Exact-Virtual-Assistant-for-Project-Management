@@ -6,6 +6,7 @@ const LOADERS = [
   [".tsx", "tsx"],
   [".ts", "ts"],
   [".jsx", "jsx"],
+  [".json", "json"],
 ];
 
 export async function load(url, context, defaultLoad) {

@@ -345,7 +345,12 @@ export default async function handler(req, res) {
     }
 
     let pdfInfo = null;
-    if (body.exportPdf || body?.options?.exportPdf) {
+    const exportPdfRequested = body.exportPdf || body?.options?.exportPdf;
+    const hasMissingRequiredFields = checklist.some(
+      (item) => item.missingRequired
+    );
+
+    if (exportPdfRequested && !hasMissingRequiredFields) {
       const pdfBuffer = await renderPdfBuffer(charter);
       pdfInfo = {
         base64: pdfBuffer.toString("base64"),

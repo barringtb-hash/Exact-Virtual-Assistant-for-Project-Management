@@ -123,7 +123,10 @@ export function CharterFieldSession({ className }: { className?: string }) {
 
   useEffect(() => {
     if (liveSchema) {
-      conversationActions.ensureSession(liveSchema);
+      const session = conversationActions.ensureSession(liveSchema);
+      if (session.step === "INIT") {
+        conversationActions.dispatch({ type: "INIT" });
+      }
     }
   }, [liveSchema]);
 

@@ -58,7 +58,7 @@ describe('Assistant chat flows', () => {
       expect(body).to.contain('kickoff agenda');
     });
 
-    cy.contains('Here is the updated charter outline.').should('be.visible');
+    cy.contains('Here is the updated charter outline.').scrollIntoView().should('be.visible');
     cy.contains('Updating preview…').should('not.exist');
 
     cy.get(composer).should('have.value', '');
@@ -110,7 +110,7 @@ describe('Assistant chat flows', () => {
 
     cy.wait('@chatRequest');
     cy.wait('@extractRequest');
-    cy.contains('Here is the updated charter outline.').should('be.visible');
+    cy.contains('Here is the updated charter outline.').scrollIntoView().should('be.visible');
   });
 
   it('cancels an in-flight request when a new message is submitted', () => {
@@ -136,7 +136,7 @@ describe('Assistant chat flows', () => {
     cy.get(composer).type('retry this request with new context{enter}');
 
     cy.wait('@cancellableChat');
-    cy.contains('Fresh response after cancel.').should('be.visible');
+    cy.contains('Fresh response after cancel.').scrollIntoView().should('be.visible');
   });
 
   it('recovers from network errors by allowing resend', () => {
@@ -152,6 +152,6 @@ describe('Assistant chat flows', () => {
 
     cy.get(composer).type('retry this request with new context{enter}');
     cy.wait('@retryChat');
-    cy.contains('Second attempt succeeded.').should('be.visible');
+    cy.contains('Second attempt succeeded.').scrollIntoView().should('be.visible');
   });
 });

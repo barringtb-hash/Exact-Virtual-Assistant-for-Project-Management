@@ -118,9 +118,21 @@ test("/api/charter/finalize copies template, formats replacements, and returns d
     );
   } finally {
     global.fetch = originalFetch;
-    process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID = originalEnv.template;
-    process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID = originalEnv.folder;
-    process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL = originalEnv.base;
+    if (originalEnv.template === undefined) {
+      delete process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID;
+    } else {
+      process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID = originalEnv.template;
+    }
+    if (originalEnv.folder === undefined) {
+      delete process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID;
+    } else {
+      process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID = originalEnv.folder;
+    }
+    if (originalEnv.base === undefined) {
+      delete process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL;
+    } else {
+      process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL = originalEnv.base;
+    }
     if (originalEnv.token === undefined) {
       delete process.env.GOOGLE_DRIVE_CONNECTOR_TOKEN;
     } else {
@@ -221,9 +233,21 @@ test("/api/charter/finalize returns PDF when required fields are present", async
     );
   } finally {
     global.fetch = originalFetch;
-    process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID = originalEnv.template;
-    process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID = originalEnv.folder;
-    process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL = originalEnv.base;
+    if (originalEnv.template === undefined) {
+      delete process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID;
+    } else {
+      process.env.GOOGLE_DRIVE_CHARTER_TEMPLATE_ID = originalEnv.template;
+    }
+    if (originalEnv.folder === undefined) {
+      delete process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID;
+    } else {
+      process.env.GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID = originalEnv.folder;
+    }
+    if (originalEnv.base === undefined) {
+      delete process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL;
+    } else {
+      process.env.GOOGLE_DRIVE_CONNECTOR_BASE_URL = originalEnv.base;
+    }
     if (originalEnv.token === undefined) {
       delete process.env.GOOGLE_DRIVE_CONNECTOR_TOKEN;
     } else {

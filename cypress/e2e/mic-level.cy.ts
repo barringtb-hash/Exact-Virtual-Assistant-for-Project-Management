@@ -6,6 +6,10 @@
 describe("Microphone Level Indicator", () => {
   beforeEach(() => {
     cy.visit("/");
+    // Wait for the page to be fully loaded
+    cy.contains("Chat Assistant").should("be.visible");
+    // Wait for the composer to be ready
+    cy.get("textarea").should("exist").and("not.be.disabled");
   });
 
   it("shows level indicator when mic starts with synthetic audio", () => {

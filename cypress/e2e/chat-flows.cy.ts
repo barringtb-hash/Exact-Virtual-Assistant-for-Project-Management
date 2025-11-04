@@ -39,6 +39,8 @@ describe('Assistant chat flows', () => {
 
     cy.visit('/');
     cy.contains('Chat Assistant').should('be.visible');
+    // Wait for the composer to be ready (not disabled)
+    cy.get('textarea[placeholder="Type here… (paste scope or attach files)"]').should('not.be.disabled');
   });
 
   it('streams typed messages, syncs preview, and allows resending', () => {

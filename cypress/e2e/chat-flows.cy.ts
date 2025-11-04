@@ -144,7 +144,7 @@ describe('Assistant chat flows', () => {
 
     cy.get(composer).type('trigger retry handling{enter}');
     cy.wait('@chatRequest');
-    cy.contains('Unexpected response (500) from chat stream.').should('be.visible');
+    cy.contains('Unexpected response (500) from chat stream.').scrollIntoView().should('be.visible');
 
     cy.intercept('POST', '/api/chat', {
       reply: 'Second attempt succeeded.',

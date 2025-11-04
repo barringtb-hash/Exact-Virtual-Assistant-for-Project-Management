@@ -68,6 +68,17 @@ export function isIntentOnlyExtractionEnabled() {
   return parsed ?? true;
 }
 
+export function isCharterConversationPersistenceEnabled() {
+  const clientValue = readImportMetaEnvFlag("VITE_CHARTER_CONVERSATION_PERSIST");
+  const serverValue = readProcessEnvFlag("CHARTER_CONVERSATION_PERSIST");
+
+  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const parsed = parseBooleanFlag(rawValue);
+
+  return parsed ?? false;
+}
+
 export default {
   isIntentOnlyExtractionEnabled,
+  isCharterConversationPersistenceEnabled,
 };

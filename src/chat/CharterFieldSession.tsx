@@ -149,6 +149,24 @@ export function CharterFieldSession({ className }: { className?: string }) {
     return state.fields[state.currentFieldId] ?? null;
   }, [state]);
 
+  const currentIssue = useMemo(() => {
+    const issues = currentFieldState?.issues ?? [];
+    if (!issues.length) {
+      return null;
+    }
+    return issues.find((issue) => issue.severity === "error") ?? issues[0] ?? null;
+  }, [currentFieldState?.issues]);
+
+  const errorMessage = useMemo(() => {
+    if (!currentIssue) {
+      return null;
+    }
+    if (currentIssue.ruleText) {
+      return `${currentIssue.message} ${currentIssue.ruleText}`.trim();
+    }
+    return currentIssue.message;
+  }, [currentIssue]);
+
   useEffect(() => {
     if (!currentFieldState) {
       setDraft("");
@@ -303,7 +321,7 @@ export function CharterFieldSession({ className }: { className?: string }) {
             setDraft={setDraft}
             onSubmit={handleSubmit}
             onSkip={handleSkip}
-            error={currentFieldState.error}
+            error={errorMessage}
           />
         );
       case "CONFIRM":

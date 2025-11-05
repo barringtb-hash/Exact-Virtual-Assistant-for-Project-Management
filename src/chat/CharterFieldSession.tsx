@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createCharterFieldLookup,
@@ -7,10 +7,12 @@ import {
 } from "../lib/charter/formSchema.ts";
 import {
   conversationActions,
+  configureConversationMachineOptions,
   useConversationSchema,
   useConversationState,
 } from "../state/conversationStore.ts";
 import type { ConversationFieldState } from "../state/conversationMachine.ts";
+import { createConversationTelemetryClient } from "../lib/telemetry/conversationClient.ts";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -120,15 +122,37 @@ export function CharterFieldSession({ className }: { className?: string }) {
   const schema = liveSchema ?? storedSchema;
   const state = useConversationState();
   const [draft, setDraft] = useState("");
+  const telemetryClientRef = useRef(createConversationTelemetryClient());
+  const telemetryClient = telemetryClientRef.current;
 
   useEffect(() => {
-    if (liveSchema) {
-      const session = conversationActions.ensureSession(liveSchema);
-      if (session.step === "INIT") {
-        conversationActions.dispatch({ type: "INIT" });
-      }
+    configureConversationMachineOptions({ telemetry: telemetryClient.getHooks() });
+    return () => {
+      telemetryClient.flush();
+      configureConversationMachineOptions(null);
+    };
+  }, [telemetryClient]);
+
+  const schemaIdentity = useMemo(() => {
+    if (!schema) {
+      return null;
     }
-  }, [liveSchema]);
+    return `${schema.document_type}:${schema.version}`;
+  }, [schema?.document_type, schema?.version]);
+
+  useEffect(() => {
+    if (!schemaIdentity || !schema) {
+      return;
+    }
+    telemetryClient.reset({
+      documentType: schema.document_type,
+      schemaVersion: schema.version,
+    });
+    const session = conversationActions.ensureSession(schema);
+    if (session.step === "INIT") {
+      conversationActions.dispatch({ type: "INIT" });
+    }
+  }, [schemaIdentity, schema, telemetryClient]);
 
   const lookup = useMemo(
     () => (schema ? createCharterFieldLookup(schema) : null),

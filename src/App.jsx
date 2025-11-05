@@ -2393,7 +2393,8 @@ const resolveDocTypeForManualSync = useCallback(
       chatActions.lockField("composer");
 
       const orchestrator = guidedOrchestratorRef.current;
-      if (orchestrator) {
+      const shouldBypassGuided = trimmed.startsWith("/");
+      if (orchestrator && !shouldBypassGuided) {
         const handled = orchestrator.handleUserMessage(trimmed);
         if (handled) {
           chatActions.unlockField("composer");

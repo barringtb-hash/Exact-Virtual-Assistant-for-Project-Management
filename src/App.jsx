@@ -50,6 +50,7 @@ import {
 } from "./utils/jsonPointer.js";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
+import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -67,6 +68,7 @@ const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
+const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
@@ -495,6 +497,13 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+  const [guidedState, setGuidedState] = useState(null);
+  const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
+  const guidedOrchestratorRef = useRef(null);
+  const isGuidedChatEnabled = useMemo(
+    () => GUIDED_CHAT_WITHOUT_WIZARD && templateDocType === "charter",
+    [templateDocType],
+  );
 
   // Detect if Charter Wizard is active - if so, disable background extraction
   // The wizard handles field collection sequentially through conversationMachine
@@ -520,6 +529,18 @@ export default function ExactVirtualAssistantPM() {
     : isAssistantStreaming
     ? "streaming"
     : null;
+  const isGuidedSessionActive = Boolean(
+    guidedState && guidedState.status !== "idle" && guidedState.status !== "complete"
+  );
+  const canStartGuided =
+    !guidedState || guidedState.status === "idle" || guidedState.status === "complete";
+  const guidedCurrentFieldLabel = useMemo(() => {
+    if (!guidedState?.currentFieldId) {
+      return null;
+    }
+    const fieldState = guidedState.fields?.[guidedState.currentFieldId];
+    return fieldState?.definition?.label ?? null;
+  }, [guidedState?.currentFieldId, guidedState?.fields]);
   const [files, setFiles] = useState(() => {
     const stored = storedContextRef.current;
     return restoreFilesFromStoredAttachments(stored?.attachments);
@@ -1015,6 +1036,8 @@ export default function ExactVirtualAssistantPM() {
     [createBlankDraft, previewDocType]
   );
 
+  const autoExtractionDisabled = isWizardActive || guidedAutoExtractionDisabled;
+
   const {
     isExtracting,
     error: extractError,
@@ -1027,10 +1050,10 @@ export default function ExactVirtualAssistantPM() {
       : null,
     suggestedDocType: suggested,
     allowedDocTypes: supportedDocTypes,
-    // When wizard is active, don't pass messages/attachments/voice to prevent auto-extraction
-    messages: isWizardActive ? [] : messages,
-    voice: isWizardActive ? [] : voiceTranscripts,
-    attachments: isWizardActive ? [] : attachments,
+    // When guidance workflows are active, don't pass messages/attachments/voice to prevent auto-extraction
+    messages: autoExtractionDisabled ? [] : messages,
+    voice: autoExtractionDisabled ? [] : voiceTranscripts,
+    attachments: autoExtractionDisabled ? [] : attachments,
     seed: extractionSeed,
     locks,
     getDraft: getCurrentDraft,
@@ -1301,6 +1324,37 @@ export default function ExactVirtualAssistantPM() {
       { id: Date.now() + Math.random(), role: "assistant", text: safeText },
     ]);
   }, []);
+
+  useEffect(() => {
+    if (!GUIDED_CHAT_WITHOUT_WIZARD) {
+      if (guidedOrchestratorRef.current) {
+        guidedOrchestratorRef.current.reset();
+      }
+      setGuidedState(null);
+      setGuidedAutoExtractionDisabled(false);
+      return;
+    }
+
+    if (!guidedOrchestratorRef.current) {
+      guidedOrchestratorRef.current = createGuidedOrchestrator({
+        postAssistantMessage: appendAssistantMessage,
+        onStateChange: setGuidedState,
+        onActiveChange: setGuidedAutoExtractionDisabled,
+      });
+    }
+
+    const orchestrator = guidedOrchestratorRef.current;
+
+    if (!isGuidedChatEnabled) {
+      orchestrator.reset();
+      setGuidedState(orchestrator.getState());
+      setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
+      return;
+    }
+
+    setGuidedState(orchestrator.getState());
+    setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
+  }, [appendAssistantMessage, isGuidedChatEnabled]);
 
   const scheduleChatPreviewSync = useCallback(
     ({ reason = "chat-completion" } = {}) => {
@@ -2338,6 +2392,15 @@ const resolveDocTypeForManualSync = useCallback(
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
+      const orchestrator = guidedOrchestratorRef.current;
+      if (orchestrator) {
+        const handled = orchestrator.handleUserMessage(trimmed);
+        if (handled) {
+          chatActions.unlockField("composer");
+          return { status: "guided" };
+        }
+      }
+
       // Real-time sync: In intent-only mode, attemptIntentExtraction() handles immediate sync
       // In non-intent mode, trigger immediate extraction here
       if (intentOnlyExtractionEnabled) {
@@ -2400,6 +2463,14 @@ const resolveDocTypeForManualSync = useCallback(
       scheduleChatPreviewSync,
     ]
   );
+
+  const handleStartGuidedCharter = useCallback(() => {
+    if (!isGuidedChatEnabled) {
+      return;
+    }
+    const orchestrator = guidedOrchestratorRef.current;
+    orchestrator?.start();
+  }, [isGuidedChatEnabled]);
 
   const handleVoiceTranscriptMessage = useCallback(
     async (rawText, { isFinal = true } = {}) => {
@@ -2770,6 +2841,24 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
+                  {isGuidedChatEnabled && (
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        data-testid="btn-start-charter"
+                        onClick={handleStartGuidedCharter}
+                        disabled={!canStartGuided}
+                        className="rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
+                      >
+                        {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
+                      </button>
+                      {isGuidedSessionActive && guidedCurrentFieldLabel ? (
+                        <span className="text-xs text-slate-500 dark:text-slate-300">
+                          Working on: {guidedCurrentFieldLabel}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                   {SHOULD_SHOW_CHARTER_WIZARD && <CharterFieldSession className="mb-3" />}
                   {SHOULD_SHOW_CHARTER_WIZARD && AUTO_EXTRACTION_ENABLED && (attachments.length > 0 || messages.length > 0) && (
                     <div className="mb-3">
@@ -3140,6 +3229,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
+  const testId = isUser ? "user-message" : "assistant-message";
   const { structuredSections, hasStructuredContent } = useMemo(() => {
     if (!Array.isArray(sections)) {
       return { structuredSections: [], hasStructuredContent: false };
@@ -3170,7 +3260,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
     Array.isArray(sections) &&
     (hasStructuredContent || hideEmptySections === false);
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
       <div
         className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
           isUser

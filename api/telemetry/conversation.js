@@ -14,7 +14,8 @@ export const config = {
   },
 };
 
-const LOG_DIRECTORY = path.join(process.cwd(), "logs", "charter-wizard");
+const LOG_ROOT = process.env.CHARTER_TELEMETRY_ROOT || "/tmp";
+const LOG_DIRECTORY = path.join(LOG_ROOT, "charter-wizard");
 const LOG_FILENAME = "metrics.csv";
 const LOG_PATH = path.join(LOG_DIRECTORY, LOG_FILENAME);
 const MAX_LOG_BYTES = 5 * 1024 * 1024; // 5MB per log file

@@ -35,4 +35,4 @@ All CSV exports share the schema defined in [`FIELD_METRIC_HEADER`](../../lib/te
 
 ## Log rotation
 
-Telemetry batches append to `logs/charter-wizard/metrics.csv`. When the file exceeds **5 MB**, it rotates to `metrics-<timestamp>.csv` and a fresh file is created with the same header. Consumers should be resilient to multiple CSV files when building long-term aggregates.
+Telemetry batches append to `${CHARTER_TELEMETRY_ROOT:-/tmp}/charter-wizard/metrics.csv`. When the file exceeds **5 MB**, it rotates to `metrics-<timestamp>.csv` and a fresh file is created with the same header. Consumers should be resilient to multiple CSV files when building long-term aggregates.

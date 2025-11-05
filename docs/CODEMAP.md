@@ -2,11 +2,14 @@
 
 ## Repository layout
 - `src/` – React single-page client rendered by Vite + Tailwind.
-- `api/` – Serverless functions (Vercel format) for chat, transcription, charter extraction/rendering, and supporting utilities.
+- `api/` – Serverless functions (Vercel format) for chat, transcription, and router-backed document extraction/validation/rendering.
 - `lib/` – Shared utilities (token counting/chunking and charter normalization) consumed by both the frontend and serverless handlers.
 - `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/documents/*` handler.
 - `templates/` – Prompt/schema/template store managed by [`templates/registry.js`](../templates/registry.js). Each manifest exposes prompts, metadata, validation assets, and render helpers for the document router.
+  - `templates/doc-types/ddp/` – DDP prompts, schema, metadata, and encoded templates used by the router.
+  - `templates/doc-types/charter/` – Charter assets kept for parity with the Phase 1 acceptance path.
 - `docs/demo/` – Canonical acceptance-test artifacts (OncoLiquid ctDNA Assay TPP demo + walkthrough).
+- `docs/ddp/` – DDP acceptance walkthrough and supporting assets.
 - `public/` – Static assets served verbatim by Vite.
 
 ## Frontend (`src/`)
@@ -34,8 +37,8 @@
   - Compiles the schema + field rules for the requested doc type and returns `{ ok: true }` or detailed Ajv errors.
 - `api/documents/render.js`
   - Streams DOCX exports using the doc-type configuration (charter uses `templates/project_charter_tokens.docx.b64`).
-- `api/chat.js`, `api/transcribe.js`, `api/voice/sdp.js`, `api/files/text.js`
-  - Remain unchanged but feed transcript/context into the client-side intent detection flow.
+- `api/chat.js`, `api/chat/stream.js`, `api/transcribe.js`, `api/voice/sdp.js`, `api/files/text.js`
+  - Remain unchanged but feed transcript/context into the client-side intent detection flow. `api/chat/stream.js` is gated by `CHAT_STREAMING` for SSE delivery.
 
 ## Templates (`templates/`)
 - `extract_prompt.txt` – Charter extraction prompt that returns `{ "result": "no_op" }` when invoked without intent metadata.
@@ -55,7 +58,15 @@
 6. `api/documents/extract.js` verifies intent and context, loads [`templates/extract_prompt.txt`](../templates/extract_prompt.txt), and calls OpenAI.
 7. The prompt short-circuits with `{ "result": "no_op" }` if intent is missing; otherwise it returns structured charter data.
 8. The hook merges unlocked fields into the preview. Manual edits remain untouched.
-9. Optional: `api/documents/validate.js` and `api/documents/render.js` complete the validation and export steps.
+9. `api/documents/validate.js` can be called to compile the schema + field rules and return Ajv validation results.
+10. `api/documents/render.js` streams a finished charter document using the encoded template.
+
+### Natural-language intent to DDP extraction
+1. User attaches a representative DDP source document.
+2. User submits a request such as “Create a design & development plan from the attached document.”
+3. The router resolves `docType: 'ddp'` from the intent detector.
+4. `/api/documents/extract?docType=ddp` runs the DDP manifest defined in [`templates/doc-types/ddp/`](../templates/doc-types/ddp/).
+5. `/api/documents/validate?docType=ddp` and `/api/documents/render?docType=ddp` follow the same schema + template path as the charter flow, producing structured DDP output on demand.
 
 ### Non-intent flows (no-op)
 - Uploading files without intent leaves the preview unchanged and never calls `/api/documents/extract`.

@@ -9,8 +9,12 @@ Before opening a PR, confirm the following items:
 - [ ] **Prompt no-op behavior protected:** [`templates/extract_prompt.txt`](../templates/extract_prompt.txt) returns `{ "result": "no_op" }` when invoked without intent. Add/update tests to guard this contract.
 - [ ] **Documentation refreshed:** [`README.md`](../README.md), [`docs/CODEMAP.md`](./CODEMAP.md), and [`docs/demo/README.md`](./demo/README.md) stay in sync with any behavior changes.
 - [ ] **Demo verified:** Run the OncoLiquid ctDNA Assay (Demo) acceptance flow and note the results in the PR description.
+- [ ] **Doc-type registry updated:** Changes to document types include manifest updates in [`templates/registry.js`](../templates/registry.js) and corresponding assets under [`templates/doc-types/`](../templates/doc-types/).
+- [ ] **Templates + schemas validated:** Provide `schema.json`, `field_rules.json`, prompts, and metadata for each doc type. Re-encode DOCX templates, then run `npm run docx:lint` and `npm run docx:smoke` before committing.
+- [ ] **Acceptance docs covered:** Update [`docs/demo/README.md`](./demo/README.md), [`docs/ddp/README.md`](./ddp/README.md), and any other doc-type guides to reflect new flows or assets.
 
 ## Development Notes
 - Set `INTENT_ONLY_EXTRACTION=true` in both client (`.env.local`) and serverless environments to reproduce production behavior.
 - Use the assets in [`docs/demo/`](./demo/) for manual QA and automated tests.
 - Prefer high-signal unit/integration tests over snapshots when validating intent detection and extraction triggers.
+- When introducing a new doc type, register it in [`templates/registry.js`](../templates/registry.js), add prompts/schemas/templates under [`templates/doc-types/<type>/`](../templates/doc-types/), and extend acceptance documentation/tests accordingly.

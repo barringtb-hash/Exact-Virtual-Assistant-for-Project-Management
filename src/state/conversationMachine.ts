@@ -3,6 +3,7 @@ import {
   type CharterFormSchema,
   createCharterFieldLookup,
 } from "../lib/charter/formSchema.ts";
+import { sanitizeTelemetryToken } from "../../lib/telemetry/fieldMetrics.js";
 import {
   createFormValidator,
   type FieldRuleMap,
@@ -146,6 +147,230 @@ export interface ConversationTelemetryHooks {
     maxAttempts: number;
     state: ConversationState;
   }) => void;
+  onTransition?: (payload: ConversationTelemetryTransitionEvent) => void;
+}
+
+export type ConversationTelemetryAction =
+  | {
+      type: "ASK_FIELD";
+      fieldId: string;
+      index: number;
+      total: number;
+      required: boolean;
+    }
+  | {
+      type: "FIELD_CAPTURED";
+      fieldId: string;
+    }
+  | {
+      type: "READY_TO_CONFIRM";
+      fieldId: string;
+      issueCodes: string[];
+    }
+  | {
+      type: "VALIDATION_ERROR";
+      fieldId: string;
+      attempt: number;
+      maxAttempts: number;
+      escalated: boolean;
+      issueCodes: string[];
+    }
+  | {
+      type: "FIELD_CONFIRMED";
+      fieldId: string;
+    }
+  | {
+      type: "FIELD_SKIPPED";
+      fieldId: string;
+      reason: string | null;
+    }
+  | {
+      type: "BACK_TO_FIELD";
+      fieldId: string;
+      index: number;
+    }
+  | { type: "ENTER_REVIEW" }
+  | { type: "EXIT_REVIEW" }
+  | { type: "SESSION_FINALIZED" };
+
+export interface ConversationTelemetryTransitionEvent {
+  timestamp: string;
+  event: ConversationEventType;
+  previousStep: ConversationStep;
+  previousMode: ConversationMode;
+  state: {
+    version: number;
+    documentType: string;
+    schemaVersion: string;
+    step: ConversationStep;
+    mode: ConversationMode;
+    currentFieldId: string | null;
+    currentIndex: number;
+    fieldOrder: string[];
+    fields: Record<
+      string,
+      {
+        status: ConversationFieldStatus;
+        skippedReason: string | null;
+        reaskCount: number;
+        lastUpdatedAt: string | null;
+      }
+    >;
+    finalizedAt: string | null;
+    lastEvent: ConversationEventType | null;
+  };
+  actions: ConversationTelemetryAction[];
+}
+
+function sanitizeFieldId(fieldId: string | null | undefined): string | null {
+  if (typeof fieldId !== "string") {
+    return null;
+  }
+  return sanitizeTelemetryToken(fieldId, "field");
+}
+
+function sanitizeReason(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return sanitizeTelemetryToken(value, "other");
+}
+
+function sanitizeIssueCodes(issues: FieldValidationIssue[]): string[] {
+  return issues.map((issue) => sanitizeTelemetryToken(issue.code, "unknown"));
+}
+
+function buildTelemetryFieldState(
+  fieldState: ConversationFieldState | undefined
+): {
+  status: ConversationFieldStatus;
+  skippedReason: string | null;
+  reaskCount: number;
+  lastUpdatedAt: string | null;
+} {
+  if (!fieldState) {
+    return {
+      status: "pending",
+      skippedReason: null,
+      reaskCount: 0,
+      lastUpdatedAt: null,
+    };
+  }
+  return {
+    status: fieldState.status,
+    skippedReason: sanitizeReason(fieldState.skippedReason),
+    reaskCount: fieldState.reaskCount,
+    lastUpdatedAt: fieldState.lastUpdatedAt ?? null,
+  };
+}
+
+function buildTelemetryState(state: ConversationState) {
+  const fieldOrder: string[] = [];
+  const fields: ConversationTelemetryTransitionEvent["state"]["fields"] = {};
+  for (const rawFieldId of state.fieldOrder) {
+    if (!rawFieldId) continue;
+    const sanitizedId = sanitizeFieldId(rawFieldId);
+    if (!sanitizedId) continue;
+    fieldOrder.push(sanitizedId);
+    fields[sanitizedId] = buildTelemetryFieldState(state.fields[rawFieldId]);
+  }
+
+  const currentFieldId = sanitizeFieldId(state.currentFieldId);
+
+  return {
+    version: state.version,
+    documentType: sanitizeTelemetryToken(state.documentType, "unknown"),
+    schemaVersion: sanitizeTelemetryToken(state.schemaVersion, "unknown"),
+    step: state.step,
+    mode: state.mode,
+    currentFieldId,
+    currentIndex: state.currentIndex,
+    fieldOrder,
+    fields,
+    finalizedAt: state.finalizedAt,
+    lastEvent: state.lastEvent,
+  } satisfies ConversationTelemetryTransitionEvent["state"];
+}
+
+function sanitizeTelemetryAction(
+  action: ConversationAction
+): ConversationTelemetryAction | null {
+  switch (action.type) {
+    case "ASK_FIELD": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "ASK_FIELD",
+        fieldId,
+        index: action.index,
+        total: action.total,
+        required: action.required,
+      };
+    }
+    case "FIELD_CAPTURED": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "FIELD_CAPTURED",
+        fieldId,
+      };
+    }
+    case "READY_TO_CONFIRM": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "READY_TO_CONFIRM",
+        fieldId,
+        issueCodes: sanitizeIssueCodes(action.issues ?? []),
+      };
+    }
+    case "VALIDATION_ERROR": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "VALIDATION_ERROR",
+        fieldId,
+        attempt: action.attempt,
+        maxAttempts: action.maxAttempts,
+        escalated: action.escalated,
+        issueCodes: sanitizeIssueCodes(action.issues ?? []),
+      };
+    }
+    case "FIELD_CONFIRMED": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "FIELD_CONFIRMED",
+        fieldId,
+      };
+    }
+    case "FIELD_SKIPPED": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "FIELD_SKIPPED",
+        fieldId,
+        reason: sanitizeReason(action.reason),
+      };
+    }
+    case "BACK_TO_FIELD": {
+      const fieldId = sanitizeFieldId(action.field?.id);
+      if (!fieldId) return null;
+      return {
+        type: "BACK_TO_FIELD",
+        fieldId,
+        index: action.index,
+      };
+    }
+    case "ENTER_REVIEW":
+      return { type: "ENTER_REVIEW" };
+    case "EXIT_REVIEW":
+      return { type: "EXIT_REVIEW" };
+    case "SESSION_FINALIZED":
+      return { type: "SESSION_FINALIZED" };
+    default:
+      return null;
+  }
 }
 
 export interface ConversationMachineOptions {
@@ -320,6 +545,7 @@ export function applyConversationEvent(
     );
   const maxAttempts = Math.max(1, options.maxValidationAttempts ?? 2);
   const telemetry = options.telemetry;
+  const telemetryTimestamp = new Date().toISOString();
 
   const lookup = createCharterFieldLookup(schema);
   const getFieldById = (fieldId: string | null): CharterFormField | null =>
@@ -702,6 +928,20 @@ export function applyConversationEvent(
     next.mode = "review";
     next.step = "PREVIEW";
     actions.push({ type: "ENTER_REVIEW" });
+  }
+
+  if (telemetry?.onTransition) {
+    const sanitizedActions = actions
+      .map((action) => sanitizeTelemetryAction(action))
+      .filter((action): action is ConversationTelemetryAction => action !== null);
+    telemetry.onTransition({
+      timestamp: telemetryTimestamp,
+      event: event.type,
+      previousStep: state.step,
+      previousMode: state.mode,
+      state: buildTelemetryState(next),
+      actions: sanitizedActions,
+    });
   }
 
   return { state: next, actions };

@@ -32,6 +32,7 @@ export interface GuidedOrchestrator {
 type Command =
   | { type: "skip" }
   | { type: "back" }
+  | { type: "review" }
   | { type: "edit"; target?: string };
 
 function normalizeWhitespace(value: string) {
@@ -50,6 +51,10 @@ function extractCommand(raw: string): Command | null {
 
   if (lower === "back" || lower === "go back") {
     return { type: "back" };
+  }
+
+  if (lower === "review" || lower === "review progress" || lower === "review summary") {
+    return { type: "review" };
   }
 
   if (lower.startsWith("edit")) {
@@ -243,7 +248,7 @@ export function createGuidedOrchestrator({
     return true;
   }
 
-  function handleBack(): boolean {
+function handleBack(): boolean {
     const before = getCurrentField(state);
     dispatch({ type: "BACK" });
     const current = getCurrentField(state);
@@ -257,6 +262,80 @@ export function createGuidedOrchestrator({
       sendAssistantMessage(`Let’s revisit ${current.label}.`);
     }
     promptCurrentField();
+    return true;
+  }
+
+  function handleReview(): boolean {
+    if (state.status === "idle") {
+      sendAssistantMessage("Start the charter session to see progress.");
+      return true;
+    }
+
+    const confirmedLabels: string[] = [];
+    const skippedLabels: string[] = [];
+    const pendingLabels: string[] = [];
+
+    for (const fieldId of state.order) {
+      if (!fieldId) continue;
+      const fieldState = state.fields[fieldId];
+      if (!fieldState) continue;
+      const label = fieldState.definition?.label;
+      if (!label) continue;
+
+      switch (fieldState.status) {
+        case "confirmed":
+          confirmedLabels.push(label);
+          break;
+        case "skipped":
+          skippedLabels.push(label);
+          break;
+        default:
+          pendingLabels.push(label);
+          break;
+      }
+    }
+
+    const formatList = (values: string[]): string => {
+      if (values.length === 0) {
+        return "";
+      }
+      if (values.length === 1) {
+        return values[0];
+      }
+      if (values.length === 2) {
+        return `${values[0]} and ${values[1]}`;
+      }
+      return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+    };
+
+    const segments: string[] = [];
+
+    if (confirmedLabels.length > 0) {
+      segments.push(`Confirmed: ${formatList(confirmedLabels)}.`);
+    }
+
+    if (skippedLabels.length > 0) {
+      segments.push(`Skipped: ${formatList(skippedLabels)}.`);
+    }
+
+    if (pendingLabels.length > 0 && state.status !== "complete") {
+      segments.push(`Still in progress: ${formatList(pendingLabels)}.`);
+    }
+
+    if (state.status === "complete") {
+      segments.unshift("All charter sections are complete.");
+    } else {
+      const currentField = getCurrentField(state);
+      if (currentField) {
+        segments.push(`Currently focused on ${currentField.label}.`);
+      }
+    }
+
+    if (segments.length === 0) {
+      segments.push("We haven’t captured any charter responses yet.");
+    }
+
+    sendAssistantMessage(`Review summary — ${segments.join(" ")}`);
     return true;
   }
 
@@ -289,6 +368,8 @@ export function createGuidedOrchestrator({
         return handleSkip();
       case "back":
         return handleBack();
+      case "review":
+        return handleReview();
       case "edit":
         return handleEdit(command.target);
       default:

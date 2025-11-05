@@ -488,6 +488,17 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+
+  // Detect if Charter Wizard is active - if so, disable background extraction
+  // The wizard handles field collection sequentially through conversationMachine
+  const isWizardActive = useMemo(() => {
+    if (!conversationState) return false;
+    if (templateDocType !== "charter") return false;
+    if (conversationState.mode === "finalized") return false;
+    // Wizard is active if we're in session or review mode
+    return conversationState.mode === "session" || conversationState.mode === "review";
+  }, [conversationState, templateDocType]);
+
   const visibleMessages = useMemo(() => {
     if (!Array.isArray(messages)) {
       return [];
@@ -993,16 +1004,6 @@ export default function ExactVirtualAssistantPM() {
     },
     [createBlankDraft, previewDocType]
   );
-
-  // Detect if Charter Wizard is active - if so, disable background extraction
-  // The wizard handles field collection sequentially through conversationMachine
-  const isWizardActive = useMemo(() => {
-    if (!conversationState) return false;
-    if (templateDocType !== "charter") return false;
-    if (conversationState.mode === "finalized") return false;
-    // Wizard is active if we're in session or review mode
-    return conversationState.mode === "session" || conversationState.mode === "review";
-  }, [conversationState, templateDocType]);
 
   const {
     isExtracting,

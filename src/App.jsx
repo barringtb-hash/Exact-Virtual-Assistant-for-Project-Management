@@ -478,6 +478,8 @@ export default function ExactVirtualAssistantPM() {
     manifest: activeDocManifest,
     schemaStatus,
     schema: activeDocSchema,
+    formStatus,
+    form: templateForm,
   } = useDocTemplate();
   const storedContextRef = useRef(readStoredSession());
   const chatHydratedRef = useRef(false);
@@ -546,6 +548,21 @@ export default function ExactVirtualAssistantPM() {
       conversationActions.reset();
     }
   }, [templateDocType]);
+
+  // Proactively initialize conversation session when wizard is enabled
+  // This ensures the session is ready when users start interacting
+  useEffect(() => {
+    // Only initialize if wizard is visible and doc type is charter
+    if (!isCharterWizardVisible()) return;
+    if (templateDocType !== "charter") return;
+    if (!templateForm) return; // Wait for schema to load
+
+    // Initialize session if it doesn't exist or is in initial state
+    const session = conversationActions.ensureSession(templateForm);
+    if (session.step === "INIT") {
+      conversationActions.dispatch({ type: "INIT" });
+    }
+  }, [templateDocType, templateForm]);
 
   // Clear "Auto" metadata when wizard starts - prevents showing auto-extracted chips
   // for fields that will be collected through the wizard

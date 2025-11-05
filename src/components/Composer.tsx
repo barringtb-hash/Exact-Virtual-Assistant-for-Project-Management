@@ -145,7 +145,13 @@ const Composer: React.FC<ComposerProps> = ({
         onStopRecording();
       }
       if (micLevel) {
-        await micLevel.stop();
+        try {
+          await micLevel.stop();
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("Failed to stop microphone level monitoring", error);
+          }
+        }
       }
       if (!onStopRecording) {
         onMicToggle?.();
@@ -155,7 +161,17 @@ const Composer: React.FC<ComposerProps> = ({
         onStartRecording();
       }
       if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
+        try {
+          await micLevel.start();
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("Failed to start microphone level monitoring", error);
+          }
+          if (onStopRecording) {
+            onStopRecording();
+          }
+          return;
+        }
       }
       if (!onStartRecording) {
         onMicToggle?.();
@@ -180,12 +196,25 @@ const Composer: React.FC<ComposerProps> = ({
     if (rtcState === "live" || rtcState === "connecting") {
       stopRealtime?.();
       if (micLevel) {
-        await micLevel.stop();
+        try {
+          await micLevel.stop();
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("Failed to stop microphone level monitoring", error);
+          }
+        }
       }
     } else {
       startRealtime?.();
       if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
+        try {
+          await micLevel.start();
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("Failed to start microphone level monitoring", error);
+          }
+          stopRealtime?.();
+        }
       }
     }
   }, [rtcState, startRealtime, stopRealtime, micLevel]);
@@ -286,11 +315,10 @@ const Composer: React.FC<ComposerProps> = ({
                 <IconMic className="h-5 w-5" />
               </button>
             )}
-            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
+            {FEATURE_MIC_LEVEL && micLevel && micLevel.isMicOn && (
               <MicLevelIndicator
                 level={micLevel.level}
                 peak={micLevel.peak}
-                db={micLevel.db}
                 variant="bar"
                 showDb={false}
                 ariaLabel="Live microphone level"

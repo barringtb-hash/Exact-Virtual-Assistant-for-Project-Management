@@ -22,9 +22,8 @@ import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
   isIntentOnlyExtractionEnabled,
-  isCharterWizardVisible,
-  isAutoExtractionEnabled,
 } from "../config/featureFlags.js";
+import { FLAGS } from "./config/flags.ts";
 import {
   useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
@@ -64,6 +63,10 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
+const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
+const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
+const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
+const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
@@ -496,8 +499,8 @@ export default function ExactVirtualAssistantPM() {
   // Detect if Charter Wizard is active - if so, disable background extraction
   // The wizard handles field collection sequentially through conversationMachine
   const isWizardActive = useMemo(() => {
-    // Check feature flag first - wizard must be enabled
-    if (!isCharterWizardVisible()) return false;
+    // Guided chat must be enabled and the wizard must be visible
+    if (!SHOULD_SHOW_CHARTER_WIZARD) return false;
     if (!conversationState) return false;
     if (templateDocType !== "charter") return false;
     if (conversationState.mode === "finalized") return false;
@@ -2767,8 +2770,8 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
-                  {isCharterWizardVisible() && <CharterFieldSession className="mb-3" />}
-                  {isCharterWizardVisible() && isAutoExtractionEnabled() && (attachments.length > 0 || messages.length > 0) && (
+                  {SHOULD_SHOW_CHARTER_WIZARD && <CharterFieldSession className="mb-3" />}
+                  {SHOULD_SHOW_CHARTER_WIZARD && AUTO_EXTRACTION_ENABLED && (attachments.length > 0 || messages.length > 0) && (
                     <div className="mb-3">
                       <button
                         onClick={() => {

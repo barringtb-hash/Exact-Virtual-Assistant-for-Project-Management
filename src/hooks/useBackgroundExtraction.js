@@ -19,9 +19,8 @@ import {
 } from "../utils/extractAndPopulate.js";
 import {
   isIntentOnlyExtractionEnabled,
-  isAutoExtractionEnabled,
-  isCharterWizardVisible,
 } from "../../config/featureFlags.js";
+import { FLAGS } from "../config/flags.ts";
 import {
   getDocTypeSnapshot,
   setDocType,
@@ -34,7 +33,7 @@ const RETRY_BASE_DELAY_MS = 500;
 const AUTO_ROUTER_THRESHOLD = 0.7;
 
 // Auto-extraction requires both the legacy mode AND the explicit auto-extract flag
-const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled() && isAutoExtractionEnabled();
+const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled() && FLAGS.AUTO_EXTRACTION_ENABLED;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

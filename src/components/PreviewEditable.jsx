@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
 import { useDocTemplate } from "../state/docTemplateStore.js";
 import { useDraft } from "../state/draftStore.ts";
-import { isCharterWizardVisible } from "../../config/featureFlags.js";
+import { FLAGS } from "../config/flags.ts";
 
 const CUSTOM_EDITORS = {};
 
@@ -234,7 +234,8 @@ function FieldMetaTags({ source, updatedAt }) {
 
   // Hide "Auto" chips in guided chat mode (when wizard is not visible)
   // In guided chat, we only show values after they're confirmed through conversation
-  const shouldShowAutoChip = normalizedSource === "Auto" && isCharterWizardVisible();
+  const shouldShowAutoChip =
+    normalizedSource === "Auto" && (!FLAGS.CHARTER_GUIDED_CHAT_ENABLED || FLAGS.CHARTER_WIZARD_VISIBLE);
   const shouldShowSource = normalizedSource && (normalizedSource !== "Auto" || shouldShowAutoChip);
 
   const relative = typeof updatedAt === "number" ? formatRelativeTime(updatedAt) : "";

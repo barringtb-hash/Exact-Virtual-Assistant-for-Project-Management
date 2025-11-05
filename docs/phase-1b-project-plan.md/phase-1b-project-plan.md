@@ -4,7 +4,7 @@
 - **Goal**: Ensure the tool doesn’t default to a project charter every time a document is uploaded.
 - **Task**: Add a step where the LLM asks the PM what type of document they are creating before any preview population occurs. Based on the PM’s response, load the appropriate template into the preview.
 
-## 2. Real-Time Sync for Voice/Text and Preview Panel
+## 2. Real-Time Sync for Voice/Text and Preview Panel (Partially Complete, but needs additional work)
 - **Goal**: Ensure that whenever the PM is interacting with the chat agent (via voice or text), any document preview they are working on updates immediately and smoothly.
 - **Task**: Implement real-time synchronization logic so that changes made in the chat (via voice or text) are instantly reflected in the document preview panel.
 

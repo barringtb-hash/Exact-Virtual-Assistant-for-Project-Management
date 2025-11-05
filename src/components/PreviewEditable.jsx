@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
 import { useDocTemplate } from "../state/docTemplateStore.js";
 import { useDraft } from "../state/draftStore.ts";
-import { FLAGS } from "../config/flags";
+import { FLAGS } from "../config/flags.ts";
 
 const CUSTOM_EDITORS = {};
 

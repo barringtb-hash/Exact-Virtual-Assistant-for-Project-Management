@@ -20,7 +20,7 @@ import {
 import {
   isIntentOnlyExtractionEnabled,
 } from "../../config/featureFlags.js";
-import { FLAGS } from "../config/flags";
+import { FLAGS } from "../config/flags.ts";
 import {
   getDocTypeSnapshot,
   setDocType,

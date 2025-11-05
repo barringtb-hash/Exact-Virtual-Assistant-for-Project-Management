@@ -39,6 +39,7 @@ import {
   useIsAssistantThinking,
   useIsStreaming,
   useIsSyncingPreview,
+  useInputLocked,
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
@@ -492,6 +493,7 @@ export default function ExactVirtualAssistantPM() {
   const composerDraft = useComposerDraft();
   const isAssistantThinking = useIsAssistantThinking();
   const isAssistantStreaming = useIsStreaming();
+  const isComposerLocked = useInputLocked();
   const isSyncingPreviewFlag = useIsSyncingPreview();
   const voiceStatus = useVoiceStatus();
   const voiceTranscripts = useTranscript();
@@ -2473,6 +2475,35 @@ const resolveDocTypeForManualSync = useCallback(
     orchestrator?.start();
   }, [isGuidedChatEnabled]);
 
+  const handleGuidedCommandChip = useCallback(
+    async (command) => {
+      const trimmed = typeof command === "string" ? command.trim() : "";
+      if (!trimmed) {
+        return;
+      }
+
+      const { isAssistantThinking: thinking, isStreaming, inputLocked } =
+        chatStoreApi.getState();
+      if (thinking || isStreaming || inputLocked) {
+        return;
+      }
+
+      const previousDraft = chatStoreApi.getState().composerDraft;
+      chatActions.setComposerDraft(trimmed);
+
+      try {
+        await submitChatTurn(trimmed, { source: "composer" });
+      } finally {
+        if (previousDraft) {
+          chatActions.setComposerDraft(previousDraft);
+        } else {
+          chatActions.clearComposerDraft();
+        }
+      }
+    },
+    [submitChatTurn],
+  );
+
   const handleVoiceTranscriptMessage = useCallback(
     async (rawText, { isFinal = true } = {}) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
@@ -2843,20 +2874,50 @@ const resolveDocTypeForManualSync = useCallback(
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
                   {isGuidedChatEnabled && (
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        data-testid="btn-start-charter"
-                        onClick={handleStartGuidedCharter}
-                        disabled={!canStartGuided}
-                        className="rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
-                      >
-                        {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
-                      </button>
-                      {isGuidedSessionActive && guidedCurrentFieldLabel ? (
-                        <span className="text-xs text-slate-500 dark:text-slate-300">
-                          Working on: {guidedCurrentFieldLabel}
-                        </span>
+                    <div className="mb-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          data-testid="btn-start-charter"
+                          onClick={handleStartGuidedCharter}
+                          disabled={!canStartGuided}
+                          className="rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
+                        >
+                          {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
+                        </button>
+                        {isGuidedSessionActive && guidedCurrentFieldLabel ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-300">
+                            Working on: {guidedCurrentFieldLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                      {isGuidedSessionActive ? (
+                        <div className="flex flex-wrap gap-2">
+                          {[{
+                            label: "Back",
+                            command: "back",
+                            testId: "chip-back",
+                          }, {
+                            label: "Skip",
+                            command: "skip",
+                            testId: "chip-skip",
+                          }, {
+                            label: "Review",
+                            command: "review",
+                            testId: "chip-review",
+                          }].map((chip) => (
+                            <button
+                              key={chip.testId}
+                              type="button"
+                              data-testid={chip.testId}
+                              onClick={() => handleGuidedCommandChip(chip.command)}
+                              disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
+                              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
                   )}

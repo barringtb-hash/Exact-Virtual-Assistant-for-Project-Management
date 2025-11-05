@@ -4,3 +4,54 @@
  */
 
 export const FEATURE_MIC_LEVEL = true;
+
+const TRUE_VALUES = new Set(["true", "1", "yes", "on", "enabled"]);
+const FALSE_VALUES = new Set(["false", "0", "no", "off", "disabled"]);
+
+type EnvValue = string | boolean | number | undefined | null;
+
+function parseBoolean(value: EnvValue, fallback: boolean): boolean {
+  if (value == null) {
+    return fallback;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return fallback;
+    }
+
+    if (TRUE_VALUES.has(normalized)) {
+      return true;
+    }
+
+    if (FALSE_VALUES.has(normalized)) {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
+function readBooleanFlag(key: string, fallback: boolean): boolean {
+  const env = (import.meta?.env ?? {}) as Record<string, EnvValue>;
+  const rawValue = Object.prototype.hasOwnProperty.call(env, key) ? env[key] : undefined;
+  if (rawValue === undefined) {
+    return fallback;
+  }
+  return parseBoolean(rawValue, fallback);
+}
+
+export const FLAGS = {
+  CHARTER_GUIDED_CHAT_ENABLED: readBooleanFlag("VITE_CHARTER_GUIDED_CHAT_ENABLED", true),
+  CHARTER_WIZARD_VISIBLE: readBooleanFlag("VITE_CHARTER_WIZARD_VISIBLE", false),
+  AUTO_EXTRACTION_ENABLED: readBooleanFlag("VITE_AUTO_EXTRACTION_ENABLED", false),
+} as const;

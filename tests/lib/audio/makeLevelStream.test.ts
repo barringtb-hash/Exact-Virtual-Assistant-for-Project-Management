@@ -76,6 +76,7 @@ class FakeAnalyser {
 class FakeAudioContextImpl {
   public closed = false;
   public source: FakeSource | null = null;
+  public state: AudioContextState = "suspended";
 
   constructor(public readonly analyser: FakeAnalyser) {}
 
@@ -86,6 +87,11 @@ class FakeAudioContextImpl {
 
   createAnalyser() {
     return this.analyser as unknown as AnalyserNode;
+  }
+
+  resume(): Promise<void> {
+    this.state = "running";
+    return Promise.resolve();
   }
 
   close(): Promise<void> {
@@ -178,6 +184,8 @@ test("normalizes RMS values using float data", async (t) => {
     fps: 60,
   });
 
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   raf.step(0);
 
   assert.equal(levels.length, 1);
@@ -206,6 +214,8 @@ test("falls back to byte data when float data unavailable", async (t) => {
 
   makeLevelStream(stream, (level) => levels.push(level), { fftSize: 32, fps: 60 });
 
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   raf.step(0);
 
   assert.equal(levels.length, 1);
@@ -228,6 +238,8 @@ test("respects fps cadence and cleans up resources", async (t) => {
   const levels: number[] = [];
 
   const handle = makeLevelStream(stream, (level) => levels.push(level), { fftSize: 32, fps: 10 });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   raf.step(0);
   raf.step(50);

@@ -76,12 +76,20 @@ export function makeLevelStream(
   let rafId: number | null = null;
   let disposed = false;
 
-  const read = (timestamp: number) => {
+  const scheduleNextFrame = () => {
     if (disposed) {
       return;
     }
 
     rafId = requestFrame(read);
+  };
+
+  const read = (timestamp: number) => {
+    if (disposed) {
+      return;
+    }
+
+    scheduleNextFrame();
 
     if (frameInterval && timestamp - lastFrameTime < frameInterval) {
       return;
@@ -121,7 +129,25 @@ export function makeLevelStream(
     onLevel(level);
   };
 
-  rafId = requestFrame(read);
+  const startSampling = () => {
+    if (disposed) {
+      return;
+    }
+
+    scheduleNextFrame();
+  };
+
+  if (audioContext.state === "suspended" && typeof audioContext.resume === "function") {
+    void audioContext
+      .resume()
+      .catch(() => {
+        // Some browsers require a user gesture to resume audio contexts. If resume fails
+        // we still start sampling so callers can handle silent levels until resumed.
+      })
+      .finally(startSampling);
+  } else {
+    startSampling();
+  }
 
   const teardown = () => {
     if (disposed) {

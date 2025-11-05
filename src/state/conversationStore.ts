@@ -79,9 +79,29 @@ export const conversationActions = {
     if (!fieldId) {
       return [];
     }
+    const allActions = [];
+
+    // Dispatch CAPTURE to store the value
     const captureActions = dispatchEvent({ type: "CAPTURE", fieldId, value });
+    allActions.push(...captureActions);
+
+    // Dispatch VALIDATE to check the value
     const validationActions = dispatchEvent({ type: "VALIDATE", fieldId });
-    return [...captureActions, ...validationActions];
+    allActions.push(...validationActions);
+
+    // Check if validation succeeded (state.step === "CONFIRM")
+    const currentState = conversationStore.getState().state;
+    if (currentState?.step === "CONFIRM") {
+      // Auto-confirm the field
+      const confirmActions = dispatchEvent({ type: "CONFIRM", fieldId });
+      allActions.push(...confirmActions);
+
+      // Auto-advance to next field
+      const nextActions = dispatchEvent({ type: "NEXT_FIELD" });
+      allActions.push(...nextActions);
+    }
+
+    return allActions;
   },
   validate(fieldId?: string) {
     const targetFieldId = fieldId ?? requireCurrentField().fieldId;

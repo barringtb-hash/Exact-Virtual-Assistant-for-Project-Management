@@ -369,10 +369,14 @@ export function guidedReducer(
       }
       const next = cloneState(state);
       const timestamp = new Date().toISOString();
+      const confirmedValue =
+        fieldState.value !== undefined
+          ? fieldState.value
+          : fieldState.confirmedValue;
       next.fields[targetId] = {
         ...fieldState,
         status: "confirmed",
-        confirmedValue: fieldState.confirmedValue ?? fieldState.value,
+        confirmedValue: confirmedValue ?? null,
         issues: [],
         skippedReason: null,
         lastUpdatedAt: timestamp,

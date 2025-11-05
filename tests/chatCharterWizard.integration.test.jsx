@@ -1,3 +1,4 @@
+import test from "node:test";
 import React from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -36,7 +37,7 @@ test("charter field session captures and reviews responses", async () => {
     conversationActions.reset();
     conversationActions.ensureSession(schema);
 
-    render(<CharterFieldSession />);
+    render(<CharterFieldSession visible />);
 
     const user = userEvent.setup();
 

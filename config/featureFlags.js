@@ -58,41 +58,58 @@ function readProcessEnvFlag(key) {
   return undefined;
 }
 
+// Read from localStorage for test-time overrides (highest priority)
+function readLocalStorageFlag(key) {
+  if (typeof localStorage === "undefined") {
+    return undefined;
+  }
+  try {
+    const value = localStorage.getItem(key);
+    return value !== null ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function isIntentOnlyExtractionEnabled() {
+  const testValue = readLocalStorageFlag("VITE_INTENT_ONLY_EXTRACTION");
   const clientValue = readImportMetaEnvFlag("VITE_INTENT_ONLY_EXTRACTION");
   const serverValue = readProcessEnvFlag("INTENT_ONLY_EXTRACTION");
 
-  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const rawValue = testValue !== undefined ? testValue : (clientValue !== undefined ? clientValue : serverValue);
   const parsed = parseBooleanFlag(rawValue);
 
   return parsed ?? true;
 }
 
 export function isCharterConversationPersistenceEnabled() {
+  const testValue = readLocalStorageFlag("VITE_CHARTER_CONVERSATION_PERSIST");
   const clientValue = readImportMetaEnvFlag("VITE_CHARTER_CONVERSATION_PERSIST");
   const serverValue = readProcessEnvFlag("CHARTER_CONVERSATION_PERSIST");
 
-  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const rawValue = testValue !== undefined ? testValue : (clientValue !== undefined ? clientValue : serverValue);
   const parsed = parseBooleanFlag(rawValue);
 
   return parsed ?? false;
 }
 
 export function isCharterWizardVisible() {
+  const testValue = readLocalStorageFlag("VITE_CHARTER_WIZARD_VISIBLE");
   const clientValue = readImportMetaEnvFlag("VITE_CHARTER_WIZARD_VISIBLE");
   const serverValue = readProcessEnvFlag("CHARTER_WIZARD_VISIBLE");
 
-  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const rawValue = testValue !== undefined ? testValue : (clientValue !== undefined ? clientValue : serverValue);
   const parsed = parseBooleanFlag(rawValue);
 
   return parsed ?? false;
 }
 
 export function isAutoExtractionEnabled() {
+  const testValue = readLocalStorageFlag("VITE_AUTO_EXTRACT");
   const clientValue = readImportMetaEnvFlag("VITE_AUTO_EXTRACT");
   const serverValue = readProcessEnvFlag("AUTO_EXTRACT");
 
-  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const rawValue = testValue !== undefined ? testValue : (clientValue !== undefined ? clientValue : serverValue);
   const parsed = parseBooleanFlag(rawValue);
 
   return parsed ?? false;

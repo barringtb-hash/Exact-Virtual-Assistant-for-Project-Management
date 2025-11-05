@@ -1,0 +1,120 @@
+/**
+ * MicButton CSS Fallback
+ *
+ * Use this if you're NOT using Tailwind CSS.
+ * Import in your component: import "./MicButton.css";
+ *
+ * Usage:
+ * <button className="mic-button" data-state="idle|live|listening|peak">
+ *   <span className="mic-meter" style={{ height: `${meterHeight}px` }} />
+ *   <svg>...</svg>
+ * </button>
+ */
+
+.mic-button {
+  position: relative;
+  height: 56px;
+  width: 56px;
+  border-radius: 9999px;
+  background: #262626; /* neutral-800 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.2s ease, outline-color 0.2s ease;
+  border: none;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Focus styles */
+.mic-button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7), 0 0 0 4px #171717;
+}
+
+/* State: idle */
+.mic-button[data-state="idle"] {
+  background: #262626;
+}
+
+/* State: live */
+.mic-button[data-state="live"] {
+  background: #262626;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.7),
+              0 0 20px rgba(16, 185, 129, 0.35);
+}
+
+/* State: listening */
+.mic-button[data-state="listening"] {
+  background: #262626;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 1);
+  animation: voice-pulse 1.3s ease-in-out infinite;
+}
+
+/* State: peak */
+.mic-button[data-state="peak"] {
+  background: #262626;
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 1); /* red-400 */
+}
+
+/* Meter (vertical bar inside button) */
+.mic-meter {
+  position: absolute;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.9);
+  transition: height 75ms ease-out;
+  pointer-events: none;
+}
+
+/* Mic icon */
+.mic-button svg {
+  position: relative;
+  z-index: 10;
+  opacity: 0.9;
+  fill: white;
+  pointer-events: none;
+}
+
+/* Pulse animation */
+@keyframes voice-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(16, 185, 129, 0);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .mic-button {
+    animation: none !important;
+  }
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .mic-button {
+    background: #404040; /* neutral-700 */
+  }
+
+  .mic-button[data-state="idle"],
+  .mic-button[data-state="live"],
+  .mic-button[data-state="listening"],
+  .mic-button[data-state="peak"] {
+    background: #404040;
+  }
+}
+
+/* Explicit dark mode class support (if using class-based dark mode) */
+.dark .mic-button {
+  background: #404040;
+}
+
+.dark .mic-button[data-state="idle"],
+.dark .mic-button[data-state="live"],
+.dark .mic-button[data-state="listening"],
+.dark .mic-button[data-state="peak"] {
+  background: #404040;
+}

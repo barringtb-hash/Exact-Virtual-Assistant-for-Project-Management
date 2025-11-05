@@ -1,54 +1,13 @@
-import pdfMake from "pdfmake/build/pdfmake.js";
-import * as pdfFonts from "pdfmake/build/vfs_fonts.js";
-import {
-  createCharterValidationError,
-  validateCharterPayload,
-} from "../charter/validate.js";
 import { formatDocRenderError } from "../charter/render.js";
-import { buildPdfDefinition } from "../../templates/pdf/charter.pdfdef.mjs";
+import { renderCharterPdfBuffer } from "../../lib/charter/pdf.js";
 
-function looksLikeVfsMap(candidate) {
-  return (
-    candidate &&
-    typeof candidate === "object" &&
-    !Array.isArray(candidate) &&
-    Object.keys(candidate).length > 0 &&
-    !("pdfMake" in candidate) &&
-    !("vfs" in candidate)
-  );
-}
-
-const embeddedVfs =
-  pdfFonts?.pdfMake?.vfs ??
-  pdfFonts?.vfs ??
-  pdfFonts?.default?.pdfMake?.vfs ??
-  pdfFonts?.default?.vfs ??
-  (looksLikeVfsMap(pdfFonts?.default) ? pdfFonts.default : undefined) ??
-  (looksLikeVfsMap(pdfFonts) ? pdfFonts : undefined) ??
-  {};
-
-if (!embeddedVfs || Object.keys(embeddedVfs).length === 0) {
-  throw new Error(
-    "pdfmake fonts vfs not loaded: vfs_fonts export shape not recognized."
-  );
-}
-
-pdfMake.vfs = embeddedVfs;
+// Backwards-compatible export for existing callers.
+export const renderPdfBuffer = renderCharterPdfBuffer;
 
 export const config = {
   maxDuration: 60,
   memory: 1024,
 };
-
-export async function renderPdfBuffer(charter) {
-  const { isValid, errors, normalized } = await validateCharterPayload(charter);
-  if (!isValid) {
-    throw createCharterValidationError(errors, normalized);
-  }
-
-  const docDefinition = buildPdfDefinition(normalized);
-  return createPdfBuffer(docDefinition);
-}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -58,7 +17,7 @@ export default async function handler(req, res) {
 
   try {
     const charter = parseCharterBody(req);
-    const pdfBuffer = await renderPdfBuffer(charter);
+    const pdfBuffer = await renderCharterPdfBuffer(charter);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -87,7 +46,7 @@ export default async function handler(req, res) {
 
     console.error("failed to export charter pdf", error);
     res.status(500).json({ error: "Failed to generate charter PDF" });
-  }
+}
 }
 
 function parseCharterBody(req) {
@@ -131,15 +90,6 @@ function createInvalidCharterError(message, originalError) {
   return error;
 }
 
-function createPdfBuffer(docDefinition) {
-  return new Promise((resolve, reject) => {
-    try {
-      const pdfDocGenerator = pdfMake.createPdf(docDefinition);
-      pdfDocGenerator.getBuffer((buffer) => {
-        resolve(Buffer.from(buffer));
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
+// Legacy helper retained for backward compatibility. The implementation now
+// lives in lib/charter/pdf.js so the export API can reuse the same rendering
+// pipeline as the finalize workflow.

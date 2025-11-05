@@ -52,6 +52,7 @@ import {
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
+import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -2446,7 +2447,13 @@ const resolveDocTypeForManualSync = useCallback(
         const latestAttachments = Array.isArray(attachmentsRef.current)
           ? attachmentsRef.current
           : [];
-        reply = await callLLM(trimmed, nextHistory, latestAttachments);
+        const guidedSystemPrompt =
+          orchestrator && !shouldBypassGuided && orchestrator.isActive()
+            ? CHARTER_GUIDED_SYSTEM_PROMPT
+            : undefined;
+        reply = await callLLM(trimmed, nextHistory, latestAttachments, {
+          systemPrompt: guidedSystemPrompt,
+        });
       } catch (e) {
         reply = "LLM error (demo): " + (e?.message || "unknown");
       } finally {
@@ -3341,7 +3348,15 @@ function ChatBubble({ role, text, hideEmptySections }) {
 }
 
 // --- LLM wiring (placeholder) ---
-async function callLLM(text, history = [], contextAttachments = []) {
+const DEFAULT_SYSTEM_PROMPT =
+  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.";
+
+async function callLLM(
+  text,
+  history = [],
+  contextAttachments = [],
+  options = {},
+) {
   try {
     const normalizedHistory = Array.isArray(history)
       ? history.map((item) => ({ role: item.role, content: item.text || "" }))
@@ -3351,13 +3366,19 @@ async function callLLM(text, history = [], contextAttachments = []) {
           .map((attachment) => ({ name: attachment?.name, text: attachment?.text }))
           .filter((attachment) => attachment.name && attachment.text)
       : [];
-    const systemMessage = {
-      role: "system",
-      content:
-        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites."
-    };
+    const overridePrompt =
+      typeof options?.systemPrompt === "string" ? options.systemPrompt.trim() : "";
+    const systemPrompt = overridePrompt || DEFAULT_SYSTEM_PROMPT;
+    const systemMessage = systemPrompt
+      ? {
+          role: "system",
+          content: systemPrompt,
+        }
+      : null;
     const payload = {
-      messages: [systemMessage, ...normalizedHistory.slice(-19)],
+      messages: systemMessage
+        ? [systemMessage, ...normalizedHistory.slice(-19)]
+        : normalizedHistory.slice(-19),
       attachments: preparedAttachments,
     };
     const res = await fetch("/api/chat", {
@@ -3381,6 +3402,7 @@ async function callLLM(text, history = [], contextAttachments = []) {
     return "OpenAI endpoint error: " + errorMessage;
   }
 }
+
 
 function normalizeRealtimeTranscriptEvent(rawPayload) {
   if (rawPayload == null) {

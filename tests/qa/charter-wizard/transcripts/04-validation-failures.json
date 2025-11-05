@@ -1,0 +1,212 @@
+{
+  "slug": "04-validation-failures",
+  "name": "Validation failure handling",
+  "description": "Ensures invalid inputs trigger re-asks, escalate after max attempts, and advance to the next field.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "setup": {
+    "maxValidationAttempts": 2
+  },
+  "steps": [
+    {
+      "title": "Initialize session",
+      "operations": [
+        {
+          "type": "init"
+        }
+      ]
+    },
+    {
+      "title": "Answer project name",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Helios Cutover"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ]
+    },
+    {
+      "title": "Answer sponsor",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Sasha Ortiz"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ]
+    },
+    {
+      "title": "Answer project lead",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Dev Patel"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ]
+    },
+    {
+      "title": "Provide invalid start date (attempt 1)",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-13-40"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM"
+        ],
+        "fields": {
+          "start_date": {
+            "status": "captured",
+            "value": "2025-13-40",
+            "history": [
+              "2025-13-40"
+            ]
+          }
+        },
+        "validationAttempts": [
+          {
+            "fieldId": "start_date",
+            "attempt": 1,
+            "maxAttempts": 2,
+            "status": "valid",
+            "issueCodes": []
+          }
+        ]
+      }
+    },
+    {
+      "title": "Provide invalid start date (attempt 2 escalates)",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "invalid-date"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "VALIDATION_ERROR"
+        ],
+        "fields": {
+          "start_date": {
+            "status": "pending",
+            "value": "invalid-date",
+            "history": [
+              "2025-13-40",
+              "invalid-date"
+            ],
+            "reaskCount": 1,
+            "issues": [
+              "date"
+            ]
+          }
+        },
+        "validationAttempts": [
+          {
+            "fieldId": "start_date",
+            "attempt": 1,
+            "maxAttempts": 2,
+            "status": "invalid",
+            "issueCodes": [
+              "date"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Provide valid start date (final attempt)",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-09-30"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "end_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "start_date": {
+            "status": "confirmed",
+            "value": "2025-09-30",
+            "confirmedValue": "2025-09-30",
+            "history": [
+              "2025-13-40",
+              "invalid-date",
+              "2025-09-30"
+            ]
+          }
+        },
+        "validationAttempts": [
+          {
+            "fieldId": "start_date",
+            "attempt": 1,
+            "maxAttempts": 2,
+            "status": "valid",
+            "issueCodes": []
+          }
+        ],
+        "document": {
+          "start_date": "2025-09-30"
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "end_date",
+    "fields": {
+      "start_date": {
+        "status": "confirmed"
+      },
+      "end_date": {
+        "status": "pending"
+      }
+    },
+    "document": {
+      "start_date": "2025-09-30"
+    }
+  }
+}

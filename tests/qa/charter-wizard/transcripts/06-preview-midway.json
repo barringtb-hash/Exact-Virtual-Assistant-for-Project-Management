@@ -1,0 +1,176 @@
+{
+  "slug": "06-preview-midway",
+  "name": "Preview while fields remain",
+  "description": "Checks that preview mode can be entered mid-conversation and returns to the pending field on exit.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "operations": [
+        {
+          "type": "init"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_name"
+      }
+    },
+    {
+      "title": "Answer project name",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Nova Analytics"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "sponsor"
+      }
+    },
+    {
+      "title": "Answer sponsor",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Kira Lopez"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead"
+      }
+    },
+    {
+      "title": "Preview mid-session",
+      "operations": [
+        {
+          "type": "preview"
+        }
+      ],
+      "expect": {
+        "step": "PREVIEW",
+        "mode": "review",
+        "currentFieldId": "project_lead",
+        "actions": [
+          "ENTER_REVIEW"
+        ],
+        "telemetryActions": [
+          "ENTER_REVIEW"
+        ]
+      }
+    },
+    {
+      "title": "Exit preview to resume",
+      "operations": [
+        {
+          "type": "endReview"
+        }
+      ],
+      "expect": {
+        "step": "ASK",
+        "mode": "session",
+        "currentFieldId": "start_date",
+        "actions": [
+          "ASK_FIELD",
+          "EXIT_REVIEW"
+        ],
+        "telemetryActions": [
+          "ASK_FIELD",
+          "EXIT_REVIEW"
+        ]
+      }
+    },
+    {
+      "title": "Provide project lead after preview",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Noah Patel"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "end_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "VALIDATION_ERROR",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "VALIDATION_ERROR",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_lead": {
+            "status": "pending"
+          },
+          "start_date": {
+            "status": "confirmed",
+            "value": "Noah Patel",
+            "confirmedValue": "Noah Patel",
+            "history": [
+              "Noah Patel"
+            ]
+          }
+        },
+        "validationAttempts": [
+          {
+            "fieldId": "start_date",
+            "attempt": 1,
+            "maxAttempts": 2,
+            "status": "invalid",
+            "issueCodes": [
+              "date"
+            ]
+          }
+        ],
+        "document": {
+          "project_name": "Nova Analytics",
+          "sponsor": "Kira Lopez",
+          "start_date": "Noah Patel"
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "end_date",
+    "fields": {
+      "project_name": {
+        "status": "confirmed"
+      },
+      "sponsor": {
+        "status": "confirmed"
+      },
+      "project_lead": {
+        "status": "pending"
+      },
+      "start_date": {
+        "status": "confirmed"
+      }
+    },
+    "document": {
+      "project_name": "Nova Analytics",
+      "sponsor": "Kira Lopez",
+      "start_date": "Noah Patel"
+    }
+  }
+}

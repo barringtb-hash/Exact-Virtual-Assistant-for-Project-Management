@@ -1,0 +1,95 @@
+{
+  "slug": "07-cancel-before-finalize",
+  "name": "Cancel flow without finalizing",
+  "description": "Represents a user abandoning the wizard after capturing one field and marking the next as cancelled.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "operations": [
+        {
+          "type": "init"
+        }
+      ]
+    },
+    {
+      "title": "Capture initial field",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Orchid Rollout"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "sponsor"
+      }
+    },
+    {
+      "title": "Open and close preview",
+      "operations": [
+        {
+          "type": "preview"
+        },
+        {
+          "type": "endReview"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead",
+        "mode": "session",
+        "actions": [
+          "ENTER_REVIEW",
+          "ASK_FIELD",
+          "EXIT_REVIEW"
+        ],
+        "telemetryActions": [
+          "ENTER_REVIEW",
+          "ASK_FIELD",
+          "EXIT_REVIEW"
+        ]
+      }
+    },
+    {
+      "title": "Skip sponsor as cancelled",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "cancelled-session"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "fields": {
+          "project_lead": {
+            "status": "skipped",
+            "skippedReason": "cancelled-session"
+          }
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "start_date",
+    "fields": {
+      "project_name": {
+        "status": "confirmed"
+      },
+      "project_lead": {
+        "status": "skipped",
+        "skippedReason": "cancelled-session"
+      }
+    },
+    "document": {
+      "project_name": "Orchid Rollout"
+    }
+  }
+}

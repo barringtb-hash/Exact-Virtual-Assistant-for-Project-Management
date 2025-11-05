@@ -1,0 +1,266 @@
+{
+  "slug": "05-conditional-visibility",
+  "name": "Conditional visibility toggle",
+  "description": "Confirms hidden fields stay skipped until the visibility condition is met, then become editable.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "setup": {
+    "fieldOverrides": [
+      {
+        "id": "risks",
+        "visibility": {
+          "when": {
+            "field": "vision",
+            "equals": "__show_risks__"
+          }
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "operations": [
+        {
+          "type": "init"
+        }
+      ]
+    },
+    {
+      "title": "Provide early required fields",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Delta Launch"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Jamie Cole"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Priya Singh"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date"
+      }
+    },
+    {
+      "title": "Enter dates and narrative",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-03-01"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "2025-07-31"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "High-level impact"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Need broader coverage"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Stand up revised operating rhythm."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "scope_in",
+        "fields": {
+          "vision": {
+            "status": "confirmed",
+            "confirmedValue": "High-level impact"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip scope items and trigger hidden risks",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "n/a"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "skip",
+          "reason": "none"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "assumptions",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD",
+          "FIELD_SKIPPED",
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "scope_in": {
+            "status": "skipped",
+            "skippedReason": "n/a"
+          },
+          "scope_out": {
+            "status": "skipped",
+            "skippedReason": "none"
+          },
+          "risks": {
+            "status": "skipped",
+            "skippedReason": "hidden"
+          }
+        }
+      }
+    },
+    {
+      "title": "Update vision to reveal risks",
+      "operations": [
+        {
+          "type": "edit",
+          "fieldId": "vision"
+        },
+        {
+          "type": "capture",
+          "value": "__show_risks__"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "assumptions",
+        "fields": {
+          "vision": {
+            "status": "confirmed",
+            "confirmedValue": "__show_risks__"
+          },
+          "risks": {
+            "status": "skipped",
+            "skippedReason": "hidden"
+          }
+        }
+      }
+    },
+    {
+      "title": "Edit risks now that visibility matches",
+      "operations": [
+        {
+          "type": "edit",
+          "fieldId": "risks"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "risks",
+        "actions": [
+          "BACK_TO_FIELD",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "risks": {
+            "status": "skipped",
+            "skippedReason": "hidden"
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture risks",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Vendor readiness"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "assumptions",
+        "fields": {
+          "risks": {
+            "status": "confirmed",
+            "confirmedValue": "Vendor readiness",
+            "skippedReason": null
+          }
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "assumptions",
+    "fields": {
+      "vision": {
+        "status": "confirmed",
+        "confirmedValue": "__show_risks__"
+      },
+      "risks": {
+        "status": "confirmed",
+        "confirmedValue": "Vendor readiness"
+      }
+    }
+  }
+}

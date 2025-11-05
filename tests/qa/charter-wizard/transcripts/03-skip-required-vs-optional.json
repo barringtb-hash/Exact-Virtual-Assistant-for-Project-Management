@@ -1,0 +1,201 @@
+{
+  "slug": "03-skip-required-vs-optional",
+  "name": "Skip required versus optional fields",
+  "description": "Verifies that skipping a required field records the status and reason, and optional fields can be bypassed cleanly.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "title": "Initialize session",
+      "operations": [
+        {
+          "type": "init"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_name",
+        "actions": [
+          "ASK_FIELD"
+        ]
+      }
+    },
+    {
+      "title": "Answer project name",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Orion PMO Reset"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "sponsor",
+        "fields": {
+          "project_name": {
+            "status": "confirmed"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip required sponsor",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "user-skipped"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "sponsor": {
+            "status": "skipped",
+            "skippedReason": "user-skipped"
+          }
+        }
+      }
+    },
+    {
+      "title": "Provide project lead",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Morgan Hale"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ]
+    },
+    {
+      "title": "Complete remaining required prompts",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-02-01"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "2025-05-31"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Align delivery teams around refreshed governance."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Legacy approvals create friction for launches."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Reset workflows and clarify escalation paths."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "scope_in",
+        "fields": {
+          "start_date": {
+            "status": "confirmed",
+            "confirmedValue": "2025-02-01"
+          },
+          "end_date": {
+            "status": "confirmed",
+            "confirmedValue": "2025-05-31"
+          },
+          "vision": {
+            "status": "confirmed"
+          },
+          "problem": {
+            "status": "confirmed"
+          },
+          "description": {
+            "status": "confirmed"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip optional scope in",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "not-applicable"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "scope_out",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "scope_in": {
+            "status": "skipped",
+            "skippedReason": "not-applicable"
+          }
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "scope_out",
+    "fields": {
+      "sponsor": {
+        "status": "skipped",
+        "skippedReason": "user-skipped"
+      },
+      "scope_in": {
+        "status": "skipped",
+        "skippedReason": "not-applicable"
+      }
+    }
+  }
+}

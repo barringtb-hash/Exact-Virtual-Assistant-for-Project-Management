@@ -1,0 +1,98 @@
+{
+  "slug": "08-manual-finalize",
+  "name": "Manual preview then finalize",
+  "description": "Moves into preview explicitly and finalizes with a partially completed charter to verify deterministic output.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "operations": [
+        {
+          "type": "init"
+        }
+      ]
+    },
+    {
+      "title": "Capture early fields",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Beacon Refresh"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Aiden Brooks"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        },
+        {
+          "type": "capture",
+          "value": "Skylar Chen"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date"
+      }
+    },
+    {
+      "title": "Enter preview manually",
+      "operations": [
+        {
+          "type": "preview"
+        }
+      ],
+      "expect": {
+        "mode": "review",
+        "step": "PREVIEW",
+        "actions": [
+          "ENTER_REVIEW"
+        ],
+        "telemetryActions": [
+          "ENTER_REVIEW"
+        ]
+      }
+    },
+    {
+      "title": "Finalize without additional responses",
+      "operations": [
+        {
+          "type": "finalize"
+        }
+      ],
+      "expect": {
+        "mode": "finalized",
+        "step": "FINALIZE",
+        "actions": [
+          "SESSION_FINALIZED"
+        ],
+        "telemetryActions": [
+          "SESSION_FINALIZED"
+        ]
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "finalized",
+    "step": "FINALIZE",
+    "document": {
+      "project_name": "Beacon Refresh",
+      "sponsor": "Aiden Brooks",
+      "project_lead": "Skylar Chen"
+    }
+  }
+}

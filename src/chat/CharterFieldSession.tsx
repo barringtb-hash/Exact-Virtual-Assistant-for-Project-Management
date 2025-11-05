@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { FLAGS } from "../config/flags.ts";
+
 import {
   createCharterFieldLookup,
   type CharterFormField,
@@ -117,6 +119,10 @@ function FieldPrompt({
 }
 
 export function CharterFieldSession({ className }: { className?: string }) {
+  if (!FLAGS.CHARTER_WIZARD_VISIBLE) {
+    return null;
+  }
+
   const { schema: liveSchema } = useCharterFormSchema();
   const storedSchema = useConversationSchema();
   const schema = liveSchema ?? storedSchema;

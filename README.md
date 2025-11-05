@@ -14,29 +14,14 @@ The Exact Virtual Assistant for Project Management extracts project documents on
    ```bash
    echo "INTENT_ONLY_EXTRACTION=true" >> .env.local
    ```
-3. Configure the charter finalization template identifiers for Google Drive:
-   ```bash
-   echo "GOOGLE_DRIVE_CHARTER_TEMPLATE_ID=your-template-doc-id" >> .env.local
-   echo "GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID=your-destination-folder-id" >> .env.local
-   ```
-   These values point to the Google Doc template that will be copied during charter finalization and the Drive folder where generated charters should be stored.
-4. Run the Vite dev server and open the printed URL:
+3. Run the Vite dev server and open the printed URL:
    ```bash
    npm run dev
    ```
-5. Attach the demo Target Product Profile (TPP) – **OncoLiquid ctDNA Assay (Demo)** – from [`docs/demo/`](docs/demo/) and type or speak:
+4. Attach the demo Target Product Profile (TPP) – **OncoLiquid ctDNA Assay (Demo)** – from [`docs/demo/`](docs/demo/) and type or speak:
    > Please create a project charter from the attached document.
 
    **Expected**: the preview panel populates charter fields (Project Title, Sponsor, Project Manager, Objectives, etc.) using data extracted from the TPP.
-
-## Charter Finalization Environment
-
-Generating a Google Doc charter requires two Google Drive identifiers:
-
-- `GOOGLE_DRIVE_CHARTER_TEMPLATE_ID` – the document ID for the charter template to copy.
-- `GOOGLE_DRIVE_CHARTER_DESTINATION_FOLDER_ID` – the Drive folder ID where finalized charters are created.
-
-Set these values in `.env.local` for local development or the hosting provider’s environment settings so `/api/charter/finalize` can duplicate and share documents successfully.
 
 ## Behavioral Contract
 - **Upload only** → No extraction. The preview remains unchanged and `/api/documents/extract` is never called.

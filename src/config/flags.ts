@@ -41,17 +41,25 @@ function parseBoolean(value: EnvValue, fallback: boolean): boolean {
   return fallback;
 }
 
-function readBooleanFlag(key: string, fallback: boolean): boolean {
+function readBooleanFlag(keys: string | readonly string[], fallback: boolean): boolean {
   const env = (import.meta?.env ?? {}) as Record<string, EnvValue>;
-  const rawValue = Object.prototype.hasOwnProperty.call(env, key) ? env[key] : undefined;
-  if (rawValue === undefined) {
-    return fallback;
+  const keyList = Array.isArray(keys) ? keys : [keys];
+
+  for (const key of keyList) {
+    const rawValue = Object.prototype.hasOwnProperty.call(env, key) ? env[key] : undefined;
+    if (rawValue !== undefined) {
+      return parseBoolean(rawValue, fallback);
+    }
   }
-  return parseBoolean(rawValue, fallback);
+
+  return fallback;
 }
 
 export const FLAGS = {
   CHARTER_GUIDED_CHAT_ENABLED: readBooleanFlag("VITE_CHARTER_GUIDED_CHAT_ENABLED", true),
   CHARTER_WIZARD_VISIBLE: readBooleanFlag("VITE_CHARTER_WIZARD_VISIBLE", false),
-  AUTO_EXTRACTION_ENABLED: readBooleanFlag("VITE_AUTO_EXTRACTION_ENABLED", false),
+  AUTO_EXTRACTION_ENABLED: readBooleanFlag(
+    ["VITE_AUTO_EXTRACTION_ENABLED", "VITE_AUTO_EXTRACT", "AUTO_EXTRACT"],
+    false,
+  ),
 } as const;

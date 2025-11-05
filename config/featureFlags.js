@@ -78,7 +78,29 @@ export function isCharterConversationPersistenceEnabled() {
   return parsed ?? false;
 }
 
+export function isCharterWizardVisible() {
+  const clientValue = readImportMetaEnvFlag("VITE_CHARTER_WIZARD_VISIBLE");
+  const serverValue = readProcessEnvFlag("CHARTER_WIZARD_VISIBLE");
+
+  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const parsed = parseBooleanFlag(rawValue);
+
+  return parsed ?? false;
+}
+
+export function isAutoExtractionEnabled() {
+  const clientValue = readImportMetaEnvFlag("VITE_AUTO_EXTRACT");
+  const serverValue = readProcessEnvFlag("AUTO_EXTRACT");
+
+  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const parsed = parseBooleanFlag(rawValue);
+
+  return parsed ?? false;
+}
+
 export default {
   isIntentOnlyExtractionEnabled,
   isCharterConversationPersistenceEnabled,
+  isCharterWizardVisible,
+  isAutoExtractionEnabled,
 };

@@ -1,6 +1,10 @@
-# Charter Wizard Sequential Flow Fix
+# Charter Wizard & Guided Chat Implementation
 
-## Problem Statement
+## Overview
+
+This document describes the implementation of the guided chat feature for Charter creation, which replaces the visible wizard UI as the default experience. The Charter Wizard is now hidden behind feature flags and only appears when explicitly enabled.
+
+## Problem Statement (Historical)
 
 The Charter Wizard was showing "Auto · just now" chips next to fields in the preview panel, indicating that background extraction was auto-filling fields instead of letting the wizard drive a strict, line-by-line interview.
 
@@ -78,7 +82,47 @@ To verify the fix works:
 
 ## Feature Flags
 
-The fix respects the existing `isIntentOnlyExtractionEnabled()` feature flag (defaults to `true`), which already disables legacy auto-extraction. The wizard fix adds an additional layer of protection by explicitly disabling background extraction when the wizard is active.
+### Current Implementation
+
+Two new feature flags control the Charter experience:
+
+1. **`VITE_CHARTER_WIZARD_VISIBLE` / `CHARTER_WIZARD_VISIBLE`** (default: `false`)
+   - Controls whether the Charter Wizard UI is rendered
+   - When `false` (default): Users interact via guided chat flow
+   - When `true`: The wizard panel is visible in the UI
+   - Implemented in: `config/featureFlags.js` → `isCharterWizardVisible()`
+
+2. **`VITE_AUTO_EXTRACT` / `AUTO_EXTRACT`** (default: `false`)
+   - Controls whether automatic background extraction is enabled
+   - When `false` (default): Auto-extraction only runs when manually triggered
+   - When `true`: Auto-extraction runs automatically (requires wizard to also be visible)
+   - Implemented in: `config/featureFlags.js` → `isAutoExtractionEnabled()`
+
+3. **`VITE_INTENT_ONLY_EXTRACTION` / `INTENT_ONLY_EXTRACTION`** (default: `true`)
+   - Existing flag that disables legacy auto-extraction pathways
+   - Works in conjunction with the new `AUTO_EXTRACT` flag
+
+### Default Experience (Guided Chat)
+
+With defaults (`VITE_CHARTER_WIZARD_VISIBLE=false`, `VITE_AUTO_EXTRACT=false`):
+- Wizard UI is hidden
+- Chat asks one question at a time
+- Preview updates after each confirmation
+- No "Auto · just now" chips appear
+- Values are confirmed through conversation flow
+
+### Enabling Wizard Mode
+
+Set environment variables:
+```bash
+VITE_CHARTER_WIZARD_VISIBLE=true
+VITE_AUTO_EXTRACT=true
+```
+
+This enables:
+- Visible wizard panel UI
+- "Auto-fill from uploaded scope" button
+- Auto-extraction with "Auto" metadata chips
 
 ## Commit Details
 
@@ -96,8 +140,80 @@ The fix respects the existing `isIntentOnlyExtractionEnabled()` feature flag (de
 
 **Fix**: Moved the `isWizardActive` definition to line 494, immediately after `conversationState` is initialized, ensuring it's available before any code tries to use it.
 
-## Future Improvements
+## Latest Implementation (Guided Chat by Default)
 
-- Consider adding a "Auto-fill from scope" button that allows the PM to opt-in to auto-extraction
-- When auto-fill is used, still walk the PM through confirmations in sequence
-- Add telemetry to track wizard completion rates and field skip patterns
+### Changes Made
+
+1. **Feature Flags** (`config/featureFlags.js`)
+   - Added `isCharterWizardVisible()` - controls wizard UI visibility (default: false)
+   - Added `isAutoExtractionEnabled()` - controls auto-extraction (default: false)
+   - Both support client-side (`VITE_` prefix) and server-side environment variables
+
+2. **Wizard UI Gating** (`src/App.jsx`)
+   - Wrapped `<CharterFieldSession>` render with `isCharterWizardVisible()` check
+   - Updated `isWizardActive` to also check the feature flag
+   - Wizard only renders when flag is explicitly enabled
+
+3. **Manual Auto-fill Trigger** (`src/hooks/useBackgroundExtraction.js`)
+   - Added `manualTrigger` parameter to hook
+   - Auto-extraction only runs when:
+     - Legacy mode is enabled AND `AUTO_EXTRACT` flag is true (automatic), OR
+     - Manual trigger is set to true (explicit button click)
+   - Added useEffect to handle manual trigger events
+
+4. **Auto-fill Button** (`src/App.jsx`)
+   - Added "Auto-fill from uploaded scope" button
+   - Only visible when wizard is visible AND auto-extract is enabled AND content exists
+   - Triggers extraction via `manualTrigger` state
+   - Includes telemetry tracking (`charter_auto_fill_invoked` event)
+
+5. **Source Chip Hiding** (`src/components/PreviewEditable.jsx`)
+   - Modified `FieldMetaTags` component
+   - "Auto" chips only show when wizard is visible
+   - In guided chat mode (default), auto chips are hidden
+   - Prevents confusion about auto-extracted vs. confirmed values
+
+6. **Environment Configuration** (`.env`)
+   - Added `VITE_CHARTER_WIZARD_VISIBLE=false`
+   - Added `VITE_AUTO_EXTRACT=false`
+   - Documented defaults in comments
+
+### Files Changed (Latest Update)
+
+- **config/featureFlags.js**: Added `isCharterWizardVisible()` and `isAutoExtractionEnabled()`
+- **src/App.jsx**:
+  - Updated imports to include new feature flags
+  - Added `manualExtractionTrigger` state
+  - Gated wizard render with feature flag
+  - Added auto-fill button with telemetry
+  - Passed `manualTrigger` to `useBackgroundExtraction`
+- **src/hooks/useBackgroundExtraction.js**:
+  - Added `manualTrigger` parameter
+  - Updated extraction logic to respect both flags
+  - Added manual trigger useEffect
+- **src/components/PreviewEditable.jsx**:
+  - Imported `isCharterWizardVisible`
+  - Updated `FieldMetaTags` to hide "Auto" chips in guided chat mode
+- **.env**: Added feature flag defaults
+- **CHANGELOG.md**: Documented new feature release
+
+### Telemetry
+
+- **Event**: `charter_auto_fill_invoked`
+- **Triggered**: When auto-fill button is clicked
+- **Metadata**:
+  - `attachmentCount`: Number of uploaded files
+  - `messageCount`: Number of messages in context
+- **Endpoint**: `/api/telemetry/event`
+
+### Rollback Instructions
+
+To revert to the old wizard-visible behavior:
+
+```bash
+# In .env or environment
+VITE_CHARTER_WIZARD_VISIBLE=true
+VITE_AUTO_EXTRACT=true
+```
+
+Then restart the application. The wizard UI will reappear and auto-extraction will resume automatically.

@@ -118,8 +118,14 @@ function FieldPrompt({
   );
 }
 
-export function CharterFieldSession({ className }: { className?: string }) {
-  if (!FLAGS.CHARTER_WIZARD_VISIBLE) {
+export function CharterFieldSession({
+  className,
+  visible = FLAGS.CHARTER_WIZARD_VISIBLE,
+}: {
+  className?: string;
+  visible?: boolean;
+}) {
+  if (!visible) {
     return null;
   }
 

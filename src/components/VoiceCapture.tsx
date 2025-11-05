@@ -6,7 +6,6 @@
 import React from "react";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
 import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
-import { MicDeviceSelector } from "./MicDeviceSelector.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export function VoiceCapture() {
@@ -14,7 +13,7 @@ export function VoiceCapture() {
 
   const onStart = async () => {
     // MUST be initiated by a user gesture for iOS
-    await mic.start(mic.selectedDeviceId);
+    await mic.start();
     // Start your transcription/voice pipeline here if applicable
   };
 
@@ -27,42 +26,31 @@ export function VoiceCapture() {
     <div style={{ display: "grid", gap: 12, padding: 16 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <button
-          onClick={mic.isActive ? onStop : onStart}
+          onClick={mic.isMicOn ? onStop : onStart}
           style={{
             padding: "8px 16px",
             borderRadius: 8,
             border: "1px solid rgba(0,0,0,0.15)",
-            background: mic.isActive ? "#ef4444" : "#10b981",
+            background: mic.isMicOn ? "#ef4444" : "#10b981",
             color: "white",
             fontWeight: 500,
             cursor: "pointer"
           }}
         >
-          {mic.isActive ? "Stop" : "Start"} Mic
+          {mic.isMicOn ? "Stop" : "Start"} Mic
         </button>
 
-        {FEATURE_MIC_LEVEL && mic.isActive && (
+        {FEATURE_MIC_LEVEL && mic.isMicOn && (
           <MicLevelIndicator
             level={mic.level}
-            peak={mic.peak}
-            db={mic.db}
             variant="bar"
-            showDb
+            showDb={false}
             ariaLabel="Live microphone level"
-          />
-        )}
-
-        {mic.devices.length > 0 && (
-          <MicDeviceSelector
-            devices={mic.devices}
-            selectedDeviceId={mic.selectedDeviceId}
-            onChange={mic.selectDevice}
-            disabled={mic.isActive}
           />
         )}
       </div>
 
-      {mic.error && (
+      {mic.isBlocked && (
         <div
           role="alert"
           style={{
@@ -73,13 +61,13 @@ export function VoiceCapture() {
             fontSize: 14
           }}
         >
-          {mic.error}
+          Microphone permissions are blocked. Enable access in your browser settings.
         </div>
       )}
 
-      {mic.isActive && (
+      {mic.isMicOn && (
         <div style={{ fontSize: 13, opacity: 0.7 }}>
-          Level: {(mic.level * 100).toFixed(0)}% | dB: {mic.db.toFixed(1)} | Peak: {(mic.peak * 100).toFixed(0)}%
+          Level: {(mic.level * 100).toFixed(0)}%
         </div>
       )}
     </div>

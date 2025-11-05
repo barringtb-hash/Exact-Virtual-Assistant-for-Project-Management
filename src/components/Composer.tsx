@@ -155,7 +155,7 @@ const Composer: React.FC<ComposerProps> = ({
         onStartRecording();
       }
       if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
+        await micLevel.start();
       }
       if (!onStartRecording) {
         onMicToggle?.();
@@ -185,7 +185,7 @@ const Composer: React.FC<ComposerProps> = ({
     } else {
       startRealtime?.();
       if (micLevel) {
-        await micLevel.start(micLevel.selectedDeviceId);
+        await micLevel.start();
       }
     }
   }, [rtcState, startRealtime, stopRealtime, micLevel]);
@@ -286,11 +286,9 @@ const Composer: React.FC<ComposerProps> = ({
                 <IconMic className="h-5 w-5" />
               </button>
             )}
-            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
+            {FEATURE_MIC_LEVEL && micLevel && micLevel.isMicOn && (
               <MicLevelIndicator
                 level={micLevel.level}
-                peak={micLevel.peak}
-                db={micLevel.db}
                 variant="bar"
                 showDb={false}
                 ariaLabel="Live microphone level"

@@ -1,94 +1,144 @@
-/**
- * React hook for managing microphone level monitoring
- * Handles permissions, device enumeration, and audio level state
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MicLevelEngine } from "../audio/micLevelEngine.ts";
 
-export type MicState = {
-  isActive: boolean;
-  hasPermission: boolean | null;
-  level: number; // 0..1
-  db: number;    // ~-100..0
-  peak: number;  // 0..1
-  error?: string;
-  devices: MediaDeviceInfo[];
-  selectedDeviceId?: string;
-};
+import { levelStreamFactory } from "./levelStreamFactory.ts";
 
-async function getPermissionState(): Promise<boolean | null> {
-  try {
-    // Not supported on Safari; return null to mean "unknown"
-    // @ts-ignore
-    const res = await navigator.permissions?.query?.({ name: "microphone" });
-    if (!res) return null;
-    return res.state === "granted";
-  } catch {
-    return null;
+const SMOOTHING_FACTOR = 0.2;
+
+function clampLevel(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
 }
 
-export function useMicLevel() {
-  const engineRef = useRef<MicLevelEngine | null>(null);
-  const [state, setState] = useState<MicState>({
-    isActive: false,
-    hasPermission: null,
-    level: 0,
-    db: -100,
-    peak: 0,
-    error: undefined,
-    devices: [],
-    selectedDeviceId: undefined
-  });
+function isPermissionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
 
-  const refreshDevices = useCallback(async () => {
-    try {
-      const list = await navigator.mediaDevices.enumerateDevices();
-      const inputs = list.filter(d => d.kind === "audioinput");
-      setState(s => ({ ...s, devices: inputs }));
-    } catch (e: any) {
-      setState(s => ({ ...s, error: e?.message || "Failed to enumerate devices" }));
-    }
-  }, []);
+  const name = (error as { name?: string }).name;
+  if (typeof name === "string") {
+    return (
+      name === "NotAllowedError" ||
+      name === "PermissionDeniedError" ||
+      name === "SecurityError"
+    );
+  }
 
-  useEffect(() => {
-    getPermissionState().then(has => setState(s => ({ ...s, hasPermission: has })));
-    navigator.mediaDevices?.addEventListener?.("devicechange", refreshDevices);
-    refreshDevices();
-    return () => {
-      navigator.mediaDevices?.removeEventListener?.("devicechange", refreshDevices);
-      engineRef.current?.destroy();
-    };
-  }, [refreshDevices]);
+  const message = (error as { message?: string }).message;
+  return typeof message === "string" && message.toLowerCase().includes("denied");
+}
 
-  const start = useCallback(async (deviceId?: string) => {
-    try {
-      engineRef.current?.destroy();
-      engineRef.current = new MicLevelEngine({
-        onLevel: ({ level, db, peak }) => setState(s => ({ ...s, level, db, peak }))
-      });
-      await engineRef.current.start(deviceId);
-      await refreshDevices(); // device labels unlock after permission
-      setState(s => ({ ...s, isActive: true, error: undefined, selectedDeviceId: deviceId, hasPermission: true }));
-    } catch (e: any) {
-      setState(s => ({ ...s, error: e?.message || "Microphone start failed", isActive: false }));
-    }
-  }, [refreshDevices]);
+export interface MicLevelState {
+  isMicOn: boolean;
+  isBlocked: boolean;
+  level: number;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
+}
+
+export function useMicLevel(): MicLevelState {
+  const teardownRef = useRef<(() => void) | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const levelRef = useRef(0);
+
+  const [isMicOn, setIsMicOn] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const stop = useCallback(async () => {
-    await engineRef.current?.stop();
-    setState(s => ({ ...s, isActive: false, level: 0, db: -100, peak: 0 }));
+    const teardown = teardownRef.current;
+    teardownRef.current = null;
+    if (teardown) {
+      try {
+        teardown();
+      } catch {
+        // ignore teardown errors to keep stop idempotent
+      }
+    }
+
+    const stream = streamRef.current;
+    streamRef.current = null;
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch {
+          // ignore track stop errors
+        }
+      }
+    }
+
+    levelRef.current = 0;
+    setLevel(0);
+    setIsMicOn(false);
+    setIsBlocked(false);
   }, []);
 
-  const selectDevice = useCallback(async (deviceId?: string) => {
-    await start(deviceId);
-  }, [start]);
+  const start = useCallback(async () => {
+    await stop();
+    setIsBlocked(false);
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone access is not supported in this environment");
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      if (isPermissionError(error)) {
+        setIsBlocked(true);
+      }
+      throw error;
+    }
+
+    streamRef.current = stream;
+    levelRef.current = 0;
+    setLevel(0);
+
+    try {
+      const handle = levelStreamFactory.create(stream, (rawLevel) => {
+        const clamped = clampLevel(rawLevel);
+        const previous = levelRef.current;
+        const smoothed = previous + SMOOTHING_FACTOR * (clamped - previous);
+        levelRef.current = smoothed;
+        setLevel(smoothed);
+      });
+
+      teardownRef.current = handle.teardown;
+    } catch (error) {
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch {
+          // ignore stop errors in failure path
+        }
+      }
+      streamRef.current = null;
+      throw error;
+    }
+
+    setIsMicOn(true);
+  }, [stop]);
+
+  useEffect(() => {
+    return () => {
+      void stop();
+    };
+  }, [stop]);
 
   return {
-    ...state,
+    isMicOn,
+    isBlocked,
+    level,
     start,
     stop,
-    selectDevice
   };
 }

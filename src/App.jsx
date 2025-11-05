@@ -46,7 +46,7 @@ import {
   pointerSetToPathSet,
 } from "./utils/jsonPointer.js";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
-import { conversationActions } from "./state/conversationStore.ts";
+import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -487,6 +487,7 @@ export default function ExactVirtualAssistantPM() {
   const voiceStatus = useVoiceStatus();
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
+  const conversationState = useConversationState();
   const visibleMessages = useMemo(() => {
     if (!Array.isArray(messages)) {
       return [];
@@ -528,6 +529,82 @@ export default function ExactVirtualAssistantPM() {
       conversationActions.reset();
     }
   }, [templateDocType]);
+
+  // Clear "Auto" metadata when wizard starts - prevents showing auto-extracted chips
+  // for fields that will be collected through the wizard
+  const wizardInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!isWizardActive) {
+      wizardInitializedRef.current = false;
+      return;
+    }
+
+    // Only run once when wizard first becomes active
+    if (wizardInitializedRef.current) {
+      return;
+    }
+    wizardInitializedRef.current = true;
+
+    // Clear metadata for all fields that will be collected by wizard
+    if (conversationState && conversationState.fieldOrder.length > 0) {
+      const metadataUpdates = {};
+      for (const fieldId of conversationState.fieldOrder) {
+        metadataUpdates[fieldId] = {
+          source: null,
+          updatedAt: null,
+        };
+      }
+      recordDraftMetadata({
+        paths: metadataUpdates,
+        source: null,
+        updatedAt: null,
+      });
+    }
+  }, [isWizardActive, conversationState]);
+
+  // Sync conversation wizard state to draft store
+  useEffect(() => {
+    if (!conversationState || !isWizardActive) {
+      return;
+    }
+
+    // Extract confirmed field values from conversation state
+    const updates = {};
+    const touchedPaths = new Set();
+    for (const fieldId of conversationState.fieldOrder) {
+      const fieldState = conversationState.fields[fieldId];
+      if (!fieldState) continue;
+
+      // Only sync confirmed or captured fields
+      if (fieldState.status === "confirmed" || fieldState.status === "captured") {
+        const value = fieldState.confirmedValue || fieldState.value;
+        if (value !== null && value !== undefined && value !== "") {
+          updates[fieldId] = value;
+          touchedPaths.add(fieldId);
+        }
+      }
+    }
+
+    // Update draft if we have any values to sync
+    if (Object.keys(updates).length > 0) {
+      draftActions.merge(updates);
+
+      // Update metadata to mark these as wizard-sourced, not auto-extracted
+      const metadataUpdates = {};
+      for (const path of touchedPaths) {
+        metadataUpdates[path] = {
+          source: "Wizard",
+          updatedAt: Date.now(),
+        };
+      }
+      recordDraftMetadata({
+        paths: metadataUpdates,
+        source: "Wizard",
+        updatedAt: Date.now(),
+      });
+    }
+  }, [conversationState, isWizardActive]);
+
   const [showDocTypeModal, setShowDocTypeModal] = useState(false);
   const [pendingIntentExtraction, setPendingIntentExtraction] = useState(null);
   const messagesRef = useRef(messages);
@@ -917,6 +994,16 @@ export default function ExactVirtualAssistantPM() {
     [createBlankDraft, previewDocType]
   );
 
+  // Detect if Charter Wizard is active - if so, disable background extraction
+  // The wizard handles field collection sequentially through conversationMachine
+  const isWizardActive = useMemo(() => {
+    if (!conversationState) return false;
+    if (templateDocType !== "charter") return false;
+    if (conversationState.mode === "finalized") return false;
+    // Wizard is active if we're in session or review mode
+    return conversationState.mode === "session" || conversationState.mode === "review";
+  }, [conversationState, templateDocType]);
+
   const {
     isExtracting,
     error: extractError,
@@ -929,9 +1016,10 @@ export default function ExactVirtualAssistantPM() {
       : null,
     suggestedDocType: suggested,
     allowedDocTypes: supportedDocTypes,
-    messages,
-    voice: voiceTranscripts,
-    attachments,
+    // When wizard is active, don't pass messages/attachments/voice to prevent auto-extraction
+    messages: isWizardActive ? [] : messages,
+    voice: isWizardActive ? [] : voiceTranscripts,
+    attachments: isWizardActive ? [] : attachments,
     seed: extractionSeed,
     locks,
     getDraft: getCurrentDraft,

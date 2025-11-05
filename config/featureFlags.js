@@ -115,9 +115,27 @@ export function isAutoExtractionEnabled() {
   return parsed ?? false;
 }
 
+/**
+ * VITE_WIZARD_AUTO_ADVANCE
+ * When true, the charter wizard automatically confirms and advances to the next field
+ * after successful validation. When false, the user must manually click "Confirm" and "Next".
+ * Default: true (PM-friendly auto-advance behavior)
+ */
+export function isCharterWizardAutoAdvanceEnabled() {
+  const testValue = readLocalStorageFlag("VITE_WIZARD_AUTO_ADVANCE");
+  const clientValue = readImportMetaEnvFlag("VITE_WIZARD_AUTO_ADVANCE");
+  const serverValue = readProcessEnvFlag("WIZARD_AUTO_ADVANCE");
+
+  const rawValue = testValue !== undefined ? testValue : (clientValue !== undefined ? clientValue : serverValue);
+  const parsed = parseBooleanFlag(rawValue);
+
+  return parsed ?? true;
+}
+
 export default {
   isIntentOnlyExtractionEnabled,
   isCharterConversationPersistenceEnabled,
   isCharterWizardVisible,
   isAutoExtractionEnabled,
+  isCharterWizardAutoAdvanceEnabled,
 };

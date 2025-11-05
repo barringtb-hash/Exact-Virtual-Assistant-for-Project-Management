@@ -38,53 +38,62 @@ describe('Guided Charter Creation Flow', () => {
         win.localStorage.setItem('VITE_CHARTER_WIZARD_VISIBLE', 'true');
         win.localStorage.setItem('VITE_AUTO_EXTRACT', 'true');
         win.localStorage.setItem('VITE_INTENT_ONLY_EXTRACTION', 'true');
+        win.localStorage.setItem('VITE_WIZARD_AUTO_ADVANCE', 'true');
       },
     });
 
     cy.contains('Chat Assistant').should('be.visible');
 
     // Wait for the wizard to initialize
-    cy.get('body').should('exist');
+    cy.get('[data-cy=charter-wizard]', { timeout: 10000 }).should('be.visible');
   });
 
   it('guides user through sequential field collection with validation', () => {
-    // Wait for wizard to initialize - look for first field prompt
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Step 1: Enter project title
-    cy.get('textarea').first().should('be.visible').type('Phoenix CRM Migration');
-    cy.contains('button', 'Save response').should('be.visible').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').should('be.visible').type('Phoenix CRM Migration');
+      cy.get('[data-cy=save-response]').should('be.visible').click();
+    });
 
     // Verify preview updates with the title
-    cy.contains('Phoenix CRM Migration').should('exist');
+    cy.contains('Phoenix CRM Migration', { timeout: 10000 }).should('exist');
 
     // Step 2: Enter sponsor
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().should('be.visible').clear().type('Jane Smith');
-    cy.contains('button', 'Save response').click();
-
-    // Verify preview updates
-    cy.contains('Jane Smith').should('exist');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Jane Smith');
+      cy.get('[data-cy=save-response]').click();
+    });
+    cy.contains('Jane Smith', { timeout: 10000 }).should('exist');
 
     // Step 3: Enter project lead
-    cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().should('be.visible').clear().type('John Doe');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('John Doe');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Step 4: Enter start date
-    cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().should('be.visible').clear().type('2024-01-15');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('2024-01-15');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Step 5: Enter end date
-    cy.contains('End Date', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().should('be.visible').clear().type('2024-12-31');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('End Date', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('2024-12-31');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Step 6: Enter vision
-    cy.contains('Vision', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().should('be.visible').clear().type('Modernize our customer relationship management system to improve sales efficiency and customer satisfaction');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Vision', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Modernize our customer relationship management system to improve sales efficiency and customer satisfaction');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Verify all entered data appears in preview (with some timeout for updates)
     cy.contains('Phoenix CRM Migration', { timeout: 3000 }).should('exist');
@@ -93,24 +102,30 @@ describe('Guided Charter Creation Flow', () => {
   });
 
   it('allows skipping optional fields', () => {
-    // Wait for wizard to load
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Enter required title
-    cy.get('textarea').first().type('Test Project');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Test Project');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Enter sponsor
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Sponsor');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Sponsor');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Skip project lead
-    cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
-    cy.contains('button', 'Skip field').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=skip-field]').click();
+    });
 
     // Verify we moved to next field
-    cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
+    });
 
     // Verify entered fields appear in preview
     cy.contains('Test Project').should('exist');
@@ -118,52 +133,61 @@ describe('Guided Charter Creation Flow', () => {
   });
 
   it('handles validation errors and re-prompts', () => {
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Enter title
-    cy.get('textarea').first().type('Test Project');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Test Project');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Enter sponsor
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Sponsor');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Sponsor');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Enter project lead
-    cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Lead');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Lead');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Enter invalid start date
-    cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('invalid-date');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Start Date', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('invalid-date');
+      cy.get('[data-cy=save-response]').click();
 
-    // Should show validation error and stay on same field
-    // Wait a bit to see if error appears, then verify still on Start Date
-    cy.wait(1000);
-    cy.contains('Start Date').should('be.visible');
+      // Should show validation error and stay on same field
+      cy.wait(1000);
+      cy.contains('Start Date').should('be.visible');
 
-    // Enter valid date
-    cy.get('textarea').first().clear().type('2024-01-15');
-    cy.contains('button', 'Save response').click();
+      // Enter valid date
+      cy.get('[data-cy=field-input]').clear().type('2024-01-15');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Should progress to next field
-    cy.contains('End Date', { timeout: 5000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('End Date', { timeout: 5000 }).should('be.visible');
+    });
   });
 
   it('does not show "Auto" badges for manually entered fields', () => {
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Enter several fields manually
-    cy.get('textarea').first().type('Manual Project');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Manual Project');
+      cy.get('[data-cy=save-response]').click();
+    });
 
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Manual Sponsor');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Manual Sponsor');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Verify no "Auto" badges appear (these would indicate auto-extracted content)
     cy.contains(/Auto.*just now/).should('not.exist');
@@ -194,51 +218,61 @@ describe('Guided Charter Creation Flow', () => {
   });
 
   it('tracks progress through the wizard', () => {
-    // Wait for wizard to load and check for progress indicator
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
-    // The CharterFieldSession shows progress, look for it
-    // Progress format might be different - just verify wizard is working
+    // Verify wizard progress indicator exists
+    cy.get('[data-cy=wizard-progress]').should('be.visible');
 
     // Enter a field
-    cy.get('textarea').first().type('Test Project');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Test Project');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Enter another field
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Sponsor');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Sponsor');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Verify we're progressing through fields
-    cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+    });
   });
 
   it('shows field help text and examples', () => {
     // Wait for first field
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
 
-    // Help text and examples should be visible
-    // The formSchema has help_text and placeholder for each field
-    cy.get('textarea').first()
-      .invoke('attr', 'placeholder')
-      .should('exist');
+      // Help text and examples should be visible
+      // The formSchema has help_text and placeholder for each field
+      cy.get('[data-cy=field-input]')
+        .invoke('attr', 'placeholder')
+        .should('exist');
+    });
   });
 
   it('allows reviewing and editing completed fields', () => {
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Complete several fields
-    cy.get('textarea').first().type('Review Test');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Review Test');
+      cy.get('[data-cy=save-response]').click();
+    });
 
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Sponsor');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Sponsor');
+      cy.get('[data-cy=save-response]').click();
+    });
 
-    cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
-    cy.get('textarea').first().clear().type('Test Lead');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Lead', { timeout: 5000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').clear().type('Test Lead');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Verify that completed fields are saved and visible in preview
     cy.contains('Review Test').should('exist');
@@ -249,12 +283,12 @@ describe('Guided Charter Creation Flow', () => {
   it.skip('persists conversation state across page reloads', () => {
     // This test is skipped because conversation persistence requires specific env var
     // and the behavior depends on server-side state management
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
-
     // Enter a field
-    cy.get('textarea').first().type('Persistence Test');
-    cy.contains('button', 'Save response').click();
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+      cy.get('[data-cy=field-input]').type('Persistence Test');
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Reload the page
     cy.reload();
@@ -265,34 +299,38 @@ describe('Guided Charter Creation Flow', () => {
   });
 
   it('handles empty submissions gracefully', () => {
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
 
-    // Try to submit without entering text (textarea should be empty)
-    cy.get('textarea').first().should('have.value', '');
-    cy.contains('button', 'Save response').click();
+      // Try to submit without entering text (textarea should be empty)
+      cy.get('[data-cy=field-input]').should('have.value', '');
+      cy.get('[data-cy=save-response]').click();
 
-    // Should either show validation error or stay on same field
-    cy.contains('Project Title', { timeout: 3000 }).should('be.visible');
+      // Should either show validation error or stay on same field
+      cy.contains('Project Title', { timeout: 3000 }).should('be.visible');
 
-    // Field should still be editable
-    cy.get('textarea').first().should('exist').and('not.be.disabled');
+      // Field should still be editable
+      cy.get('[data-cy=field-input]').should('exist').and('not.be.disabled');
+    });
   });
 
   it('supports keyboard navigation', () => {
-    // Wait for wizard
-    cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Project Title', { timeout: 10000 }).should('be.visible');
 
-    // Focus on textarea and type
-    cy.get('textarea').first().focus().type('Keyboard Test');
+      // Focus on textarea and type
+      cy.get('[data-cy=field-input]').focus().type('Keyboard Test');
 
-    // Should be able to submit via button
-    cy.contains('button', 'Save response').should('be.visible').and('not.be.disabled');
+      // Should be able to submit via button
+      cy.get('[data-cy=save-response]').should('be.visible').and('not.be.disabled');
 
-    // Click to submit
-    cy.contains('button', 'Save response').click();
+      // Click to submit
+      cy.get('[data-cy=save-response]').click();
+    });
 
     // Verify we moved to next field
-    cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+    cy.get('[data-cy=charter-wizard]').within(() => {
+      cy.contains('Sponsor', { timeout: 5000 }).should('be.visible');
+    });
   });
 });

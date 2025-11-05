@@ -13,6 +13,7 @@ import {
 } from "../state/conversationStore.ts";
 import type { ConversationFieldState } from "../state/conversationMachine.ts";
 import { createConversationTelemetryClient } from "../lib/telemetry/conversationClient.ts";
+import { isCharterWizardAutoAdvanceEnabled } from "../../config/featureFlags.js";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -73,7 +74,7 @@ function FieldPrompt({
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
       <div>
-        <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+        <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100" data-cy="field-label">
           {field.label}
         </h3>
         {field.help_text ? (
@@ -95,12 +96,14 @@ function FieldPrompt({
         )}
         placeholder={`Share details for ${field.label.toLowerCase()}`}
         aria-label={field.label}
+        data-cy="field-input"
       />
       {error ? <div className="text-sm text-red-600 dark:text-red-300">{error}</div> : null}
       <div className="flex flex-wrap gap-2">
         <button
           type="submit"
           className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+          data-cy="save-response"
         >
           Save response
         </button>
@@ -108,6 +111,7 @@ function FieldPrompt({
           type="button"
           onClick={onSkip}
           className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-800/60"
+          data-cy="skip-field"
         >
           Skip field
         </button>
@@ -201,6 +205,9 @@ export function CharterFieldSession({ className }: { className?: string }) {
 
   // Auto-confirm and advance for PM-friendly guided mode
   useEffect(() => {
+    if (!isCharterWizardAutoAdvanceEnabled()) {
+      return;
+    }
     if (!state || state.step !== "CONFIRM" || !currentFieldState) {
       return;
     }
@@ -429,6 +436,7 @@ export function CharterFieldSession({ className }: { className?: string }) {
         className,
       )}
       data-mode={state.mode}
+      data-cy="charter-wizard"
       aria-live="polite"
     >
       <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -440,7 +448,7 @@ export function CharterFieldSession({ className }: { className?: string }) {
             Step through each required field to build your charter.
           </p>
         </div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">
+        <div className="text-xs text-slate-500 dark:text-slate-400" data-cy="wizard-progress">
           {completed} of {total} fields • {percent}% complete
         </div>
       </header>

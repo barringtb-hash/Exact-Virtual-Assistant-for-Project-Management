@@ -43,6 +43,9 @@ jobs:
         env:
           CI: true
 
+      - name: Charter wizard golden QA
+        run: npm run qa:charter-wizard
+
       - name: Build Vite app
         run: npm run build
 

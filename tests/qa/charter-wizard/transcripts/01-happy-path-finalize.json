@@ -1,0 +1,548 @@
+{
+  "slug": "01-happy-path-finalize",
+  "name": "Happy path through finalize",
+  "description": "Completes required charter fields, skips optional ones, enters review automatically, and finalizes the session.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "title": "Initialize session",
+      "operations": [
+        {
+          "type": "init"
+        }
+      ],
+      "expect": {
+        "step": "ASK",
+        "mode": "session",
+        "currentFieldId": "project_name",
+        "actions": [
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_name": {
+            "status": "pending"
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture project name",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Atlas Workspace Expansion"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "step": "ASK",
+        "mode": "session",
+        "currentFieldId": "sponsor",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_name": {
+            "status": "confirmed",
+            "value": "Atlas Workspace Expansion",
+            "confirmedValue": "Atlas Workspace Expansion",
+            "history": [
+              "Atlas Workspace Expansion"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture sponsor",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Jordan Patel"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "sponsor": {
+            "status": "confirmed",
+            "value": "Jordan Patel",
+            "confirmedValue": "Jordan Patel",
+            "history": [
+              "Jordan Patel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture project lead",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Casey Rivera"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_lead": {
+            "status": "confirmed",
+            "value": "Casey Rivera",
+            "confirmedValue": "Casey Rivera",
+            "history": [
+              "Casey Rivera"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture start date",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-01-15"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "end_date",
+        "fields": {
+          "start_date": {
+            "status": "confirmed",
+            "value": "2025-01-15",
+            "confirmedValue": "2025-01-15"
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture end date",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "2025-06-30"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "vision",
+        "fields": {
+          "end_date": {
+            "status": "confirmed",
+            "value": "2025-06-30",
+            "confirmedValue": "2025-06-30"
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture vision",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Deliver a unified workspace for operations."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "problem",
+        "fields": {
+          "vision": {
+            "status": "confirmed",
+            "value": "Deliver a unified workspace for operations.",
+            "confirmedValue": "Deliver a unified workspace for operations."
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture problem statement",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Legacy tools block collaboration across the portfolio."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "description",
+        "fields": {
+          "problem": {
+            "status": "confirmed",
+            "value": "Legacy tools block collaboration across the portfolio.",
+            "confirmedValue": "Legacy tools block collaboration across the portfolio."
+          }
+        }
+      }
+    },
+    {
+      "title": "Capture project description",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "This charter modernizes workspace systems and aligns regions."
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "scope_in",
+        "fields": {
+          "description": {
+            "status": "confirmed",
+            "value": "This charter modernizes workspace systems and aligns regions.",
+            "confirmedValue": "This charter modernizes workspace systems and aligns regions."
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip scope in",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "not-applicable"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "scope_out",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "scope_in": {
+            "status": "skipped",
+            "skippedReason": "not-applicable"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip scope out",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "no-exclusions"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "risks",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "scope_out": {
+            "status": "skipped",
+            "skippedReason": "no-exclusions"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip risks",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "covered-elsewhere"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "assumptions",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "risks": {
+            "status": "skipped",
+            "skippedReason": "covered-elsewhere"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip assumptions",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "none-known"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "milestones",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "assumptions": {
+            "status": "skipped",
+            "skippedReason": "none-known"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip milestones",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "will-seed"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "success_metrics",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "milestones": {
+            "status": "skipped",
+            "skippedReason": "will-seed"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip success metrics",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "later"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "core_team",
+        "actions": [
+          "FIELD_SKIPPED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "success_metrics": {
+            "status": "skipped",
+            "skippedReason": "later"
+          }
+        }
+      }
+    },
+    {
+      "title": "Skip core team and enter review",
+      "operations": [
+        {
+          "type": "skip",
+          "reason": "team-pending"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "step": "NEXT_FIELD",
+        "mode": "review",
+        "currentFieldId": null,
+        "actions": [
+          "FIELD_SKIPPED",
+          "ENTER_REVIEW"
+        ],
+        "telemetryActions": [
+          "FIELD_SKIPPED",
+          "ENTER_REVIEW"
+        ],
+        "fields": {
+          "core_team": {
+            "status": "skipped",
+            "skippedReason": "team-pending"
+          }
+        }
+      }
+    },
+    {
+      "title": "Finalize charter",
+      "operations": [
+        {
+          "type": "finalize"
+        }
+      ],
+      "expect": {
+        "step": "FINALIZE",
+        "mode": "finalized",
+        "currentFieldId": null,
+        "actions": [
+          "SESSION_FINALIZED"
+        ],
+        "telemetryActions": [
+          "SESSION_FINALIZED"
+        ]
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "finalized",
+    "step": "FINALIZE",
+    "currentFieldId": null,
+    "fields": {
+      "project_name": {
+        "status": "confirmed"
+      },
+      "sponsor": {
+        "status": "confirmed"
+      },
+      "project_lead": {
+        "status": "confirmed"
+      },
+      "start_date": {
+        "status": "confirmed"
+      },
+      "end_date": {
+        "status": "confirmed"
+      },
+      "vision": {
+        "status": "confirmed"
+      },
+      "problem": {
+        "status": "confirmed"
+      },
+      "description": {
+        "status": "confirmed"
+      },
+      "scope_in": {
+        "status": "skipped",
+        "skippedReason": "not-applicable"
+      },
+      "scope_out": {
+        "status": "skipped",
+        "skippedReason": "no-exclusions"
+      },
+      "risks": {
+        "status": "skipped",
+        "skippedReason": "covered-elsewhere"
+      },
+      "assumptions": {
+        "status": "skipped",
+        "skippedReason": "none-known"
+      },
+      "milestones": {
+        "status": "skipped",
+        "skippedReason": "will-seed"
+      },
+      "success_metrics": {
+        "status": "skipped",
+        "skippedReason": "later"
+      },
+      "core_team": {
+        "status": "skipped",
+        "skippedReason": "team-pending"
+      }
+    },
+    "document": {
+      "project_name": "Atlas Workspace Expansion",
+      "sponsor": "Jordan Patel",
+      "project_lead": "Casey Rivera",
+      "start_date": "2025-01-15",
+      "end_date": "2025-06-30",
+      "vision": "Deliver a unified workspace for operations.",
+      "problem": "Legacy tools block collaboration across the portfolio.",
+      "description": "This charter modernizes workspace systems and aligns regions."
+    }
+  }
+}

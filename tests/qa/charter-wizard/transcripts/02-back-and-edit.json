@@ -1,0 +1,237 @@
+{
+  "slug": "02-back-and-edit",
+  "name": "Navigate with back and edit commands",
+  "description": "Exercises the back command to revisit the previous field and edit to jump directly to an earlier response, confirming history tracking.",
+  "schemaPath": "templates/charter/formSchema.json",
+  "steps": [
+    {
+      "title": "Initialize session",
+      "operations": [
+        {
+          "type": "init"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_name",
+        "actions": [
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_name": {
+            "status": "pending"
+          }
+        }
+      }
+    },
+    {
+      "title": "Provide initial project name",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Gamma Revamp"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "sponsor",
+        "fields": {
+          "project_name": {
+            "status": "confirmed",
+            "confirmedValue": "Gamma Revamp",
+            "history": [
+              "Gamma Revamp"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Provide sponsor",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Taylor Reed"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead",
+        "fields": {
+          "sponsor": {
+            "status": "confirmed",
+            "confirmedValue": "Taylor Reed",
+            "history": [
+              "Taylor Reed"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Provide project lead",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Riley Chen"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "fields": {
+          "project_lead": {
+            "status": "confirmed",
+            "confirmedValue": "Riley Chen",
+            "history": [
+              "Riley Chen"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Back to project lead",
+      "operations": [
+        {
+          "type": "back"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_lead",
+        "actions": [
+          "BACK_TO_FIELD",
+          "ASK_FIELD"
+        ],
+        "telemetryActions": [
+          "BACK_TO_FIELD",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_lead": {
+            "status": "confirmed"
+          }
+        }
+      }
+    },
+    {
+      "title": "Update project lead",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Riley Morgan"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "actions": [
+          "FIELD_CAPTURED",
+          "READY_TO_CONFIRM",
+          "FIELD_CONFIRMED",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_lead": {
+            "status": "confirmed",
+            "confirmedValue": "Riley Morgan",
+            "history": [
+              "Riley Chen",
+              "Riley Morgan"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Jump directly to project name",
+      "operations": [
+        {
+          "type": "edit",
+          "fieldId": "project_name"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "project_name",
+        "actions": [
+          "BACK_TO_FIELD",
+          "ASK_FIELD"
+        ],
+        "fields": {
+          "project_name": {
+            "status": "confirmed"
+          }
+        }
+      }
+    },
+    {
+      "title": "Revise project name and resume",
+      "operations": [
+        {
+          "type": "capture",
+          "value": "Gamma Revamp II"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "expect": {
+        "currentFieldId": "start_date",
+        "fields": {
+          "project_name": {
+            "status": "confirmed",
+            "confirmedValue": "Gamma Revamp II",
+            "history": [
+              "Gamma Revamp",
+              "Gamma Revamp II"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "finalExpect": {
+    "mode": "session",
+    "currentFieldId": "start_date",
+    "fields": {
+      "project_name": {
+        "status": "confirmed",
+        "confirmedValue": "Gamma Revamp II",
+        "history": [
+          "Gamma Revamp",
+          "Gamma Revamp II"
+        ]
+      },
+      "project_lead": {
+        "status": "confirmed",
+        "confirmedValue": "Riley Morgan",
+        "history": [
+          "Riley Chen",
+          "Riley Morgan"
+        ]
+      }
+    }
+  }
+}

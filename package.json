@@ -16,6 +16,7 @@
     "docx:encode": "node templates/tools/encode-docx.mjs",
     "docx:lint": "node templates/tools/lint-tokens.mjs",
     "docx:smoke": "node templates/tools/render-smoke.mjs",
+    "qa:charter-wizard": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs scripts/run-golden-conversations.mjs",
     "dep:check": "node ./scripts/checkCircularDeps.mjs",
     "analyze:cycles": "node ./scripts/checkCircularDeps.mjs"
   },

@@ -47,11 +47,11 @@ Modified `src/App.jsx` to:
 
 - **src/App.jsx**:
   - Imported `useConversationState` from `conversationStore`
-  - Added `conversationState` hook call
-  - Added `isWizardActive` computed value
-  - Modified `useBackgroundExtraction` call to conditionally disable extraction
-  - Added useEffect to clear "Auto" metadata on wizard start
-  - Added useEffect to sync conversation state to draft with "Wizard" metadata
+  - Added `conversationState` hook call (line 490)
+  - Added `isWizardActive` computed value (lines 492-500, moved before usage to fix initialization error)
+  - Modified `useBackgroundExtraction` call to conditionally disable extraction (lines 1021-1023)
+  - Added useEffect to clear "Auto" metadata on wizard start (lines 536-563)
+  - Added useEffect to sync conversation state to draft with "Wizard" metadata (lines 566-606)
 
 ## Testing
 
@@ -79,6 +79,22 @@ To verify the fix works:
 ## Feature Flags
 
 The fix respects the existing `isIntentOnlyExtractionEnabled()` feature flag (defaults to `true`), which already disables legacy auto-extraction. The wizard fix adds an additional layer of protection by explicitly disabling background extraction when the wizard is active.
+
+## Commit Details
+
+- **Branch**: `claude/fix-charter-wizard-sequential-011CUp3h6MCePww6d5HyyC3h`
+- **Commits**:
+  - `ad493a1` - "fix: disable background extraction during charter wizard mode"
+  - `7b2ca83` - "fix: move isWizardActive definition before usage to prevent uninitialized variable error"
+- **Pushed**: Yes ✅
+
+## Browser Error Fix
+
+**Error**: `ReferenceError: Cannot access uninitialized variable` at App.jsx:563
+
+**Cause**: The `isWizardActive` variable was being referenced in `useEffect` hooks (lines 536, 567) before it was defined (originally at line 999).
+
+**Fix**: Moved the `isWizardActive` definition to line 494, immediately after `conversationState` is initialized, ensuring it's available before any code tries to use it.
 
 ## Future Improvements
 

@@ -229,6 +229,7 @@ const Composer: React.FC<ComposerProps> = ({
           onDragOver={onDragOver}
           placeholder={resolvedPlaceholder}
           disabled={resolvedDraftDisabled}
+          data-testid="composer-textarea"
           className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">

@@ -199,6 +199,17 @@ export function CharterFieldSession({ className }: { className?: string }) {
     setDraft(currentFieldState.value ?? "");
   }, [currentFieldState?.value, currentFieldState?.id]);
 
+  // Auto-confirm and advance for PM-friendly guided mode
+  useEffect(() => {
+    if (!state || state.step !== "CONFIRM" || !currentFieldState) {
+      return;
+    }
+    // Automatically confirm the field after successful validation
+    conversationActions.confirm();
+    // Automatically advance to the next field
+    conversationActions.nextField();
+  }, [state?.step, currentFieldState?.id]);
+
   if (!schema || schema.document_type !== "charter") {
     return null;
   }

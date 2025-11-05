@@ -2,6 +2,7 @@ import React, { useCallback } from "react";
 import formatRelativeTime from "../utils/formatRelativeTime.js";
 import { useDocTemplate } from "../state/docTemplateStore.js";
 import { useDraft } from "../state/draftStore.ts";
+import { isCharterWizardVisible } from "../../config/featureFlags.js";
 
 const CUSTOM_EDITORS = {};
 
@@ -231,6 +232,11 @@ function FieldMetaTags({ source, updatedAt }) {
     return trimmed;
   })();
 
+  // Hide "Auto" chips in guided chat mode (when wizard is not visible)
+  // In guided chat, we only show values after they're confirmed through conversation
+  const shouldShowAutoChip = normalizedSource === "Auto" && isCharterWizardVisible();
+  const shouldShowSource = normalizedSource && (normalizedSource !== "Auto" || shouldShowAutoChip);
+
   const relative = typeof updatedAt === "number" ? formatRelativeTime(updatedAt) : "";
 
   const sourceToneClass =
@@ -240,7 +246,7 @@ function FieldMetaTags({ source, updatedAt }) {
 
   return (
     <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-slate-500 dark:text-slate-400">
-      {normalizedSource ? (
+      {shouldShowSource ? (
         <span
           className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${sourceToneClass}`}
         >

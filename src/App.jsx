@@ -20,7 +20,11 @@ import { useDocTemplate } from "./state/docTemplateStore.js";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
-import { isIntentOnlyExtractionEnabled } from "../config/featureFlags.js";
+import {
+  isIntentOnlyExtractionEnabled,
+  isCharterWizardVisible,
+  isAutoExtractionEnabled,
+} from "../config/featureFlags.js";
 import {
   useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
@@ -492,6 +496,8 @@ export default function ExactVirtualAssistantPM() {
   // Detect if Charter Wizard is active - if so, disable background extraction
   // The wizard handles field collection sequentially through conversationMachine
   const isWizardActive = useMemo(() => {
+    // Check feature flag first - wizard must be enabled
+    if (!isCharterWizardVisible()) return false;
     if (!conversationState) return false;
     if (templateDocType !== "charter") return false;
     if (conversationState.mode === "finalized") return false;
@@ -798,6 +804,7 @@ export default function ExactVirtualAssistantPM() {
   );
   const [charterSyncError, setCharterSyncError] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [manualExtractionTrigger, setManualExtractionTrigger] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
@@ -1030,6 +1037,7 @@ export default function ExactVirtualAssistantPM() {
     onNotify: pushToast,
     docTypeRoutingEnabled: docRouterEnabled,
     requireDocType: () => setShowDocTypeModal(true),
+    manualTrigger: manualExtractionTrigger,
   });
   const attemptIntentExtraction = useCallback(
     async ({ intent, reason, messages: history, voice: voiceEvents }) => {
@@ -1059,6 +1067,14 @@ export default function ExactVirtualAssistantPM() {
     },
     [attachments, clearPendingIntentExtraction, queuePendingIntentExtraction, triggerExtraction, pushToast]
   );
+
+  // Reset manual extraction trigger after extraction completes
+  useEffect(() => {
+    if (manualExtractionTrigger && !isExtracting) {
+      setManualExtractionTrigger(false);
+    }
+  }, [manualExtractionTrigger, isExtracting]);
+
   const canSyncNow = useMemo(() => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const hasVoice = Array.isArray(voiceTranscripts) && voiceTranscripts.length > 0;
@@ -2751,7 +2767,35 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
-                  <CharterFieldSession className="mb-3" />
+                  {isCharterWizardVisible() && <CharterFieldSession className="mb-3" />}
+                  {isCharterWizardVisible() && isAutoExtractionEnabled() && (attachments.length > 0 || messages.length > 0) && (
+                    <div className="mb-3">
+                      <button
+                        onClick={() => {
+                          setManualExtractionTrigger(true);
+                          // Track auto-fill button usage for analytics
+                          if (typeof fetch === "function") {
+                            fetch("/api/telemetry/event", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                event: "charter_auto_fill_invoked",
+                                timestamp: Date.now(),
+                                metadata: {
+                                  attachmentCount: attachments.length,
+                                  messageCount: messages.length,
+                                },
+                              }),
+                            }).catch(() => {}); // Silently fail telemetry
+                          }
+                        }}
+                        disabled={isExtracting || manualExtractionTrigger}
+                        className="w-full rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                      >
+                        {isExtracting ? "Auto-filling..." : "Auto-fill from uploaded scope"}
+                      </button>
+                    </div>
+                  )}
                   <input type="file" multiple ref={fileInputRef} onChange={handleFilePick} className="hidden" />
                   <Composer
                     onSend={handleSend}

@@ -17,7 +17,11 @@ import {
   sanitizeVoiceEvents,
   PARSE_FALLBACK_MESSAGE,
 } from "../utils/extractAndPopulate.js";
-import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
+import {
+  isIntentOnlyExtractionEnabled,
+  isAutoExtractionEnabled,
+  isCharterWizardVisible,
+} from "../../config/featureFlags.js";
 import {
   getDocTypeSnapshot,
   setDocType,
@@ -29,7 +33,8 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const AUTO_ROUTER_THRESHOLD = 0.7;
 
-const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled();
+// Auto-extraction requires both the legacy mode AND the explicit auto-extract flag
+const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled() && isAutoExtractionEnabled();
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -337,6 +342,7 @@ export default function useBackgroundExtraction({
   onNotify,
   docTypeRoutingEnabled = false,
   requireDocType,
+  manualTrigger = false,
 } = {}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState(null);
@@ -790,6 +796,27 @@ export default function useBackgroundExtraction({
     }
     return undefined;
   }, [autoExtractAllowed, clearPendingTimer]);
+
+  // Handle manual trigger for explicit auto-fill button
+  useEffect(() => {
+    if (!manualTrigger) {
+      return undefined;
+    }
+
+    // Manual trigger bypasses the auto-extraction flag check
+    const { messages: latestMessages, voice: latestVoice, attachments: latestAttachments } = latestStateRef.current;
+    const shouldExtract = shouldAutoExtractPayload({
+      messages: latestMessages,
+      voice: latestVoice,
+      attachments: latestAttachments,
+    });
+
+    if (shouldExtract && !isUploadingRef.current) {
+      trigger({ reason: "manual-trigger" });
+    }
+
+    return undefined;
+  }, [manualTrigger, trigger]);
 
   useEffect(() => {
     if (!LEGACY_AUTO_EXTRACTION_ENABLED) {

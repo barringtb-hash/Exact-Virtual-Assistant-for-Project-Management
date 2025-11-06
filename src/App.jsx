@@ -81,6 +81,7 @@ const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
 const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
+const VOICE_AUTO_RESUME_ON_SUBMIT = FLAGS.VOICE_AUTO_RESUME_ON_SUBMIT;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
@@ -853,6 +854,7 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rec, setRec] = useState(null);
+  const shouldResumeMicRef = useRef(false);
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -2337,6 +2339,7 @@ const resolveDocTypeForManualSync = useCallback(
 
   const startRecording = async () => {
     if (rec) return;
+    shouldResumeMicRef.current = false;
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2389,6 +2392,9 @@ const resolveDocTypeForManualSync = useCallback(
           }
           setRec(null);
           voiceActions.setStatus("idle");
+          if (typeof window !== "undefined") {
+            window.__micActive = false;
+          }
           dispatch("VOICE_STOP");
         }
       };
@@ -2396,6 +2402,9 @@ const resolveDocTypeForManualSync = useCallback(
       recorder.start();
       setRec(recorder);
       voiceActions.setStatus("listening");
+      if (typeof window !== "undefined") {
+        window.__micActive = true;
+      }
     } catch (error) {
       console.error("Microphone access denied", error);
       if (stream) {
@@ -2403,6 +2412,9 @@ const resolveDocTypeForManualSync = useCallback(
       }
       setRec(null);
       voiceActions.setStatus("idle");
+      if (typeof window !== "undefined") {
+        window.__micActive = false;
+      }
       dispatch("VOICE_STOP");
     }
   };
@@ -2417,6 +2429,10 @@ const resolveDocTypeForManualSync = useCallback(
     } finally {
       setRec(null);
       voiceActions.setStatus("idle");
+      shouldResumeMicRef.current = VOICE_AUTO_RESUME_ON_SUBMIT;
+      if (typeof window !== "undefined") {
+        window.__micActive = false;
+      }
     }
   };
   const handleCommandFromText = useCallback(
@@ -2733,7 +2749,30 @@ const resolveDocTypeForManualSync = useCallback(
     if (!text) return;
     if (isAssistantThinking || isAssistantStreaming) return;
     chatActions.clearComposerDraft();
-    await submitChatTurn(text, { source: "composer" });
+    const result = await submitChatTurn(text, { source: "composer" });
+
+    const shouldResume =
+      VOICE_AUTO_RESUME_ON_SUBMIT &&
+      !realtimeEnabled &&
+      shouldResumeMicRef.current &&
+      result?.status !== "busy";
+
+    if (shouldResume) {
+      try {
+        await startRecording();
+        if (typeof window !== "undefined") {
+          window.__micResumeCount =
+            typeof window.__micResumeCount === "number" ? window.__micResumeCount + 1 : 1;
+          window.dispatchEvent(
+            new CustomEvent("mic:resumed", { detail: { source: "composer_submit" } }),
+          );
+        }
+      } catch (error) {
+        console.error("Failed to resume microphone after submit", error);
+      } finally {
+        shouldResumeMicRef.current = false;
+      }
+    }
   };
 
   const processPickedFiles = useCallback(

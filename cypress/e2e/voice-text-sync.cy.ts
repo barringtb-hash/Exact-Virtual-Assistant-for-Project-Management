@@ -33,6 +33,16 @@ describe("Voice and text preview synchronization", () => {
     cy.waitForAppReady();
     cy.stubGUMSuccess();
 
+    cy.window()
+      .then((win) => {
+        const typedWin = win as Window & { __micResumeCount?: number };
+        if (typeof typedWin.__micResumeCount !== "number") {
+          typedWin.__micResumeCount = 0;
+        }
+        return typedWin.__micResumeCount;
+      })
+      .as("micResumeBaseline");
+
     cy.get('[data-testid="sync-devtools"]').should("be.visible");
 
     cy.get('[data-testid="mic-button"]').as("micButton");
@@ -51,8 +61,33 @@ describe("Voice and text preview synchronization", () => {
     cy.wait("@chatRequest");
     cy.wait("@extractRequest");
 
+    cy.get<number>("@micResumeBaseline").then((baseline) => {
+      cy.window().then((win) => {
+        const typedWin = win as Window & { __micResumeCount?: number };
+        return new Cypress.Promise<void>((resolve) => {
+          const currentCount =
+            typeof typedWin.__micResumeCount === "number" ? typedWin.__micResumeCount : 0;
+          if (currentCount > baseline) {
+            resolve();
+            return;
+          }
+          const handler: EventListener = () => {
+            const nextCount =
+              typeof typedWin.__micResumeCount === "number"
+                ? typedWin.__micResumeCount
+                : 0;
+            if (nextCount > baseline) {
+              typedWin.removeEventListener("mic:resumed", handler);
+              resolve();
+            }
+          };
+          typedWin.addEventListener("mic:resumed", handler);
+        });
+      });
+    });
+
     cy.get('[data-testid="preview-panel"]').should("contain.text", composerText);
 
-    cy.get("@micButton").should("have.attr", "aria-pressed", "true");
+    cy.get("@micButton", { timeout: 20000 }).should("have.attr", "aria-pressed", "true");
   });
 });

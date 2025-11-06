@@ -81,4 +81,8 @@ export const FLAGS = {
     false,
   ),
   CYPRESS_SAFE_MODE: readBooleanFlag("VITE_CYPRESS_SAFE_MODE", false),
+  VOICE_AUTO_RESUME_ON_SUBMIT: readBooleanFlag(
+    ["VITE_VOICE_AUTO_RESUME_ON_SUBMIT", "VOICE_AUTO_RESUME_ON_SUBMIT"],
+    true,
+  ),
 } as const;

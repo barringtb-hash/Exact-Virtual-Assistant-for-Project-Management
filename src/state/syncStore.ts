@@ -16,6 +16,13 @@ type WorkingState = {
   activeTurnId?: string;
 };
 
+function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const cloneMetadata = (metadata: Record<string, unknown> | undefined) =>
   metadata ? { ...metadata } : undefined;
 
@@ -87,6 +94,88 @@ function finalizeTurn(work: WorkingState, turnId: string, timestamp: number) {
   if (work.activeTurnId === turnId) {
     work.activeTurnId = undefined;
   }
+}
+
+function ensureAgentTurn(turns: AgentTurn[], turnId: string, timestamp: number): AgentTurn[] {
+  const existingIndex = turns.findIndex((turn) => turn.id === turnId);
+  if (existingIndex === -1) {
+    const created: AgentTurn = {
+      id: turnId,
+      source: "agent",
+      events: [],
+      status: "open",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    return [...turns, created];
+  }
+
+  const existing = turns[existingIndex];
+  if (existing.source !== "agent") {
+    return turns;
+  }
+
+  const updated: AgentTurn = {
+    ...existing,
+    status: "open",
+    completedAt: undefined,
+    updatedAt: Math.max(existing.updatedAt, timestamp),
+  };
+  if (
+    existing.status === updated.status &&
+    existing.completedAt === updated.completedAt &&
+    existing.updatedAt === updated.updatedAt
+  ) {
+    return turns;
+  }
+  const next = [...turns];
+  next[existingIndex] = updated;
+  return next;
+}
+
+function updateAgentTurnId(turns: AgentTurn[], fromId: string, toId: string, timestamp: number): AgentTurn[] {
+  if (!fromId || fromId === toId) {
+    return ensureAgentTurn(turns, toId, timestamp);
+  }
+
+  let replaced = false;
+  const nextTurns: AgentTurn[] = [];
+
+  for (const turn of turns) {
+    if (turn.id === fromId && turn.source === "agent") {
+      replaced = true;
+      const updated = { ...turn, id: toId, updatedAt: Math.max(turn.updatedAt, timestamp) };
+      nextTurns.push(updated);
+      continue;
+    }
+    if (turn.id === toId && turn.source === "agent") {
+      if (!replaced) {
+        replaced = true;
+        const updated = {
+          ...turn,
+          status: "open",
+          completedAt: undefined,
+          updatedAt: Math.max(turn.updatedAt, timestamp),
+        };
+        nextTurns.push(updated);
+      }
+      continue;
+    }
+    nextTurns.push(turn);
+  }
+
+  if (!replaced) {
+    nextTurns.push({
+      id: toId,
+      source: "agent",
+      events: [],
+      status: "open",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  }
+
+  return nextTurns;
 }
 
 const DEFAULT_DRAFT: DraftDocument = {
@@ -229,6 +318,66 @@ export function applyPatch(patch: DocumentPatch) {
       oplog: [...state.oplog, patchCopy],
     };
   });
+}
+
+export function beginAgentTurn(turnId?: string, timestamp = Date.now()): string {
+  const resolvedId = turnId ?? `agent-${createId()}`;
+  syncStore.setState((state) => {
+    const turns = ensureAgentTurn(state.turns, resolvedId, timestamp);
+    if (turns === state.turns) {
+      return {};
+    }
+    return { turns };
+  });
+  return resolvedId;
+}
+
+export function completeAgentTurn(turnId: string, timestamp = Date.now()) {
+  if (!turnId) {
+    return;
+  }
+  syncStore.setState((state) => {
+    const index = state.turns.findIndex((turn) => turn.id === turnId && turn.source === "agent");
+    if (index === -1) {
+      return {};
+    }
+
+    const target = state.turns[index];
+    if (target.status === "finalized" && target.completedAt && target.completedAt >= timestamp) {
+      if (target.updatedAt >= timestamp) {
+        return {};
+      }
+    }
+
+    const nextTurns = [...state.turns];
+    nextTurns[index] = {
+      ...target,
+      status: "finalized",
+      completedAt: timestamp,
+      updatedAt: Math.max(target.updatedAt, timestamp),
+    };
+
+    return { turns: nextTurns };
+  });
+}
+
+export function reconcileAgentTurnId(previousId: string | undefined, nextId: string, timestamp = Date.now()): string {
+  if (!nextId) {
+    return previousId ?? "";
+  }
+
+  const resolvedPrevious = previousId ?? "";
+  syncStore.setState((state) => {
+    const turns = updateAgentTurnId(state.turns, resolvedPrevious, nextId, timestamp);
+    if (turns === state.turns) {
+      return {};
+    }
+
+    const activeTurnId = state.activeTurnId === resolvedPrevious ? nextId : state.activeTurnId;
+    return { turns, activeTurnId };
+  });
+
+  return nextId;
 }
 
 export function setPolicy(nextPolicy: InputPolicy, options: { timestamp?: number } = {}) {

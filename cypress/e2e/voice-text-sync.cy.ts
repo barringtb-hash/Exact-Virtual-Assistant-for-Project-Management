@@ -41,9 +41,10 @@ describe("Voice and text preview synchronization", () => {
     cy.get("@micButton").click();
     cy.get("@micButton").should("have.attr", "aria-pressed", "true");
 
-    cy.get('[data-testid="composer-input"]').as("composerInput").focus();
-
+    cy.get("@micButton").click();
     cy.get("@micButton").should("have.attr", "aria-pressed", "false");
+
+    cy.get('[data-testid="composer-input"]').as("composerInput").focus();
 
     cy.get("@composerInput").type(`${composerText}{enter}`);
 

@@ -192,7 +192,10 @@ export class ConversationController {
 
     if (parsed.patch && typeof parsed.patch === "object") {
       const patch = normalisePatch(parsed.patch);
-      applyPatch(patch);
+      applyPatch(patch, {
+        turnId: typeof parsed.turnId === "string" ? parsed.turnId : undefined,
+        seq: typeof parsed.seq === "number" ? parsed.seq : undefined,
+      });
     }
 
     if (parsed.turnId) {

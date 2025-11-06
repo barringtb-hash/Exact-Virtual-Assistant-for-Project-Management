@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   applyPatch,
+  beginAgentTurn,
+  completeAgentTurn,
   ingestInput,
   resetSyncStore,
   setPolicy,
@@ -39,6 +41,83 @@ test("draft events stay in the preview buffer until finalized", () => {
   assert.equal(state.buffers.final[0]?.stage, "final");
   assert.equal(state.turns[0]?.status, "finalized");
   assert.equal(state.turns[0]?.completedAt, 10);
+});
+
+test("submitFinalInput normalizes content, skips empties, and dedupes within a second", () => {
+  resetSyncStore();
+
+  const firstEvent: NormalizedInputEvent = {
+    id: "evt-normalize-1",
+    turnId: "turn-normalize-1",
+    source: "user",
+    stage: "draft",
+    content: "  Hello   world  ",
+    createdAt: 1_000,
+  };
+
+  ingestInput(firstEvent);
+  submitFinalInput(firstEvent.turnId, 1_000);
+
+  let state = syncStoreApi.getState();
+  assert.equal(state.buffers.final.length, 1);
+  assert.equal(state.buffers.final[0]?.content, "Hello world");
+  assert.equal(state.recentFinalInputs.length, 1);
+
+  const duplicateEvent: NormalizedInputEvent = {
+    id: "evt-normalize-2",
+    turnId: "turn-normalize-2",
+    source: "user",
+    stage: "draft",
+    content: "Hello world",
+    createdAt: 1_500,
+  };
+
+  ingestInput(duplicateEvent);
+  submitFinalInput(duplicateEvent.turnId, 1_500);
+
+  state = syncStoreApi.getState();
+  assert.equal(state.buffers.final.length, 1);
+  assert.equal(state.recentFinalInputs.length, 1);
+  const duplicateTurn = state.turns.find((turn) => turn.id === duplicateEvent.turnId);
+  assert(duplicateTurn);
+  assert.equal(duplicateTurn.events.length, 0);
+
+  const whitespaceEvent: NormalizedInputEvent = {
+    id: "evt-normalize-3",
+    turnId: "turn-normalize-3",
+    source: "user",
+    stage: "draft",
+    content: "     ",
+    createdAt: 1_600,
+  };
+
+  ingestInput(whitespaceEvent);
+  submitFinalInput(whitespaceEvent.turnId, 1_600);
+
+  state = syncStoreApi.getState();
+  assert.equal(state.buffers.final.length, 1);
+  const whitespaceTurn = state.turns.find((turn) => turn.id === whitespaceEvent.turnId);
+  assert(whitespaceTurn);
+  assert.equal(whitespaceTurn.events.length, 0);
+  assert.equal(state.recentFinalInputs.length, 1);
+
+  const laterEvent: NormalizedInputEvent = {
+    id: "evt-normalize-4",
+    turnId: "turn-normalize-4",
+    source: "user",
+    stage: "draft",
+    content: "Hello   world",
+    createdAt: 2_600,
+  };
+
+  ingestInput(laterEvent);
+  submitFinalInput(laterEvent.turnId, 2_600);
+
+  state = syncStoreApi.getState();
+  assert.equal(state.buffers.final.length, 2);
+  assert.equal(state.buffers.final[1]?.content, "Hello world");
+  assert.equal(state.recentFinalInputs.length, 1);
+  assert.equal(state.recentFinalInputs[0]?.timestamp, 2_600);
 });
 
 test("ingestInput appends to the active turn", () => {
@@ -125,6 +204,172 @@ test("applyPatch ignores patches older than the current draft version", () => {
   assert.equal(state.draft.fields.title, "Initial");
   assert.equal(state.draft.fields.description, "Up to date");
   assert.equal(state.oplog.length, 2);
+});
+
+test("applyPatch buffers out-of-order sequences until missing entries arrive", () => {
+  resetSyncStore();
+  beginAgentTurn("agent-turn-buffer", 0);
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 100;
+    const laterPatch: DocumentPatch = {
+      id: "patch-buffer-2",
+      version: 2,
+      fields: { description: "Later" },
+      appliedAt: 20,
+    };
+    applyPatch(laterPatch, { turnId: "agent-turn-buffer", seq: 1 });
+
+    let state = syncStoreApi.getState();
+    assert.equal(state.draft.version, 0);
+    assert.equal(state.oplog.length, 0);
+    const bufferedQueue = state.patchQueues["agent-turn-buffer"];
+    assert(bufferedQueue);
+    assert.equal(bufferedQueue.buffer.length, 1);
+
+    Date.now = () => 150;
+    const firstPatch: DocumentPatch = {
+      id: "patch-buffer-1",
+      version: 1,
+      fields: { title: "First" },
+      appliedAt: 10,
+    };
+    applyPatch(firstPatch, { turnId: "agent-turn-buffer", seq: 0 });
+
+    state = syncStoreApi.getState();
+    assert.equal(state.draft.version, 2);
+    assert.equal(state.draft.fields.title, "First");
+    assert.equal(state.draft.fields.description, "Later");
+    assert.equal(state.oplog.length, 2);
+    const flushedQueue = state.patchQueues["agent-turn-buffer"];
+    assert(flushedQueue);
+    assert.equal(flushedQueue.buffer.length, 0);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("applyPatch logs a patch gap after waiting more than one second", () => {
+  resetSyncStore();
+  beginAgentTurn("agent-turn-gap", 0);
+
+  const originalNow = Date.now;
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    Date.now = () => 100;
+    const skipped: DocumentPatch = {
+      id: "patch-gap-1",
+      version: 1,
+      fields: { title: "Gap" },
+      appliedAt: 5,
+    };
+    applyPatch(skipped, { turnId: "agent-turn-gap", seq: 2 });
+
+    Date.now = () => 1_205;
+    const nextPatch: DocumentPatch = {
+      id: "patch-gap-2",
+      version: 2,
+      fields: { description: "Next" },
+      appliedAt: 6,
+    };
+    applyPatch(nextPatch, { turnId: "agent-turn-gap", seq: 3 });
+
+    const state = syncStoreApi.getState();
+    assert.equal(state.draft.version, 2);
+    assert.equal(state.draft.fields.title, "Gap");
+    assert.equal(state.draft.fields.description, "Next");
+    assert.equal(state.oplog.length, 2);
+    const gapQueue = state.patchQueues["agent-turn-gap"];
+    assert(gapQueue);
+    assert.equal(gapQueue.buffer.length, 0);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]?.[0], "sync.patch_gap");
+    assert.deepEqual(warnings[0]?.[1], { expected: 0, received: 2, turnId: "agent-turn-gap" });
+  } finally {
+    Date.now = originalNow;
+    console.warn = originalWarn;
+  }
+});
+
+test("applyPatch ignores patches for unknown turns", () => {
+  resetSyncStore();
+
+  const patch: DocumentPatch = {
+    id: "patch-unknown",
+    version: 1,
+    fields: { title: "Ignored" },
+    appliedAt: 5,
+  };
+
+  applyPatch(patch, { turnId: "missing-turn", seq: 0 });
+
+  const state = syncStoreApi.getState();
+  assert.equal(state.draft.version, 0);
+  assert.equal(state.oplog.length, 0);
+  assert.equal(Object.keys(state.patchQueues).length, 0);
+});
+
+test("pendingTurn restores buffers when no patches apply", () => {
+  resetSyncStore();
+
+  const draftEvent: NormalizedInputEvent = {
+    id: "evt-pending-1",
+    turnId: "turn-pending-1",
+    source: "user",
+    stage: "draft",
+    content: "Draft content",
+    createdAt: 1,
+  };
+
+  ingestInput(draftEvent);
+  beginAgentTurn("agent-pending", 10);
+
+  completeAgentTurn("agent-pending", 20);
+
+  const state = syncStoreApi.getState();
+  assert.equal(state.pendingTurn, undefined);
+  assert.equal(state.buffers.preview.length, 1);
+  assert.equal(state.buffers.preview[0]?.id, draftEvent.id);
+  const agentTurn = state.turns.find((turn) => turn.id === "agent-pending");
+  assert(agentTurn);
+  assert.equal(agentTurn.status, "finalized");
+});
+
+test("pendingTurn clears without restoring buffers when a patch is applied", () => {
+  resetSyncStore();
+
+  beginAgentTurn("agent-patched", 0);
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 50;
+    const patch: DocumentPatch = {
+      id: "patch-pending",
+      version: 1,
+      fields: { title: "Patched" },
+      appliedAt: 5,
+    };
+    applyPatch(patch, { turnId: "agent-patched", seq: 0 });
+  } finally {
+    Date.now = originalNow;
+  }
+
+  let state = syncStoreApi.getState();
+  assert(state.pendingTurn);
+  assert.equal(state.pendingTurn?.hasAppliedPatch, true);
+
+  completeAgentTurn("agent-patched", 100);
+
+  state = syncStoreApi.getState();
+  assert.equal(state.pendingTurn, undefined);
+  assert.equal(state.buffers.preview.length, 0);
+  assert.equal(state.draft.fields.title, "Patched");
 });
 
 test("exclusive policy finalizes previous turns when another source speaks", () => {

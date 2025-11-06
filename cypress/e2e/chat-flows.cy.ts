@@ -38,7 +38,8 @@ describe('Assistant chat flows', () => {
     }).as('transcribeRequest');
 
     cy.visit('/');
-    cy.contains('Chat Assistant').should('be.visible');
+    cy.ensureAppReady();
+    cy.get('[data-testid="chat-root"]').should('be.visible');
   });
 
   it('streams typed messages, syncs preview, and allows resending', () => {
@@ -101,7 +102,7 @@ describe('Assistant chat flows', () => {
       win.MediaRecorder = MockRecorder as unknown as typeof MediaRecorder;
     });
 
-    cy.get('button[title="Voice input (mock)"]').click();
+    cy.get('[data-testid="mic-button"]').first().click();
     cy.wait('@transcribeRequest');
 
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';

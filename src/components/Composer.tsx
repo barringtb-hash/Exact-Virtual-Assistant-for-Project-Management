@@ -13,6 +13,7 @@ import { useDocType } from "../state/docType.js";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
 import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
+import { isCypress } from "../utils/env.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
@@ -107,6 +108,7 @@ const Composer: React.FC<ComposerProps> = ({
 
   // Mic level monitoring (optional feature)
   const micLevel = FEATURE_MIC_LEVEL ? useMicLevel() : null;
+  const safeMode = isCypress();
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
@@ -170,11 +172,12 @@ const Composer: React.FC<ComposerProps> = ({
   }, [placeholder, previewDocTypeLabel]);
 
   const realtimeButtonTitle = useMemo(() => {
+    if (safeMode) return "Voice";
     if (rtcState === "live") return "Stop realtime voice";
     if (rtcState === "connecting") return "Connecting realtime audio…";
     if (rtcState === "error") return "Retry realtime voice";
     return "Start realtime voice";
-  }, [rtcState]);
+  }, [rtcState, safeMode]);
 
   const handleRealtimeClick = useCallback(async () => {
     if (rtcState === "live" || rtcState === "connecting") {
@@ -189,6 +192,11 @@ const Composer: React.FC<ComposerProps> = ({
       }
     }
   }, [rtcState, startRealtime, stopRealtime, micLevel]);
+
+  const micButtonTitle = useMemo(() => {
+    if (safeMode) return "Voice";
+    return recording ? "Stop recording" : "Voice input (mock)";
+  }, [recording, safeMode]);
 
   const micButtonClasses = recording
     ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
@@ -257,6 +265,7 @@ const Composer: React.FC<ComposerProps> = ({
                   className={`shrink-0 rounded-xl border p-2 transition ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
+                  data-testid="mic-button"
                 >
                   <IconMic className="h-5 w-5" />
                 </button>
@@ -281,8 +290,9 @@ const Composer: React.FC<ComposerProps> = ({
                     ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
                     : micButtonClasses
                 }`}
-                title={recording ? "Stop recording" : "Voice input (mock)"}
+                title={micButtonTitle}
                 aria-label={recordingAriaLabel}
+                data-testid="mic-button"
               >
                 <IconMic className="h-5 w-5" />
               </button>

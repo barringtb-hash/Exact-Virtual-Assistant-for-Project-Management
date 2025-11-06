@@ -36,6 +36,7 @@ describe("Sync developer panel", () => {
     }).as("agentConversation");
 
     cy.visit("/");
+    cy.ensureAppReady();
   });
 
   it("streams patches, reorders out-of-sequence updates, and exposes metrics", () => {

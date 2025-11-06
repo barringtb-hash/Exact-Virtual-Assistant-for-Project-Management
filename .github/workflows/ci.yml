@@ -64,9 +64,9 @@ jobs:
           CI: true
 
       - name: Upload Cypress screenshots
-        if: ${{ failure() || always() }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cypress-screenshots
-          path: cypress/screenshots
+          name: cypress-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cypress/screenshots/**/*.png
           if-no-files-found: ignore

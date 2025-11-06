@@ -10,6 +10,7 @@ export interface VoiceTranscriptEntry {
 
 type VoiceState = {
   status: VoiceStatus;
+  isMicActive: boolean;
   streamId?: string;
   transcripts: VoiceTranscriptEntry[];
 };
@@ -23,6 +24,7 @@ function createId() {
 
 const voiceStore = createStore<VoiceState>({
   status: "idle",
+  isMicActive: false,
   streamId: undefined,
   transcripts: [],
 });
@@ -32,7 +34,7 @@ export const voiceActions = {
     voiceStore.setState({ transcripts: entries });
   },
   startVoiceStream(streamId: string) {
-    voiceStore.setState({ status: "listening", streamId });
+    voiceStore.setState({ status: "listening", isMicActive: true, streamId });
   },
   appendTranscript(text: string) {
     const trimmed = typeof text === "string" ? text.trim() : "";
@@ -48,10 +50,13 @@ export const voiceActions = {
     voiceStore.setState({ transcripts: entries });
   },
   endVoiceStream() {
-    voiceStore.setState({ status: "idle", streamId: undefined });
+    voiceStore.setState({ status: "idle", isMicActive: false, streamId: undefined });
   },
   setStatus(status: VoiceStatus) {
-    voiceStore.setState({ status });
+    voiceStore.setState({ status, isMicActive: status === "listening" });
+  },
+  setMicActive(isMicActive: boolean) {
+    voiceStore.setState({ isMicActive });
   },
   resetTranscript() {
     voiceStore.setState({ transcripts: [] });
@@ -59,6 +64,7 @@ export const voiceActions = {
 };
 
 export const useVoiceStatus = () => useStore(voiceStore, (state) => state.status);
+export const useIsMicActive = () => useStore(voiceStore, (state) => state.isMicActive);
 export const useTranscript = () => useStore(voiceStore, (state) => state.transcripts);
 export const useVoiceStreamId = () => useStore(voiceStore, (state) => state.streamId);
 

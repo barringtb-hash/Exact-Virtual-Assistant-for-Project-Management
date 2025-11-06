@@ -42,7 +42,7 @@ import {
   useInputLocked,
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
-import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
+import { useTranscript, useVoiceStatus, voiceActions, voiceStoreApi } from "./state/voiceStore.ts";
 import {
   pathToPointer,
   pointerMapToPathMap,
@@ -855,6 +855,7 @@ export default function ExactVirtualAssistantPM() {
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rec, setRec] = useState(null);
   const shouldResumeMicRef = useRef(false);
+  const voiceChangeSourceRef = useRef("initial");
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -907,6 +908,97 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    if (typeof window.__micResumeCount !== "number") {
+      window.__micResumeCount = 0;
+    }
+    window.__micActive = voiceStoreApi.getState().isMicActive;
+
+    let previousState = voiceStoreApi.getState();
+
+    const handleVoiceChange = () => {
+      const nextState = voiceStoreApi.getState();
+      const activeChanged = nextState.isMicActive !== previousState.isMicActive;
+      const statusChanged = nextState.status !== previousState.status;
+
+      if (!activeChanged && !statusChanged) {
+        previousState = nextState;
+        return;
+      }
+
+      previousState = nextState;
+      window.__micActive = nextState.isMicActive;
+
+      if (activeChanged && nextState.isMicActive) {
+        window.__micResumeCount =
+          typeof window.__micResumeCount === "number"
+            ? window.__micResumeCount + 1
+            : 1;
+      }
+
+      const detail = {
+        isMicActive: nextState.isMicActive,
+        status: nextState.status,
+        source: activeChanged ? voiceChangeSourceRef.current : "status_change",
+      };
+
+      window.dispatchEvent(new CustomEvent("voice:state-change", { detail }));
+    };
+
+    const unsubscribe = voiceStoreApi.subscribe(handleVoiceChange);
+
+    handleVoiceChange();
+
+    return () => {
+      unsubscribe();
+    };
+  }, [voiceChangeSourceRef]);
+
+  useEffect(() => {
+    if (!CYPRESS_SAFE_MODE || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const bridge = {
+      get isActive() {
+        return voiceStoreApi.getState().isMicActive;
+      },
+      onStateChange(callback) {
+        if (typeof callback !== "function") {
+          return () => {};
+        }
+
+        let previous = voiceStoreApi.getState().isMicActive;
+        callback(previous);
+
+        const unsubscribe = voiceStoreApi.subscribe(() => {
+          const next = voiceStoreApi.getState().isMicActive;
+          if (next === previous) {
+            return;
+          }
+          previous = next;
+          callback(next);
+        });
+
+        return () => {
+          unsubscribe();
+        };
+      },
+    };
+
+    window.__voiceTest = bridge;
+
+    return () => {
+      if (window.__voiceTest === bridge) {
+        delete window.__voiceTest;
+      }
+    };
+  }, [CYPRESS_SAFE_MODE]);
   const hideEmptySections = useMemo(() => {
     const raw = import.meta?.env?.VITE_HIDE_EMPTY_SECTIONS;
     if (raw == null) {
@@ -2337,8 +2429,9 @@ const resolveDocTypeForManualSync = useCallback(
       reader.readAsDataURL(blob);
     });
 
-  const startRecording = async () => {
+  const startRecording = async ({ source = "voice_start" } = {}) => {
     if (rec) return;
+    voiceChangeSourceRef.current = source;
     shouldResumeMicRef.current = false;
     let stream;
     try {
@@ -2391,10 +2484,8 @@ const resolveDocTypeForManualSync = useCallback(
             stream.getTracks().forEach((track) => track.stop());
           }
           setRec(null);
+          voiceChangeSourceRef.current = "recording_stop";
           voiceActions.setStatus("idle");
-          if (typeof window !== "undefined") {
-            window.__micActive = false;
-          }
           dispatch("VOICE_STOP");
         }
       };
@@ -2402,25 +2493,21 @@ const resolveDocTypeForManualSync = useCallback(
       recorder.start();
       setRec(recorder);
       voiceActions.setStatus("listening");
-      if (typeof window !== "undefined") {
-        window.__micActive = true;
-      }
     } catch (error) {
       console.error("Microphone access denied", error);
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
       setRec(null);
+      voiceChangeSourceRef.current = "microphone_error";
       voiceActions.setStatus("idle");
-      if (typeof window !== "undefined") {
-        window.__micActive = false;
-      }
       dispatch("VOICE_STOP");
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = ({ source = "voice_stop" } = {}) => {
     if (!rec) return;
+    voiceChangeSourceRef.current = source;
     try {
       rec.stop();
       rec.stream?.getTracks().forEach((track) => track.stop());
@@ -2430,9 +2517,6 @@ const resolveDocTypeForManualSync = useCallback(
       setRec(null);
       voiceActions.setStatus("idle");
       shouldResumeMicRef.current = VOICE_AUTO_RESUME_ON_SUBMIT;
-      if (typeof window !== "undefined") {
-        window.__micActive = false;
-      }
     }
   };
   const handleCommandFromText = useCallback(
@@ -2711,12 +2795,14 @@ const resolveDocTypeForManualSync = useCallback(
       if (!trimmed) return;
 
       if (!isFinal) {
+        voiceChangeSourceRef.current = "voice_partial_transcript";
         voiceActions.setStatus("transcribing");
         return;
       }
 
       const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
       if (isStreaming || isAssistantThinking) {
+        voiceChangeSourceRef.current = "voice_guard_idle";
         voiceActions.setStatus("idle");
         return;
       }
@@ -2734,10 +2820,12 @@ const resolveDocTypeForManualSync = useCallback(
       voiceActions.setTranscripts(nextVoice);
       dispatch("PREVIEW_UPDATED", { source: "voice" });
 
+      voiceChangeSourceRef.current = "voice_transcribing";
       voiceActions.setStatus("transcribing");
       try {
         await submitChatTurn(trimmed, { source: "voice" });
       } finally {
+        voiceChangeSourceRef.current = "voice_transcription_complete";
         voiceActions.setStatus("idle");
       }
     },
@@ -2748,25 +2836,26 @@ const resolveDocTypeForManualSync = useCallback(
     const text = composerDraft.trim();
     if (!text) return;
     if (isAssistantThinking || isAssistantStreaming) return;
+    const voiceState = voiceStoreApi.getState();
+    const wasMicActive = !realtimeEnabled && voiceState.isMicActive;
+    const plannedResume = shouldResumeMicRef.current;
+
+    if (wasMicActive) {
+      stopRecording({ source: "composer_submit_pause" });
+    }
+
     chatActions.clearComposerDraft();
     const result = await submitChatTurn(text, { source: "composer" });
 
     const shouldResume =
       VOICE_AUTO_RESUME_ON_SUBMIT &&
       !realtimeEnabled &&
-      shouldResumeMicRef.current &&
+      (wasMicActive || plannedResume) &&
       result?.status !== "busy";
 
     if (shouldResume) {
       try {
-        await startRecording();
-        if (typeof window !== "undefined") {
-          window.__micResumeCount =
-            typeof window.__micResumeCount === "number" ? window.__micResumeCount + 1 : 1;
-          window.dispatchEvent(
-            new CustomEvent("mic:resumed", { detail: { source: "composer_submit" } }),
-          );
-        }
+        await startRecording({ source: "composer_submit" });
       } catch (error) {
         console.error("Failed to resume microphone after submit", error);
       } finally {

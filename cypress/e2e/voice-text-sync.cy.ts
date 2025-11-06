@@ -33,16 +33,6 @@ describe("Voice and text preview synchronization", () => {
     cy.waitForAppReady();
     cy.stubGUMSuccess();
 
-    cy.window()
-      .then((win) => {
-        const typedWin = win as Window & { __micResumeCount?: number };
-        if (typeof typedWin.__micResumeCount !== "number") {
-          typedWin.__micResumeCount = 0;
-        }
-        return typedWin.__micResumeCount;
-      })
-      .as("micResumeBaseline");
-
     cy.get('[data-testid="sync-devtools"]').should("be.visible");
 
     cy.get('[data-testid="mic-button"]').as("micButton");
@@ -61,28 +51,44 @@ describe("Voice and text preview synchronization", () => {
     cy.wait("@chatRequest");
     cy.wait("@extractRequest");
 
-    cy.get<number>("@micResumeBaseline").then((baseline) => {
-      cy.window().then((win) => {
-        const typedWin = win as Window & { __micResumeCount?: number };
+    cy.window().then((win) => {
+      type VoiceTestBridge = {
+        isActive: boolean;
+        onStateChange?: (callback: (active: boolean) => void) => () => void;
+      };
+
+      const typedWin = win as Window & {
+        __voiceTest?: VoiceTestBridge;
+        __micActive?: boolean;
+      };
+
+      if (typedWin.__voiceTest && typeof typedWin.__voiceTest.onStateChange === "function") {
         return new Cypress.Promise<void>((resolve) => {
-          const currentCount =
-            typeof typedWin.__micResumeCount === "number" ? typedWin.__micResumeCount : 0;
-          if (currentCount > baseline) {
-            resolve();
-            return;
-          }
-          const handler: EventListener = () => {
-            const nextCount =
-              typeof typedWin.__micResumeCount === "number"
-                ? typedWin.__micResumeCount
-                : 0;
-            if (nextCount > baseline) {
-              typedWin.removeEventListener("mic:resumed", handler);
+          const unsubscribe = typedWin.__voiceTest?.onStateChange?.((active: boolean) => {
+            if (active) {
+              if (typeof unsubscribe === "function") {
+                unsubscribe();
+              }
               resolve();
             }
-          };
-          typedWin.addEventListener("mic:resumed", handler);
+          });
         });
+      }
+
+      if (typedWin.__micActive === true) {
+        return;
+      }
+
+      return new Cypress.Promise<void>((resolve) => {
+        const handler: EventListener = (event) => {
+          const custom = event as CustomEvent<{ isMicActive?: boolean; source?: string }>;
+          if (custom.detail?.isMicActive && custom.detail?.source === "composer_submit") {
+            win.removeEventListener("voice:state-change", handler);
+            resolve();
+          }
+        };
+
+        win.addEventListener("voice:state-change", handler);
       });
     });
 

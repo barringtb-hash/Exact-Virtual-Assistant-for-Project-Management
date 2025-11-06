@@ -7,7 +7,7 @@ import {
   useIsAssistantThinking,
   useIsStreaming,
 } from "../state/chatStore.ts";
-import { useVoiceStatus } from "../state/voiceStore.ts";
+import { useIsMicActive, useVoiceStatus } from "../state/voiceStore.ts";
 import { dispatch } from "../sync/syncStore.js";
 
 import { useDocType } from "../state/docType.js";
@@ -100,8 +100,9 @@ const Composer: React.FC<ComposerProps> = ({
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
   const voiceStatus = useVoiceStatus();
+  const micActive = useIsMicActive();
   const recording =
-    typeof recordingOverride === "boolean" ? recordingOverride : voiceStatus === "listening";
+    typeof recordingOverride === "boolean" ? recordingOverride : micActive;
   const resolvedSendDisabled =
     sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
@@ -267,7 +268,9 @@ const Composer: React.FC<ComposerProps> = ({
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
                   data-testid="mic-button"
-                  aria-pressed={rtcState === "live" || rtcState === "connecting"}
+                aria-pressed={
+                  rtcState === "live" || rtcState === "connecting" ? "true" : "false"
+                }
                 >
                   <IconMic className="h-5 w-5" />
                 </button>
@@ -295,7 +298,7 @@ const Composer: React.FC<ComposerProps> = ({
                 title={recording ? "Stop recording" : "Voice input (mock)"}
                 aria-label={recordingAriaLabel}
                 data-testid="mic-button"
-                aria-pressed={recording}
+                aria-pressed={recording ? "true" : "false"}
               >
                 <IconMic className="h-5 w-5" />
               </button>

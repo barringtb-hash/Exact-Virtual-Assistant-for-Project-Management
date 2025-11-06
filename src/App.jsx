@@ -43,6 +43,7 @@ import {
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions, voiceStoreApi } from "./state/voiceStore.ts";
+import { createVoiceGate } from "./state/voiceGate.ts";
 import {
   pathToPointer,
   pointerMapToPathMap,
@@ -854,8 +855,54 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rec, setRec] = useState(null);
-  const shouldResumeMicRef = useRef(false);
+  const startRecordingRef = useRef(null);
+  const stopRecordingRef = useRef(null);
+  const voiceGateRef = useRef(null);
+  const composerWasActiveRef = useRef(false);
   const voiceChangeSourceRef = useRef("initial");
+  if (!voiceGateRef.current) {
+    voiceGateRef.current = createVoiceGate((active) => {
+      if (active) {
+        startRecordingRef.current?.({ source: "voice_gate_resume" });
+      } else {
+        stopRecordingRef.current?.({ source: "voice_gate_pause" });
+      }
+    });
+  }
+  const voiceGate = voiceGateRef.current;
+
+  useEffect(() => {
+    voiceGate.hold("user");
+    return () => {
+      voiceGate.clearAll();
+    };
+  }, [voiceGate]);
+
+  useEffect(() => {
+    if (!CYPRESS_SAFE_MODE || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const debugBridge = {
+      get active() {
+        return voiceGate.isActive();
+      },
+      get reasons() {
+        return voiceGate.getReasons();
+      },
+      clearAll() {
+        voiceGate.clearAll();
+      },
+    };
+
+    window.__voiceGateDebug = debugBridge;
+
+    return () => {
+      if (window.__voiceGateDebug === debugBridge) {
+        delete window.__voiceGateDebug;
+      }
+    };
+  }, [voiceGate]);
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -2432,7 +2479,6 @@ const resolveDocTypeForManualSync = useCallback(
   const startRecording = async ({ source = "voice_start" } = {}) => {
     if (rec) return;
     voiceChangeSourceRef.current = source;
-    shouldResumeMicRef.current = false;
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2516,9 +2562,41 @@ const resolveDocTypeForManualSync = useCallback(
     } finally {
       setRec(null);
       voiceActions.setStatus("idle");
-      shouldResumeMicRef.current = VOICE_AUTO_RESUME_ON_SUBMIT;
     }
   };
+
+  startRecordingRef.current = startRecording;
+  stopRecordingRef.current = stopRecording;
+
+  const handleComposerFocusVoice = useCallback(() => {
+    if (voiceGate.isActive()) {
+      composerWasActiveRef.current = true;
+    }
+    voiceGate.hold("composer");
+  }, [voiceGate, composerWasActiveRef]);
+
+  const handleComposerBlurVoice = useCallback(() => {
+    composerWasActiveRef.current = false;
+    voiceGate.release("composer");
+  }, [voiceGate, composerWasActiveRef]);
+
+  const handleComposerInteractionVoice = useCallback(() => {
+    if (voiceGate.isActive()) {
+      composerWasActiveRef.current = true;
+    }
+    voiceGate.hold("composer");
+  }, [voiceGate, composerWasActiveRef]);
+
+  const handleUserStartMic = useCallback(() => {
+    voiceGate.release("composer");
+    voiceGate.release("user");
+    composerWasActiveRef.current = false;
+  }, [voiceGate, composerWasActiveRef]);
+
+  const handleUserStopMic = useCallback(() => {
+    voiceGate.hold("user");
+    composerWasActiveRef.current = false;
+  }, [voiceGate, composerWasActiveRef]);
   const handleCommandFromText = useCallback(
     async (
       rawText,
@@ -2836,31 +2914,38 @@ const resolveDocTypeForManualSync = useCallback(
     const text = composerDraft.trim();
     if (!text) return;
     if (isAssistantThinking || isAssistantStreaming) return;
-    const voiceState = voiceStoreApi.getState();
-    const wasMicActive = !realtimeEnabled && voiceState.isMicActive;
-    const plannedResume = shouldResumeMicRef.current;
+    const gateWasActive = voiceGate.isActive() || composerWasActiveRef.current;
+    voiceGate.hold("composer");
 
-    if (wasMicActive) {
-      stopRecording({ source: "composer_submit_pause" });
+    let networkHeld = false;
+    if (gateWasActive && !realtimeEnabled) {
+      voiceGate.hold("network");
+      networkHeld = true;
     }
 
     chatActions.clearComposerDraft();
-    const result = await submitChatTurn(text, { source: "composer" });
 
-    const shouldResume =
-      VOICE_AUTO_RESUME_ON_SUBMIT &&
-      !realtimeEnabled &&
-      (wasMicActive || plannedResume) &&
-      result?.status !== "busy";
+    let result;
+    try {
+      result = await submitChatTurn(text, { source: "composer" });
+    } finally {
+      voiceGate.release("composer");
+      const allowAutoResume =
+        VOICE_AUTO_RESUME_ON_SUBMIT &&
+        !realtimeEnabled &&
+        result?.status !== "busy";
 
-    if (shouldResume) {
-      try {
-        await startRecording({ source: "composer_submit" });
-      } catch (error) {
-        console.error("Failed to resume microphone after submit", error);
-      } finally {
-        shouldResumeMicRef.current = false;
+      if (allowAutoResume) {
+        voiceGate.release("user");
+      } else if (gateWasActive) {
+        voiceGate.hold("user");
       }
+
+      if (networkHeld) {
+        voiceGate.release("network");
+      }
+
+      composerWasActiveRef.current = false;
     }
   };
 
@@ -3277,8 +3362,8 @@ const resolveDocTypeForManualSync = useCallback(
                   <Composer
                     onSend={handleSend}
                     onUploadClick={() => fileInputRef.current?.click()}
-                    onStartRecording={!realtimeEnabled ? startRecording : undefined}
-                    onStopRecording={!realtimeEnabled ? stopRecording : undefined}
+                    onStartRecording={!realtimeEnabled ? handleUserStartMic : undefined}
+                    onStopRecording={!realtimeEnabled ? handleUserStopMic : undefined}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}
@@ -3288,6 +3373,9 @@ const resolveDocTypeForManualSync = useCallback(
                     placeholder="Type here… (paste scope or attach files)"
                     onDrop={handleComposerDrop}
                     onDragOver={handleComposerDragOver}
+                    onComposerFocus={handleComposerFocusVoice}
+                    onComposerBlur={handleComposerBlurVoice}
+                    onComposerInteraction={handleComposerInteractionVoice}
                     IconUpload={IconUpload}
                     IconMic={IconMic}
                     IconSend={IconSend}

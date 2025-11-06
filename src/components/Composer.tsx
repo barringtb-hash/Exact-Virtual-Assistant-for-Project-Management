@@ -52,6 +52,9 @@ export interface ComposerProps {
   placeholder?: string;
   onDrop?: React.DragEventHandler<HTMLTextAreaElement>;
   onDragOver?: React.DragEventHandler<HTMLTextAreaElement>;
+  onComposerFocus?: () => void;
+  onComposerBlur?: () => void;
+  onComposerInteraction?: () => void;
   IconUpload: IconComponent;
   IconMic: IconComponent;
   IconSend: IconComponent;
@@ -87,6 +90,9 @@ const Composer: React.FC<ComposerProps> = ({
   placeholder,
   onDrop,
   onDragOver,
+  onComposerFocus,
+  onComposerBlur,
+  onComposerInteraction,
   IconUpload,
   IconMic,
   IconSend,
@@ -123,11 +129,12 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleChange: React.ChangeEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
+      onComposerInteraction?.();
       chatActions.setComposerDraft(event.target.value);
       adjustTextareaHeight();
       dispatch("PREVIEW_UPDATED", { source: "text" });
     },
-    [adjustTextareaHeight]
+    [adjustTextareaHeight, onComposerInteraction]
   );
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
@@ -145,26 +152,22 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleMicClick = useCallback(async () => {
     if (recording) {
-      dispatch("VOICE_STOP");
       if (onStopRecording) {
-        onStopRecording();
+        await onStopRecording();
+      } else {
+        onMicToggle?.();
       }
       if (micLevel) {
         await micLevel.stop();
       }
-      if (!onStopRecording) {
-        onMicToggle?.();
-      }
     } else {
-      dispatch("VOICE_START");
       if (onStartRecording) {
-        onStartRecording();
+        await onStartRecording();
+      } else {
+        onMicToggle?.();
       }
       if (micLevel) {
         await micLevel.start(micLevel.selectedDeviceId);
-      }
-      if (!onStartRecording) {
-        onMicToggle?.();
       }
     }
   }, [onMicToggle, onStartRecording, onStopRecording, recording, micLevel]);
@@ -233,7 +236,13 @@ const Composer: React.FC<ComposerProps> = ({
           value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onFocus={() => dispatch("TEXT_FOCUS")}
+          onFocus={() => {
+            onComposerFocus?.();
+            dispatch("TEXT_FOCUS");
+          }}
+          onBlur={() => {
+            onComposerBlur?.();
+          }}
           onDrop={onDrop}
           onDragOver={onDragOver}
           placeholder={resolvedPlaceholder}

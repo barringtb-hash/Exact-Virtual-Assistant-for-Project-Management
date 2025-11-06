@@ -2,6 +2,7 @@ declare global {
   namespace Cypress {
     interface Chainable {
       waitForAppReady(): Chainable<void>;
+      waitForMicActive(): Chainable<void>;
       typeIntoComposer(
         text: string
       ): Chainable<JQuery<HTMLInputElement | HTMLTextAreaElement>>;
@@ -45,6 +46,38 @@ Cypress.Commands.add("getComposerInput", () => {
         `Could not find a composer or guided input. Tried: ${COMPOSER_SELECTOR_PRIORITIES.join(", ")}`
       );
     });
+});
+
+Cypress.Commands.add("waitForMicActive", () => {
+  cy.window({ log: false }).then((win) => {
+    const gate = (win as unknown as { __voiceGateDebug?: {
+      active: boolean;
+      reasons: string[];
+    } }).__voiceGateDebug;
+
+    if (gate?.active) {
+      return undefined;
+    }
+
+    return new Cypress.Promise<void>((resolve) => {
+      const handleState = (event: Event) => {
+        const detail = (event as CustomEvent<{ active?: boolean }>).detail;
+        if (detail?.active) {
+          win.removeEventListener("voice:state", handleState as EventListener);
+          resolve();
+        }
+      };
+
+      win.addEventListener("voice:state", handleState as EventListener);
+
+      if (gate && !gate.active) {
+        Cypress.log({
+          name: "voice gate",
+          message: `waiting for mic resume; reasons=${gate.reasons.join(",")}`,
+        });
+      }
+    });
+  });
 });
 
 Cypress.Commands.add("restoreGUM", () => {

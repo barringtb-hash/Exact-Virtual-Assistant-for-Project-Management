@@ -8,13 +8,19 @@ on:
 
 jobs:
   test:
-    name: Build & Test
+    name: Build & Test (${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TERM: xterm-256color
+      VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
+      VITE_CHARTER_WIZARD_VISIBLE: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
+      VITE_AUTO_EXTRACTION_ENABLED: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
     strategy:
       fail-fast: false
       matrix:
         node-version: [22]
+        mode: [guided, wizard]
 
     steps:
       - name: Checkout
@@ -46,15 +52,15 @@ jobs:
       - name: Charter wizard golden QA
         run: npm run qa:charter-wizard
 
-      - name: Build Vite app
-        run: npm run build
-
-      - name: Start preview on strict port
-        run: |
-          npm run preview -- --host --port 5173 --strictPort &
-          npx --yes wait-on http://127.0.0.1:5173
-
-      - name: Cypress E2E (headless via Xvfb)
-        run: xvfb-run -a npm run e2e:ci
+      - name: Cypress end-to-end (${{ matrix.mode }})
+        run: npm run e2e:${{ matrix.mode }}
         env:
           CI: true
+
+      - name: Upload Cypress screenshots
+        if: ${{ failure() || always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+          if-no-files-found: ignore

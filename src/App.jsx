@@ -22,9 +22,8 @@ import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
   isIntentOnlyExtractionEnabled,
-  isCharterWizardVisible,
-  isAutoExtractionEnabled,
 } from "../config/featureFlags.js";
+import { FLAGS } from "./config/flags.ts";
 import {
   useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
@@ -40,6 +39,7 @@ import {
   useIsAssistantThinking,
   useIsStreaming,
   useIsSyncingPreview,
+  useInputLocked,
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
@@ -51,6 +51,9 @@ import {
 } from "./utils/jsonPointer.js";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
+import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
+import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
+import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -64,6 +67,12 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
   draft && typeof draft === "object" && !Array.isArray(draft) ? draft : {};
 
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
+const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
+const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
+const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
+const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
+const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
+const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
@@ -310,6 +319,34 @@ function getValueAtPath(source, path) {
   return current;
 }
 
+function normalizeForComparison(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForComparison(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, normalizeForComparison(entryValue)])
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+    return entries.reduce((acc, [key, entryValue]) => {
+      acc[key] = entryValue;
+      return acc;
+    }, {});
+  }
+
+  if (value === undefined) {
+    return null;
+  }
+
+  return value;
+}
+
+function valuesEqual(a, b) {
+  return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b));
+}
+
 // --- Tiny inline icons (no external deps) ---
 const IconUpload = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -479,7 +516,7 @@ export default function ExactVirtualAssistantPM() {
     schemaStatus,
     schema: activeDocSchema,
   } = useDocTemplate();
-  const storedContextRef = useRef(readStoredSession());
+  const storedContextRef = useRef(CYPRESS_SAFE_MODE ? null : readStoredSession());
   const chatHydratedRef = useRef(false);
   const voiceHydratedRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -487,17 +524,25 @@ export default function ExactVirtualAssistantPM() {
   const composerDraft = useComposerDraft();
   const isAssistantThinking = useIsAssistantThinking();
   const isAssistantStreaming = useIsStreaming();
+  const isComposerLocked = useInputLocked();
   const isSyncingPreviewFlag = useIsSyncingPreview();
   const voiceStatus = useVoiceStatus();
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+  const [guidedState, setGuidedState] = useState(null);
+  const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
+  const guidedOrchestratorRef = useRef(null);
+  const isGuidedChatEnabled = useMemo(
+    () => GUIDED_CHAT_WITHOUT_WIZARD && templateDocType === "charter",
+    [templateDocType],
+  );
 
   // Detect if Charter Wizard is active - if so, disable background extraction
   // The wizard handles field collection sequentially through conversationMachine
   const isWizardActive = useMemo(() => {
-    // Check feature flag first - wizard must be enabled
-    if (!isCharterWizardVisible()) return false;
+    // Guided chat must be enabled and the wizard must be visible
+    if (!SHOULD_SHOW_CHARTER_WIZARD) return false;
     if (!conversationState) return false;
     if (templateDocType !== "charter") return false;
     if (conversationState.mode === "finalized") return false;
@@ -517,6 +562,25 @@ export default function ExactVirtualAssistantPM() {
     : isAssistantStreaming
     ? "streaming"
     : null;
+  const isGuidedSessionActive = Boolean(
+    guidedState && guidedState.status !== "idle" && guidedState.status !== "complete"
+  );
+  const canStartGuided =
+    !guidedState || guidedState.status === "idle" || guidedState.status === "complete";
+  const guidedCurrentField = useMemo(() => {
+    if (!guidedState?.currentFieldId) {
+      return null;
+    }
+    const fieldState = guidedState.fields?.[guidedState.currentFieldId];
+    if (!fieldState?.definition) {
+      return null;
+    }
+    const { label, reviewLabel, question } = fieldState.definition;
+    return {
+      label: reviewLabel ?? label ?? null,
+      question: question ?? null,
+    };
+  }, [guidedState?.currentFieldId, guidedState?.fields]);
   const [files, setFiles] = useState(() => {
     const stored = storedContextRef.current;
     return restoreFilesFromStoredAttachments(stored?.attachments);
@@ -925,6 +989,9 @@ export default function ExactVirtualAssistantPM() {
   ]);
 
   useEffect(() => {
+    if (CYPRESS_SAFE_MODE) {
+      return;
+    }
     mergeStoredSession({ attachments, messages });
   }, [attachments, messages]);
 
@@ -1012,6 +1079,8 @@ export default function ExactVirtualAssistantPM() {
     [createBlankDraft, previewDocType]
   );
 
+  const autoExtractionDisabled = isWizardActive || guidedAutoExtractionDisabled;
+
   const {
     isExtracting,
     error: extractError,
@@ -1024,10 +1093,10 @@ export default function ExactVirtualAssistantPM() {
       : null,
     suggestedDocType: suggested,
     allowedDocTypes: supportedDocTypes,
-    // When wizard is active, don't pass messages/attachments/voice to prevent auto-extraction
-    messages: isWizardActive ? [] : messages,
-    voice: isWizardActive ? [] : voiceTranscripts,
-    attachments: isWizardActive ? [] : attachments,
+    // When guidance workflows are active, don't pass messages/attachments/voice to prevent auto-extraction
+    messages: autoExtractionDisabled ? [] : messages,
+    voice: autoExtractionDisabled ? [] : voiceTranscripts,
+    attachments: autoExtractionDisabled ? [] : attachments,
     seed: extractionSeed,
     locks,
     getDraft: getCurrentDraft,
@@ -1299,6 +1368,128 @@ export default function ExactVirtualAssistantPM() {
     ]);
   }, []);
 
+  useEffect(() => {
+    if (!GUIDED_CHAT_WITHOUT_WIZARD) {
+      if (guidedOrchestratorRef.current) {
+        guidedOrchestratorRef.current.reset();
+      }
+      setGuidedState(null);
+      setGuidedAutoExtractionDisabled(false);
+      return;
+    }
+
+    if (!guidedOrchestratorRef.current) {
+      guidedOrchestratorRef.current = createGuidedOrchestrator({
+        postAssistantMessage: appendAssistantMessage,
+        onStateChange: setGuidedState,
+        onActiveChange: setGuidedAutoExtractionDisabled,
+      });
+    }
+
+    const orchestrator = guidedOrchestratorRef.current;
+
+    if (!isGuidedChatEnabled) {
+      orchestrator.reset();
+      setGuidedState(orchestrator.getState());
+      setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
+      return;
+    }
+
+    setGuidedState(orchestrator.getState());
+    setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
+  }, [appendAssistantMessage, isGuidedChatEnabled]);
+
+  const applyGuidedAnswersToDraft = useCallback(
+    (state) => {
+      if (!isGuidedChatEnabled) {
+        return null;
+      }
+      if (previewDocType !== "charter") {
+        return null;
+      }
+      if (!state || !state.fields) {
+        return null;
+      }
+
+      const patch = guidedStateToCharterDTO(state);
+      const entries = Object.entries(patch);
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const baseDraft =
+        charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const diff = {};
+
+      for (const [fieldId, nextValue] of entries) {
+        if (typeof nextValue === "undefined") {
+          continue;
+        }
+        const currentValue = getValueAtPath(baseDraft, fieldId);
+        if (!valuesEqual(currentValue, nextValue)) {
+          diff[fieldId] = nextValue;
+        }
+      }
+
+      if (Object.keys(diff).length === 0) {
+        return null;
+      }
+
+      const pointerLocksSnapshot =
+        pointerLocksRef.current instanceof Map ? pointerLocksRef.current : new Map();
+      const { draft: finalDraft, updatedPaths, metadataByPointer, updatedAt } =
+        mergeIntoDraftWithLocks(baseDraft, diff, pointerLocksSnapshot, {
+          source: "Guided",
+          updatedAt: Date.now(),
+        });
+
+      if (!updatedPaths || updatedPaths.size === 0) {
+        return null;
+      }
+
+      charterDraftRef.current = finalDraft;
+      draftActions.setDraft(finalDraft);
+
+      const timestamp =
+        typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
+      const locksSnapshot = locksRef.current || {};
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths: updatedPaths,
+          source: "Guided",
+          timestamp,
+          locks: locksSnapshot,
+        }),
+      );
+
+      recordDraftMetadata({
+        paths: metadataByPointer,
+        source: "Guided",
+        updatedAt: timestamp,
+      });
+
+      return finalDraft;
+    },
+    [
+      createBlankDraft,
+      isGuidedChatEnabled,
+      previewDocType,
+      setFieldStates,
+    ],
+  );
+
+  const flushGuidedAnswers = useCallback(() => {
+    if (!guidedState) {
+      return null;
+    }
+    return applyGuidedAnswersToDraft(guidedState);
+  }, [applyGuidedAnswersToDraft, guidedState]);
+
+  useEffect(() => {
+    flushGuidedAnswers();
+  }, [flushGuidedAnswers]);
+
   const scheduleChatPreviewSync = useCallback(
     ({ reason = "chat-completion" } = {}) => {
       if (!effectiveDocType) {
@@ -1512,8 +1703,17 @@ const resolveDocTypeForManualSync = useCallback(
     appendAssistantMessage(message);
   };
 
-  const validateCharter = async (draft = charterPreview) => {
-    if (!draft) {
+  const validateCharter = async (draft = null) => {
+    const flushedDraft = flushGuidedAnswers();
+    const coerceDraft = (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    const effectiveDraft =
+      coerceDraft(draft) ??
+      coerceDraft(flushedDraft) ??
+      coerceDraft(charterDraftRef.current) ??
+      coerceDraft(charterPreview);
+
+    if (!effectiveDraft) {
       return {
         ok: false,
         errors: [
@@ -1524,8 +1724,8 @@ const resolveDocTypeForManualSync = useCallback(
 
     const docPayload = {
       docType: requestDocType,
-      document: draft,
-      charter: requestDocType === "charter" ? draft : undefined,
+      document: effectiveDraft,
+      charter: requestDocType === "charter" ? effectiveDraft : undefined,
     };
 
     if (suggested && typeof suggested?.type === "string") {
@@ -1665,15 +1865,20 @@ const resolveDocTypeForManualSync = useCallback(
     includePdf = true,
     introText,
   } = {}) => {
-    const hasCharterDraft =
-      charterPreview && typeof charterPreview === "object" && !Array.isArray(charterPreview);
-    const normalizedDocument = hasCharterDraft ? normalizeDraft(charterPreview) : null;
+    const flushedDraft = flushGuidedAnswers();
+    const coerceDraft = (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    const latestDraft =
+      coerceDraft(flushedDraft) ??
+      coerceDraft(charterDraftRef.current) ??
+      coerceDraft(charterPreview);
+    const normalizedDocument = latestDraft ? normalizeDraft(latestDraft) : null;
 
-    if (hasCharterDraft) {
+    if (normalizedDocument) {
       applyCharterDraft(normalizedDocument);
     }
 
-    const validation = await validateCharter(normalizedDocument);
+    const validation = await validateCharter(normalizedDocument ?? latestDraft);
     if (!validation.ok) {
       postValidationErrorsToChat(validation.errors);
       return { ok: false, reason: "validation" };
@@ -2335,6 +2540,16 @@ const resolveDocTypeForManualSync = useCallback(
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
+      const orchestrator = guidedOrchestratorRef.current;
+      const shouldBypassGuided = trimmed.startsWith("/");
+      if (orchestrator && !shouldBypassGuided) {
+        const handled = orchestrator.handleUserMessage(trimmed);
+        if (handled) {
+          chatActions.unlockField("composer");
+          return { status: "guided" };
+        }
+      }
+
       // Real-time sync: In intent-only mode, attemptIntentExtraction() handles immediate sync
       // In non-intent mode, trigger immediate extraction here
       if (intentOnlyExtractionEnabled) {
@@ -2377,7 +2592,13 @@ const resolveDocTypeForManualSync = useCallback(
         const latestAttachments = Array.isArray(attachmentsRef.current)
           ? attachmentsRef.current
           : [];
-        reply = await callLLM(trimmed, nextHistory, latestAttachments);
+        const guidedSystemPrompt =
+          orchestrator && !shouldBypassGuided && orchestrator.isActive()
+            ? CHARTER_GUIDED_SYSTEM_PROMPT
+            : undefined;
+        reply = await callLLM(trimmed, nextHistory, latestAttachments, {
+          systemPrompt: guidedSystemPrompt,
+        });
       } catch (e) {
         reply = "LLM error (demo): " + (e?.message || "unknown");
       } finally {
@@ -2396,6 +2617,43 @@ const resolveDocTypeForManualSync = useCallback(
       intentOnlyExtractionEnabled,
       scheduleChatPreviewSync,
     ]
+  );
+
+  const handleStartGuidedCharter = useCallback(() => {
+    if (!isGuidedChatEnabled) {
+      return;
+    }
+    const orchestrator = guidedOrchestratorRef.current;
+    orchestrator?.start();
+  }, [isGuidedChatEnabled]);
+
+  const handleGuidedCommandChip = useCallback(
+    async (command) => {
+      const trimmed = typeof command === "string" ? command.trim() : "";
+      if (!trimmed) {
+        return;
+      }
+
+      const { isAssistantThinking: thinking, isStreaming, inputLocked } =
+        chatStoreApi.getState();
+      if (thinking || isStreaming || inputLocked) {
+        return;
+      }
+
+      const previousDraft = chatStoreApi.getState().composerDraft;
+      chatActions.setComposerDraft(trimmed);
+
+      try {
+        await submitChatTurn(trimmed, { source: "composer" });
+      } finally {
+        if (previousDraft) {
+          chatActions.setComposerDraft(previousDraft);
+        } else {
+          chatActions.clearComposerDraft();
+        }
+      }
+    },
+    [submitChatTurn],
   );
 
   const handleVoiceTranscriptMessage = useCallback(
@@ -2721,9 +2979,15 @@ const resolveDocTypeForManualSync = useCallback(
   };
 
   return (
-    <div className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
+    <div
+      data-testid="app-ready"
+      className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100"
+    >
       {/* Top Bar */}
-      <header className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-white/50 bg-white/60 border-b border-white/40 dark:supports-[backdrop-filter]:bg-slate-900/60 dark:bg-slate-900/60 dark:border-slate-700/60">
+      <header
+        data-testid="app-header"
+        className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/50 bg-white/60 border-b border-white/40 dark:supports-[backdrop-filter]:bg-slate-900/60 dark:bg-slate-900/60 dark:border-slate-700/60"
+      >
         <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-indigo-600/90 text-white grid place-items-center font-bold shadow-sm">EX</div>
@@ -2767,8 +3031,59 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
-                  {isCharterWizardVisible() && <CharterFieldSession className="mb-3" />}
-                  {isCharterWizardVisible() && isAutoExtractionEnabled() && (attachments.length > 0 || messages.length > 0) && (
+                  {isGuidedChatEnabled && (
+                    <div className="mb-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          data-testid="btn-start-charter"
+                          onClick={handleStartGuidedCharter}
+                          disabled={!canStartGuided}
+                          className="rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
+                        >
+                          {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
+                        </button>
+                        {isGuidedSessionActive && guidedCurrentField ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-300">
+                            Working on: {guidedCurrentField.label}
+                            {guidedCurrentField.question
+                              ? ` — ${guidedCurrentField.question}`
+                              : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                      {isGuidedSessionActive ? (
+                        <div className="flex flex-wrap gap-2">
+                          {[{
+                            label: "Back",
+                            command: "back",
+                            testId: "chip-back",
+                          }, {
+                            label: "Skip",
+                            command: "skip",
+                            testId: "chip-skip",
+                          }, {
+                            label: "Review",
+                            command: "review",
+                            testId: "chip-review",
+                          }].map((chip) => (
+                            <button
+                              key={chip.testId}
+                              type="button"
+                              data-testid={chip.testId}
+                              onClick={() => handleGuidedCommandChip(chip.command)}
+                              disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
+                              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {SHOULD_SHOW_CHARTER_WIZARD && <CharterFieldSession className="mb-3" />}
+                  {SHOULD_SHOW_CHARTER_WIZARD && AUTO_EXTRACTION_ENABLED && (attachments.length > 0 || messages.length > 0) && (
                     <div className="mb-3">
                       <button
                         onClick={() => {
@@ -3137,6 +3452,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const isUser = role === "user";
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
+  const testId = isUser ? "user-message" : "assistant-message";
   const { structuredSections, hasStructuredContent } = useMemo(() => {
     if (!Array.isArray(sections)) {
       return { structuredSections: [], hasStructuredContent: false };
@@ -3167,7 +3483,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
     Array.isArray(sections) &&
     (hasStructuredContent || hideEmptySections === false);
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
       <div
         className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
           isUser
@@ -3186,7 +3502,15 @@ function ChatBubble({ role, text, hideEmptySections }) {
 }
 
 // --- LLM wiring (placeholder) ---
-async function callLLM(text, history = [], contextAttachments = []) {
+const DEFAULT_SYSTEM_PROMPT =
+  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.";
+
+async function callLLM(
+  text,
+  history = [],
+  contextAttachments = [],
+  options = {},
+) {
   try {
     const normalizedHistory = Array.isArray(history)
       ? history.map((item) => ({ role: item.role, content: item.text || "" }))
@@ -3196,13 +3520,19 @@ async function callLLM(text, history = [], contextAttachments = []) {
           .map((attachment) => ({ name: attachment?.name, text: attachment?.text }))
           .filter((attachment) => attachment.name && attachment.text)
       : [];
-    const systemMessage = {
-      role: "system",
-      content:
-        "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites."
-    };
+    const overridePrompt =
+      typeof options?.systemPrompt === "string" ? options.systemPrompt.trim() : "";
+    const systemPrompt = overridePrompt || DEFAULT_SYSTEM_PROMPT;
+    const systemMessage = systemPrompt
+      ? {
+          role: "system",
+          content: systemPrompt,
+        }
+      : null;
     const payload = {
-      messages: [systemMessage, ...normalizedHistory.slice(-19)],
+      messages: systemMessage
+        ? [systemMessage, ...normalizedHistory.slice(-19)]
+        : normalizedHistory.slice(-19),
       attachments: preparedAttachments,
     };
     const res = await fetch("/api/chat", {
@@ -3226,6 +3556,7 @@ async function callLLM(text, history = [], contextAttachments = []) {
     return "OpenAI endpoint error: " + errorMessage;
   }
 }
+
 
 function normalizeRealtimeTranscriptEvent(rawPayload) {
   if (rawPayload == null) {

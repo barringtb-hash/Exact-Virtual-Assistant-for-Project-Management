@@ -13,6 +13,9 @@ The Exact Virtual Assistant for Project Management routes every request through 
 - **Design & Development Plan (`ddp`)** – Router-enabled using prompts, schemas, and templates under [`templates/doc-types/ddp/`](templates/doc-types/ddp/); follow the walkthrough in [`docs/ddp/README.md`](docs/ddp/README.md).
 - **Statement of Work (`sow`)** – Placeholder that remains disabled in the registry by default; see [`docs/sow/README.md`](docs/sow/README.md) for status updates.
 
+### Guided charter flow
+- The charter experience defaults to a guided chat that replaces the wizard UI, walks through each schema field sequentially, and pauses background extraction until the session finishes. The feature is enabled by `VITE_CHARTER_GUIDED_CHAT_ENABLED` and starts from the **Start Charter** button beneath the composer; see [`docs/charter-guided-chat.md`](docs/charter-guided-chat.md) for behaviour, commands, and flag details. 【F:docs/charter-guided-chat.md†L1-L44】【F:src/App.jsx†L2611-L3076】
+
 ## Intent-only extraction contract
 - **Upload only** → No extraction. The preview remains unchanged and `/api/documents/extract` is never called.
 - **Natural-language charter or DDP request** → Extraction runs exactly once per intent and populates the preview.
@@ -79,6 +82,7 @@ Key router touchpoints:
 ## Testing
 - **Unit and integration** – Run `npm test` to execute the current suite.
 - **End-to-end** – Use `npm run cy:open` or `npm run cy:run` for Cypress coverage, and `npm run test:e2e` for Playwright scenarios.
+- **Guided charter** – `npm run e2e:guided` runs the guided chat Cypress suite; `npm run e2e:wizard` re-enables the wizard flags for regression checks. 【F:docs/charter-guided-chat.md†L46-L52】
 - **Document acceptance** – Follow [`docs/demo/README.md`](docs/demo/README.md) for the charter flow and [`docs/ddp/README.md`](docs/ddp/README.md) for the DDP flow. Both paths should execute exactly one extraction per intent.
 - **Regression coverage** – Ensure attaching files alone never issues a network call to `/api/documents/extract`, and that intent + upload flows call extraction exactly once.
 

@@ -1,7 +1,7 @@
 declare global {
   namespace Cypress {
     interface Chainable {
-      ensureAppReady(): Chainable<void>;
+      waitForAppReady(): Chainable<void>;
       typeIntoComposer(
         text: string
       ): Chainable<JQuery<HTMLInputElement | HTMLTextAreaElement>>;
@@ -13,8 +13,8 @@ declare global {
 }
 
 const COMPOSER_SELECTOR_PRIORITIES = [
-  '[data-testid="composer-textarea"]',
   '[data-testid="composer-input"]',
+  '[data-testid="composer-textarea"]',
   '[data-testid="charter-wizard-input"]',
   '[data-testid="guided-input"]',
   '[data-testid="charter-guided-input"]',
@@ -42,10 +42,38 @@ Cypress.Commands.add("getComposerInput", () => {
     });
 });
 
-Cypress.Commands.add("ensureAppReady", () => {
-  cy.get('[data-testid="app-ready"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="app-header"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="composer-root"]', { timeout: 15000 }).should("exist");
+Cypress.Commands.add("waitForAppReady", () => {
+  cy.visit("/");
+
+  cy.document().its("readyState").should("eq", "complete");
+
+  cy.get("body", { timeout: 20000 }).should(($body) => {
+    if ($body.children().length === 0) {
+      Cypress.log({
+        name: "app DOM",
+        message: $body.html() ?? "<empty body>",
+      });
+
+      throw new Error("App body is empty after load");
+    }
+  });
+
+  cy.get('[data-testid="app-ready"]', { timeout: 20000 }).should(
+    ($beacon) => {
+      if ($beacon.length === 0) {
+        const body = Cypress.$("body");
+        Cypress.log({
+          name: "app DOM",
+          message: body.html() ?? "<empty body>",
+        });
+
+        throw new Error("App readiness beacon not found");
+      }
+    }
+  );
+
+  cy.get('[data-testid="app-header"]', { timeout: 20000 }).should("exist");
+  cy.get('[data-testid="composer-root"]', { timeout: 20000 }).should("exist");
   cy.getComposerInput().should("exist");
 });
 

@@ -15,6 +15,31 @@ Cypress.on("window:before:load", (win) => {
     ...existingOverrides,
     VITE_CYPRESS_SAFE_MODE: true,
   };
+
+  if (!win.navigator.mediaDevices) {
+    (win.navigator as unknown as { mediaDevices: MediaDevices }).mediaDevices =
+      {} as MediaDevices;
+  }
+
+  const mediaDevices = win.navigator.mediaDevices;
+  if (mediaDevices) {
+    const createStream = () =>
+      typeof win.MediaStream === "function"
+        ? new win.MediaStream()
+        : ({} as MediaStream);
+
+    if (typeof mediaDevices.getUserMedia === "function") {
+      cy.stub(mediaDevices, "getUserMedia").callsFake(() =>
+        Promise.resolve(createStream())
+      );
+    } else {
+      const getUserMediaStub = cy
+        .stub()
+        .callsFake(() => Promise.resolve(createStream()));
+      mediaDevices.getUserMedia = getUserMediaStub as unknown as MediaDevices["getUserMedia"];
+    }
+  }
+
   const styleEl = win.document.createElement("style");
   styleEl.setAttribute("data-cy", "anti-occlusion");
   styleEl.innerHTML = `

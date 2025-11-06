@@ -43,7 +43,13 @@ import {
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions, voiceStoreApi } from "./state/voiceStore.ts";
-import { createVoiceGate } from "./state/voiceGate.ts";
+import {
+  isMicActive as getGateMicActive,
+  pauseMic,
+  resumeMic,
+  setMicAdapter,
+  voiceGate,
+} from "./voice/controller.ts";
 import {
   pathToPointer,
   pointerMapToPathMap,
@@ -58,6 +64,7 @@ import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
+import { RecorderMicAdapter } from "./voice/adapters/RecorderMicAdapter.ts";
 
 const SHOULD_INSTALL_SYNC_TELEMETRY =
   import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
@@ -857,52 +864,16 @@ export default function ExactVirtualAssistantPM() {
   const [rec, setRec] = useState(null);
   const startRecordingRef = useRef(null);
   const stopRecordingRef = useRef(null);
-  const voiceGateRef = useRef(null);
   const composerWasActiveRef = useRef(false);
   const voiceChangeSourceRef = useRef("initial");
-  if (!voiceGateRef.current) {
-    voiceGateRef.current = createVoiceGate((active) => {
-      if (active) {
-        startRecordingRef.current?.({ source: "voice_gate_resume" });
-      } else {
-        stopRecordingRef.current?.({ source: "voice_gate_pause" });
-      }
-    });
-  }
-  const voiceGate = voiceGateRef.current;
 
   useEffect(() => {
-    voiceGate.hold("user");
+    pauseMic("user");
     return () => {
       voiceGate.clearAll();
+      setMicAdapter(null);
     };
-  }, [voiceGate]);
-
-  useEffect(() => {
-    if (!CYPRESS_SAFE_MODE || typeof window === "undefined") {
-      return undefined;
-    }
-
-    const debugBridge = {
-      get active() {
-        return voiceGate.isActive();
-      },
-      get reasons() {
-        return voiceGate.getReasons();
-      },
-      clearAll() {
-        voiceGate.clearAll();
-      },
-    };
-
-    window.__voiceGateDebug = debugBridge;
-
-    return () => {
-      if (window.__voiceGateDebug === debugBridge) {
-        delete window.__voiceGateDebug;
-      }
-    };
-  }, [voiceGate]);
+  }, []);
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -2568,35 +2539,61 @@ const resolveDocTypeForManualSync = useCallback(
   startRecordingRef.current = startRecording;
   stopRecordingRef.current = stopRecording;
 
+  useEffect(() => {
+    if (CYPRESS_SAFE_MODE) {
+      setMicAdapter(null);
+      return () => {
+        setMicAdapter(null);
+      };
+    }
+
+    const adapter = new RecorderMicAdapter(
+      () =>
+        Promise.resolve(
+          startRecordingRef.current?.({ source: "voice_gate_resume" })
+        ),
+      () =>
+        Promise.resolve(
+          stopRecordingRef.current?.({ source: "voice_gate_pause" })
+        )
+    );
+
+    setMicAdapter(adapter);
+
+    return () => {
+      setMicAdapter(null);
+    };
+  }, [CYPRESS_SAFE_MODE]);
+
   const handleComposerFocusVoice = useCallback(() => {
-    if (voiceGate.isActive()) {
+    if (getGateMicActive()) {
       composerWasActiveRef.current = true;
     }
-    voiceGate.hold("composer");
-  }, [voiceGate, composerWasActiveRef]);
+    pauseMic("composer");
+  }, []);
 
   const handleComposerBlurVoice = useCallback(() => {
     composerWasActiveRef.current = false;
-    voiceGate.release("composer");
-  }, [voiceGate, composerWasActiveRef]);
+    resumeMic("composer");
+  }, []);
 
   const handleComposerInteractionVoice = useCallback(() => {
-    if (voiceGate.isActive()) {
+    if (getGateMicActive()) {
       composerWasActiveRef.current = true;
     }
-    voiceGate.hold("composer");
-  }, [voiceGate, composerWasActiveRef]);
+    pauseMic("composer");
+  }, []);
 
   const handleUserStartMic = useCallback(() => {
-    voiceGate.release("composer");
-    voiceGate.release("user");
+    resumeMic("composer");
+    resumeMic("user");
     composerWasActiveRef.current = false;
-  }, [voiceGate, composerWasActiveRef]);
+  }, []);
 
   const handleUserStopMic = useCallback(() => {
-    voiceGate.hold("user");
+    pauseMic("user");
     composerWasActiveRef.current = false;
-  }, [voiceGate, composerWasActiveRef]);
+  }, []);
   const handleCommandFromText = useCallback(
     async (
       rawText,
@@ -2914,12 +2911,12 @@ const resolveDocTypeForManualSync = useCallback(
     const text = composerDraft.trim();
     if (!text) return;
     if (isAssistantThinking || isAssistantStreaming) return;
-    const gateWasActive = voiceGate.isActive() || composerWasActiveRef.current;
-    voiceGate.hold("composer");
+    const gateWasActive = getGateMicActive() || composerWasActiveRef.current;
+    pauseMic("composer");
 
     let networkHeld = false;
     if (gateWasActive && !realtimeEnabled) {
-      voiceGate.hold("network");
+      pauseMic("network");
       networkHeld = true;
     }
 
@@ -2929,20 +2926,20 @@ const resolveDocTypeForManualSync = useCallback(
     try {
       result = await submitChatTurn(text, { source: "composer" });
     } finally {
-      voiceGate.release("composer");
+      resumeMic("composer");
       const allowAutoResume =
         VOICE_AUTO_RESUME_ON_SUBMIT &&
         !realtimeEnabled &&
         result?.status !== "busy";
 
       if (allowAutoResume) {
-        voiceGate.release("user");
+        resumeMic("user");
       } else if (gateWasActive) {
-        voiceGate.hold("user");
+        pauseMic("user");
       }
 
       if (networkHeld) {
-        voiceGate.release("network");
+        resumeMic("network");
       }
 
       composerWasActiveRef.current = false;

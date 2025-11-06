@@ -35,7 +35,7 @@ describe("Voice and text preview synchronization", () => {
 
     cy.get('[data-testid="sync-devtools"]').should("be.visible");
 
-    cy.get('[data-testid="mic-button"]').as("micButton");
+    cy.get('[data-cy="mic-toggle"]').as("micButton");
     cy.get("@micButton").should("have.attr", "aria-pressed", "false");
 
     cy.get("@micButton").click();

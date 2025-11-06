@@ -280,6 +280,7 @@ const Composer: React.FC<ComposerProps> = ({
                 aria-pressed={
                   rtcState === "live" || rtcState === "connecting" ? "true" : "false"
                 }
+                data-cy="mic-toggle"
                 >
                   <IconMic className="h-5 w-5" />
                 </button>
@@ -307,6 +308,7 @@ const Composer: React.FC<ComposerProps> = ({
                 title={recording ? "Stop recording" : "Voice input (mock)"}
                 aria-label={recordingAriaLabel}
                 data-testid="mic-button"
+                data-cy="mic-toggle"
                 aria-pressed={recording ? "true" : "false"}
               >
                 <IconMic className="h-5 w-5" />

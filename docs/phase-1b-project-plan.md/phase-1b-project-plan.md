@@ -8,7 +8,7 @@
 - **Goal**: Ensure that whenever the PM is interacting with the chat agent (via voice or text), any document preview they are working on updates immediately and smoothly.
 - **Task**: Implement real-time synchronization logic so that changes made in the chat (via voice or text) are instantly reflected in the document preview panel.
 
-## 3. Structured Field-by-Field Guidance from the LLM
+## 3. Structured Field-by-Field Guidance from the LLM (Completed)
 - **Goal**: When the LLM walks the PM through filling out a document (like a project charter), it should guide them from the topmost field to the bottom in a logical order.
 - **Task**: Adjust the LLM prompt flow so it requests and fills each field sequentially from top to bottom, ensuring a more natural workflow.
 

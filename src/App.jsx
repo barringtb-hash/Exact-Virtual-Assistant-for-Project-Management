@@ -41,7 +41,7 @@ import {
   useIsSyncingPreview,
   useInputLocked,
 } from "./state/chatStore.ts";
-import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
+import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
 import {
   pathToPointer,
@@ -54,6 +54,7 @@ import { conversationActions, useConversationState } from "./state/conversationS
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
+import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -829,7 +830,9 @@ export default function ExactVirtualAssistantPM() {
   const requestDocType = previewDocType || defaultDocType || DEFAULT_DOC_TYPE;
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
-  const draftState = useDraft();
+  const { draft: previewDraftDocument, pendingTurn: hasPendingPreviewTurn } =
+    usePreviewSyncService();
+  const draftState = previewDraftDocument?.fields ?? null;
   const charterPreview = draftState ?? initialDraftRef.current;
   const [fieldStates, setFieldStates] = useState(() => {
     const draft = initialDraftRef.current;
@@ -845,7 +848,8 @@ export default function ExactVirtualAssistantPM() {
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
-  const isPreviewSyncing = isSyncingPreviewFlag || isDraftSyncing;
+  const isPreviewSyncing =
+    isSyncingPreviewFlag || isDraftSyncing || hasPendingPreviewTurn;
   const legacyDraftSnapshot = useLegacyDraftStore();
   const pointerLocks =
     legacyDraftSnapshot?.locks instanceof Map ? legacyDraftSnapshot.locks : new Map();
@@ -3232,12 +3236,13 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 ) : (
                   <PreviewEditable
-                    draft={charterPreview}
+                    draft={previewDraftDocument}
                     locks={locks}
                     fieldStates={fieldStates}
                     highlightedPaths={highlightedPaths}
                     metadata={aiMetadataByPath}
                     isLoading={isCharterSyncInFlight}
+                    isPending={hasPendingPreviewTurn}
                     onDraftChange={handleDraftChange}
                     onLockField={handleLockField}
                     manifest={activeDocManifest}

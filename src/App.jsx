@@ -19,7 +19,7 @@ import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate } from "./state/docTemplateStore.js";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
-import { isCypress } from "./utils/env.ts";
+import { isCypress, readEnv } from "./utils/env.ts";
 import { docApi } from "./lib/docApi.js";
 import {
   isIntentOnlyExtractionEnabled,
@@ -914,7 +914,7 @@ export default function ExactVirtualAssistantPM() {
   const locksRef = useRef(locks);
   const pointerLocksRef = useRef(pointerLocks);
   const toastTimersRef = useRef(new Map());
-  const realtimeEnabled = Boolean(import.meta.env.VITE_OPENAI_REALTIME_MODEL);
+  const realtimeEnabled = Boolean(readEnv("VITE_OPENAI_REALTIME_MODEL"));
   useEffect(() => {
     charterDraftRef.current = charterPreview;
   }, [charterPreview]);

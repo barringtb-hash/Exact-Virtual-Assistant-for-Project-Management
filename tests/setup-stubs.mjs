@@ -6,6 +6,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const stubRoot = path.join(__dirname, "_stubs", "packages");
 const nodeModulesRoot = path.join(process.cwd(), "node_modules");
 
+process.env.VITE_CYPRESS_SAFE_MODE ??= "false";
+
 const stubPackages = [
   "pizzip",
   "docxtemplater",

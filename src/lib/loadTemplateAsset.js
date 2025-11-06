@@ -1,3 +1,5 @@
+import { readEnv } from "../utils/env.ts";
+
 export async function loadTemplateAsset(relPath) {
   if (typeof relPath !== "string") {
     throw new Error("Template asset path must be a string");
@@ -8,9 +10,7 @@ export async function loadTemplateAsset(relPath) {
     throw new Error("Template asset path is empty");
   }
 
-  const baseRaw = typeof import.meta !== "undefined" && import.meta.env?.VITE_TEMPLATE_BASE_URL
-    ? import.meta.env.VITE_TEMPLATE_BASE_URL
-    : "/templates/";
+  const baseRaw = readEnv("VITE_TEMPLATE_BASE_URL", "/templates/");
   const base = `${baseRaw}`.replace(/\/+$/, "") + "/";
   const url = `${base}${normalizedPath}`;
   const response = await fetch(url, {

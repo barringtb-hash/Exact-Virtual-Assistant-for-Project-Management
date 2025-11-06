@@ -92,6 +92,41 @@ test("applyPatch merges document fields and records the patch", () => {
   assert.deepEqual(state.oplog[0], patch);
 });
 
+test("applyPatch ignores patches older than the current draft version", () => {
+  resetSyncStore();
+
+  const initial: DocumentPatch = {
+    id: "patch-1",
+    version: 1,
+    fields: { title: "Initial" },
+    appliedAt: 10,
+  };
+
+  const latest: DocumentPatch = {
+    id: "patch-2",
+    version: 2,
+    fields: { description: "Up to date" },
+    appliedAt: 20,
+  };
+
+  const stale: DocumentPatch = {
+    id: "patch-3",
+    version: 1,
+    fields: { title: "Stale" },
+    appliedAt: 30,
+  };
+
+  applyPatch(initial);
+  applyPatch(latest);
+  applyPatch(stale);
+
+  const state = syncStoreApi.getState();
+  assert.equal(state.draft.version, 2);
+  assert.equal(state.draft.fields.title, "Initial");
+  assert.equal(state.draft.fields.description, "Up to date");
+  assert.equal(state.oplog.length, 2);
+});
+
 test("exclusive policy finalizes previous turns when another source speaks", () => {
   resetSyncStore({ policy: "exclusive" });
 

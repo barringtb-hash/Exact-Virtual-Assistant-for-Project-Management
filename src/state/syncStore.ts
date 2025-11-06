@@ -209,10 +209,14 @@ export function submitFinalInput(turnId?: string, timestamp?: number) {
 
 export function applyPatch(patch: DocumentPatch) {
   syncStore.setState((state) => {
+    if (patch.version <= state.draft.version) {
+      return {};
+    }
+
     const nextDraft: DraftDocument = {
-      version: Math.max(state.draft.version, patch.version),
+      version: patch.version,
       fields: { ...state.draft.fields, ...patch.fields },
-      updatedAt: patch.appliedAt,
+      updatedAt: Math.max(state.draft.updatedAt, patch.appliedAt),
     };
 
     const patchCopy: DocumentPatch = {

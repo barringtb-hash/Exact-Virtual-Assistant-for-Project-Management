@@ -8,6 +8,7 @@ import {
   useIsStreaming,
 } from "../state/chatStore.ts";
 import { useVoiceStatus } from "../state/voiceStore.ts";
+import { dispatch } from "../sync/syncStore.js";
 
 import { useDocType } from "../state/docType.js";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
@@ -46,7 +47,7 @@ export interface ComposerProps {
   realtimeEnabled?: boolean;
   rtcState?: RtcState;
   startRealtime?: () => void;
-  stopRealtime?: () => void;
+  stopRealtime?: (options?: { dispatchStop?: boolean }) => void;
   rtcReset?: () => void;
   placeholder?: string;
   onDrop?: React.DragEventHandler<HTMLTextAreaElement>;
@@ -123,6 +124,7 @@ const Composer: React.FC<ComposerProps> = ({
     (event) => {
       chatActions.setComposerDraft(event.target.value);
       adjustTextareaHeight();
+      dispatch("PREVIEW_UPDATED", { source: "text" });
     },
     [adjustTextareaHeight]
   );
@@ -132,6 +134,7 @@ const Composer: React.FC<ComposerProps> = ({
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
         if (!resolvedSendDisabled) {
+          dispatch("TEXT_SUBMIT");
           onSend();
         }
       }
@@ -141,6 +144,7 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleMicClick = useCallback(async () => {
     if (recording) {
+      dispatch("VOICE_STOP");
       if (onStopRecording) {
         onStopRecording();
       }
@@ -151,6 +155,7 @@ const Composer: React.FC<ComposerProps> = ({
         onMicToggle?.();
       }
     } else {
+      dispatch("VOICE_START");
       if (onStartRecording) {
         onStartRecording();
       }
@@ -178,11 +183,13 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleRealtimeClick = useCallback(async () => {
     if (rtcState === "live" || rtcState === "connecting") {
-      stopRealtime?.();
+      dispatch("VOICE_STOP");
+      stopRealtime?.({ dispatchStop: false });
       if (micLevel) {
         await micLevel.stop();
       }
     } else {
+      dispatch("VOICE_START");
       startRealtime?.();
       if (micLevel) {
         await micLevel.start(micLevel.selectedDeviceId);
@@ -225,11 +232,13 @@ const Composer: React.FC<ComposerProps> = ({
           value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onFocus={() => dispatch("TEXT_FOCUS")}
           onDrop={onDrop}
           onDragOver={onDragOver}
           placeholder={resolvedPlaceholder}
           disabled={resolvedDraftDisabled}
-          data-testid="composer-textarea"
+          data-testid="composer-input"
+          data-legacy-testid="composer-textarea"
           className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -257,13 +266,15 @@ const Composer: React.FC<ComposerProps> = ({
                   className={`shrink-0 rounded-xl border p-2 transition ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
+                  data-testid="mic-button"
+                  aria-pressed={rtcState === "live" || rtcState === "connecting"}
                 >
                   <IconMic className="h-5 w-5" />
                 </button>
                 {rtcState !== "idle" && (
                   <button
                     type="button"
-                    onClick={rtcReset ?? stopRealtime}
+                    onClick={() => (rtcReset ?? stopRealtime)?.()}
                     className="rounded-lg border bg-white/80 px-2 py-1 text-xs transition hover:bg-white dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-700/60"
                     title="Reset realtime call"
                   >
@@ -283,6 +294,8 @@ const Composer: React.FC<ComposerProps> = ({
                 }`}
                 title={recording ? "Stop recording" : "Voice input (mock)"}
                 aria-label={recordingAriaLabel}
+                data-testid="mic-button"
+                aria-pressed={recording}
               >
                 <IconMic className="h-5 w-5" />
               </button>

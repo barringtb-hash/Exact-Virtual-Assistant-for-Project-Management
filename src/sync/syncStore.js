@@ -95,7 +95,22 @@ function notify() {
   });
 }
 
-export function dispatch(event) {
+export function dispatch(eventOrType, payload) {
+  let event = eventOrType;
+  if (typeof eventOrType === "string") {
+    event = { type: eventOrType };
+    if (payload !== undefined) {
+      event.payload = payload;
+    }
+  }
+
+  if (!event || typeof event !== "object") {
+    reportInvariant("dispatch requires an event object or type string", {
+      event: eventOrType,
+    });
+    return state;
+  }
+
   const nextState = applyEvent(state, event);
   if (nextState === state) {
     return state;

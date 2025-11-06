@@ -70,6 +70,7 @@ const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
+const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
@@ -515,7 +516,7 @@ export default function ExactVirtualAssistantPM() {
     schemaStatus,
     schema: activeDocSchema,
   } = useDocTemplate();
-  const storedContextRef = useRef(readStoredSession());
+  const storedContextRef = useRef(CYPRESS_SAFE_MODE ? null : readStoredSession());
   const chatHydratedRef = useRef(false);
   const voiceHydratedRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -566,12 +567,19 @@ export default function ExactVirtualAssistantPM() {
   );
   const canStartGuided =
     !guidedState || guidedState.status === "idle" || guidedState.status === "complete";
-  const guidedCurrentFieldLabel = useMemo(() => {
+  const guidedCurrentField = useMemo(() => {
     if (!guidedState?.currentFieldId) {
       return null;
     }
     const fieldState = guidedState.fields?.[guidedState.currentFieldId];
-    return fieldState?.definition?.label ?? null;
+    if (!fieldState?.definition) {
+      return null;
+    }
+    const { label, reviewLabel, question } = fieldState.definition;
+    return {
+      label: reviewLabel ?? label ?? null,
+      question: question ?? null,
+    };
   }, [guidedState?.currentFieldId, guidedState?.fields]);
   const [files, setFiles] = useState(() => {
     const stored = storedContextRef.current;
@@ -981,6 +989,9 @@ export default function ExactVirtualAssistantPM() {
   ]);
 
   useEffect(() => {
+    if (CYPRESS_SAFE_MODE) {
+      return;
+    }
     mergeStoredSession({ attachments, messages });
   }, [attachments, messages]);
 
@@ -3032,9 +3043,12 @@ const resolveDocTypeForManualSync = useCallback(
                         >
                           {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
                         </button>
-                        {isGuidedSessionActive && guidedCurrentFieldLabel ? (
+                        {isGuidedSessionActive && guidedCurrentField ? (
                           <span className="text-xs text-slate-500 dark:text-slate-300">
-                            Working on: {guidedCurrentFieldLabel}
+                            Working on: {guidedCurrentField.label}
+                            {guidedCurrentField.question
+                              ? ` — ${guidedCurrentField.question}`
+                              : ""}
                           </span>
                         ) : null}
                       </div>

@@ -4,6 +4,7 @@
 - `npm run lint` – Lints the frontend and serverless code.
 - `npm test` – Executes unit and integration tests.
 - `npm run test:e2e` / `npm run cy:run` – Exercise Playwright and Cypress suites for regression coverage.
+- `npm run e2e:guided` / `npm run e2e:wizard` – Cypress runs for the guided charter and legacy wizard flows; both scripts set `VITE_CYPRESS_SAFE_MODE=true` so runs stay isolated. 【F:package.json†L9-L23】【F:src/utils/storage.js†L1-L63】
 - `node scripts/validate-doc-links.mjs` – Verifies local Markdown links resolve. CI fails when any path is missing.
 
 Ensure all checks pass before merging. Broken doc links will now block PRs via the `docs` GitHub Action.

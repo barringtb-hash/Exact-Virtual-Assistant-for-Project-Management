@@ -20,28 +20,57 @@ describe('Charter guided chat experience', () => {
   it('walks through prompts, validation, navigation, and review', () => {
     cy.get('[data-testid="btn-start-charter"]').click();
 
+    const questionSnippets: Record<string, string> = {
+      'Project Title (required).': 'official name of this project',
+      'Sponsor (required).': 'sponsoring this project',
+      'Project Lead (required).': 'leading the project day to day',
+      'Start Date (required).': 'Use YYYY-MM-DD.',
+      'End Date (required).': 'wrap up',
+      'Vision (required).': 'vision or objective',
+      'Problem (required).': 'problem or opportunity',
+      'Project Description (required).': 'project scope and goals',
+      'Scope In (optional).': 'fall in scope',
+      'Scope Out (optional).': 'explicitly out of scope',
+      'Risks (optional).': 'known risks',
+      'Assumptions (optional).': 'key assumptions',
+      'Milestones (optional).': 'phase, deliverable, and target date',
+      'Success Metrics (optional).': 'benefit, the metric, and the measurement system',
+      'Core Team (optional).': 'core team members',
+    };
+
+    const assertPrompt = (label: string) => {
+      cy.get('[data-testid="assistant-message"]').last().should(($message) => {
+        const text = $message.text();
+        expect(text).to.contain(label);
+        const snippet = questionSnippets[label];
+        if (snippet) {
+          expect(text).to.contain(snippet);
+        }
+      });
+    };
+
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
       .should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Project Title (required).');
+    assertPrompt('Project Title (required).');
 
     sendComposerMessage('North Star Initiative');
     cy.contains('[data-testid="assistant-message"]', 'Saved Project Title.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Sponsor (required).');
+    assertPrompt('Sponsor (required).');
 
     cy.get('[data-testid="chip-skip"]').click();
     cy.contains('[data-testid="assistant-message"]', 'Skipping Sponsor.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Project Lead (required).');
+    assertPrompt('Project Lead (required).');
 
     cy.get('[data-testid="chip-back"]').click();
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Sponsor (required).');
+    assertPrompt('Sponsor (required).');
 
     sendComposerMessage('Jordan Example');
     cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Project Lead (required).');
+    assertPrompt('Project Lead (required).');
 
     sendComposerMessage('Taylor Projector');
     cy.contains('[data-testid="assistant-message"]', 'Saved Project Lead.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Start Date (required).');
+    assertPrompt('Start Date (required).');
 
     sendComposerMessage('next quarter');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Enter a valid date in YYYY-MM-DD format.');
@@ -49,11 +78,11 @@ describe('Charter guided chat experience', () => {
 
     sendComposerMessage('2024-05-01');
     cy.contains('[data-testid="assistant-message"]', 'Saved Start Date.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'End Date (required).');
+    assertPrompt('End Date (required).');
 
     sendComposerMessage('2024-10-15');
     cy.contains('[data-testid="assistant-message"]', 'Saved End Date.').should('be.visible');
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Vision (required).');
+    assertPrompt('Vision (required).');
 
     const skipSequence: Array<[string, string]> = [
       ['Vision (required).', 'Problem (required).'],
@@ -68,13 +97,13 @@ describe('Charter guided chat experience', () => {
     ];
 
     skipSequence.forEach(([current, next]) => {
-      cy.get('[data-testid="assistant-message"]').last().should('contain.text', current);
+      assertPrompt(current);
       cy.get('[data-testid="chip-skip"]').click();
       cy.contains('[data-testid="assistant-message"]', `Skipping ${current.split(' (')[0]}.`).should('be.visible');
-      cy.get('[data-testid="assistant-message"]').last().should('contain.text', next);
+      assertPrompt(next);
     });
 
-    cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Core Team (optional).');
+    assertPrompt('Core Team (optional).');
 
     cy.get('[data-testid="chip-review"]').click();
     cy.get('[data-testid="assistant-message"]').last().should(($message) => {

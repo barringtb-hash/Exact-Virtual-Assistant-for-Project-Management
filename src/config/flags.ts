@@ -10,6 +10,13 @@ const FALSE_VALUES = new Set(["false", "0", "no", "off", "disabled"]);
 
 type EnvValue = string | boolean | number | undefined | null;
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __FLAG_OVERRIDES__:
+    | Record<string, EnvValue>
+    | undefined;
+}
+
 function parseBoolean(value: EnvValue, fallback: boolean): boolean {
   if (value == null) {
     return fallback;
@@ -45,6 +52,17 @@ function readBooleanFlag(keys: string | readonly string[], fallback: boolean): b
   const env = (import.meta?.env ?? {}) as Record<string, EnvValue>;
   const keyList = Array.isArray(keys) ? keys : [keys];
 
+  if (typeof globalThis !== "undefined") {
+    const overrides = globalThis.__FLAG_OVERRIDES__;
+    if (overrides && typeof overrides === "object") {
+      for (const key of keyList) {
+        if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+          return parseBoolean(overrides[key], fallback);
+        }
+      }
+    }
+  }
+
   for (const key of keyList) {
     const rawValue = Object.prototype.hasOwnProperty.call(env, key) ? env[key] : undefined;
     if (rawValue !== undefined) {
@@ -62,4 +80,5 @@ export const FLAGS = {
     ["VITE_AUTO_EXTRACTION_ENABLED", "VITE_AUTO_EXTRACT", "AUTO_EXTRACT"],
     false,
   ),
+  CYPRESS_SAFE_MODE: readBooleanFlag("VITE_CYPRESS_SAFE_MODE", false),
 } as const;

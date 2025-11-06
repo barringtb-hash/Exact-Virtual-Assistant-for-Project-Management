@@ -119,6 +119,7 @@ export function TextComposer({
           disabled={typingDisabled}
           value={localDraft}
           onChange={handleChange}
+          data-testid="text-composer-input"
         />
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -129,6 +130,7 @@ export function TextComposer({
             type="submit"
             className="inline-flex items-center rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={typingDisabled || !localDraft.trim()}
+            data-testid="text-composer-submit"
           >
             {submitLabel}
           </button>

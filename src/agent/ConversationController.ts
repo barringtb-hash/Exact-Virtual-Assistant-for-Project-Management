@@ -5,6 +5,7 @@ import {
   reconcileAgentTurnId,
   syncStoreApi,
 } from "../state/syncStore.ts";
+import { emitCounter, emitTimer } from "../state/syncMetrics.ts";
 import type { AgentTurn, DocumentPatch, InputPolicy } from "../types/sync.ts";
 
 export interface ConversationControllerOptions {
@@ -66,6 +67,9 @@ export class ConversationController {
   private inflight: AbortController | null = null;
   private onError?: (error: Error) => void;
   private pendingTurnId: string | null = null;
+  private pendingTurnStartedAt: number | null = null;
+  private pendingTurnMetricsId: string | null = null;
+  private pendingTurnCancelled = false;
 
   constructor(options: ConversationControllerOptions = {}) {
     this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
@@ -81,6 +85,9 @@ export class ConversationController {
         // Ignore abort errors – some browsers do not accept custom abort reasons.
       }
       this.inflight = null;
+    }
+    if (this.pendingTurnId) {
+      this.pendingTurnCancelled = true;
     }
     this.completePendingTurn();
   }
@@ -211,6 +218,10 @@ export class ConversationController {
     const timestamp = Date.now();
     const turnId = beginAgentTurn(undefined, timestamp);
     this.pendingTurnId = turnId;
+    this.pendingTurnStartedAt = timestamp;
+    this.pendingTurnMetricsId = turnId;
+    this.pendingTurnCancelled = false;
+    emitCounter("sync.turn_started", 1, { turnId });
   }
 
   private resolvePendingTurnId(turnId: string) {
@@ -220,20 +231,44 @@ export class ConversationController {
     const timestamp = Date.now();
     if (!this.pendingTurnId) {
       this.pendingTurnId = beginAgentTurn(turnId, timestamp);
+      if (this.pendingTurnStartedAt === null) {
+        this.pendingTurnStartedAt = timestamp;
+        emitCounter("sync.turn_started", 1, { turnId, reconciled: true });
+      }
+      this.pendingTurnMetricsId = this.pendingTurnId;
       return;
     }
     if (this.pendingTurnId === turnId) {
       return;
     }
+    const previousId = this.pendingTurnId;
     this.pendingTurnId = reconcileAgentTurnId(this.pendingTurnId, turnId, timestamp);
+    if (this.pendingTurnMetricsId === previousId) {
+      this.pendingTurnMetricsId = this.pendingTurnId;
+    }
   }
 
   private completePendingTurn() {
     if (!this.pendingTurnId) {
       return;
     }
-    completeAgentTurn(this.pendingTurnId, Date.now());
+    const pendingSnapshot = syncStoreApi.getState().pendingTurn;
+    const completedAt = Date.now();
+    const turnId = this.pendingTurnId;
+    completeAgentTurn(turnId, completedAt);
+    const startedAt = this.pendingTurnStartedAt;
+    if (startedAt !== null) {
+      const duration = Math.max(0, completedAt - startedAt);
+      emitTimer("sync.turn_completed", duration, {
+        turnId: this.pendingTurnMetricsId ?? turnId,
+        appliedPatch: Boolean(pendingSnapshot?.hasAppliedPatch),
+        cancelled: this.pendingTurnCancelled,
+      });
+    }
     this.pendingTurnId = null;
+    this.pendingTurnMetricsId = null;
+    this.pendingTurnStartedAt = null;
+    this.pendingTurnCancelled = false;
   }
 }
 

@@ -41,6 +41,7 @@ export function MicButton({
       onClick={handleClick}
       disabled={disabled}
       aria-pressed={active}
+      data-testid="mic-button"
     >
       {active ? stopLabel : startLabel}
     </button>

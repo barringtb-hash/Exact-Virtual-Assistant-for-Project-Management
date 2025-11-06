@@ -4,6 +4,7 @@ import { useStore } from "../lib/tinyStore.ts";
 import { chatActions } from "../state/chatStore.ts";
 import { draftActions, useDraft as usePreviewDraftStore } from "../state/draftStore.ts";
 import { syncStoreApi, useDraft as useSyncDraft } from "../state/syncStore.ts";
+import { recordPreviewApplied } from "../state/syncMetrics.ts";
 import type { DraftDocument, DocumentPatch, SyncState } from "../types/sync.ts";
 
 interface PreviewSyncState {
@@ -60,6 +61,7 @@ export function usePreviewSyncService(): PreviewSyncState {
     lastAppliedPatchIdRef.current = latestPatch.id;
     const fields = latestPatch.fields ?? {};
     draftActions.mergeDraft(fields);
+    recordPreviewApplied(latestPatch);
   }, [latestPatch]);
 
   useEffect(() => {

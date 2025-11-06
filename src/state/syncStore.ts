@@ -1,5 +1,6 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
 import { FEATURE_FLAGS } from "../config/featureFlags.ts";
+import { recordPatchApplied, recordPatchGap } from "./syncMetrics.ts";
 import type {
   AgentTurn,
   DraftDocument,
@@ -96,6 +97,7 @@ function logPatchGapEvent(details: Record<string, unknown>) {
   } catch (_) {
     // noop
   }
+  recordPatchGap(details);
 }
 
 function cloneWorkingState(state: SyncState): WorkingState {
@@ -469,7 +471,16 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
       pendingTurnChanged = true;
     };
 
-    const applyEntry = (entryPatch: DocumentPatch, entryTurnId?: string) => {
+    const applyEntry = (
+      entryPatch: DocumentPatch,
+      entryTurnId?: string,
+      context: {
+        seq?: number;
+        receivedAt?: number;
+        queued?: boolean;
+        forced?: boolean;
+      } = {},
+    ) => {
       if (appliedPatchIds.has(entryPatch.id)) {
         return false;
       }
@@ -488,6 +499,23 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
       draftChanged = true;
       oplogChanged = true;
       markPendingTurnPatched(entryTurnId ?? turnId ?? pendingTurn?.id);
+      const patchMetadata: Record<string, unknown> = {
+        turnId: entryTurnId ?? turnId ?? pendingTurn?.id,
+      };
+      if (typeof context.seq === "number" && Number.isFinite(context.seq)) {
+        patchMetadata.seq = context.seq;
+      }
+      if (context.queued) {
+        patchMetadata.queued = true;
+      }
+      if (context.forced) {
+        patchMetadata.forced = true;
+      }
+      const receivedAt =
+        typeof context.receivedAt === "number" && Number.isFinite(context.receivedAt)
+          ? context.receivedAt
+          : invocationTime;
+      recordPatchApplied(patchCopy, receivedAt, patchMetadata);
       return true;
     };
 
@@ -495,7 +523,7 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
       if (patch.version <= state.draft.version) {
         return {};
       }
-      const applied = applyEntry(patch, turnId);
+      const applied = applyEntry(patch, turnId, { receivedAt: invocationTime });
       if (!applied && !pendingTurnChanged) {
         return {};
       }
@@ -511,7 +539,7 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
       if (normalizedSeq < queue.expectedSeq) {
         // Stale patch; continue to flush buffered entries.
       } else if (normalizedSeq === queue.expectedSeq) {
-        applyEntry(patch, turnId);
+        applyEntry(patch, turnId, { receivedAt: invocationTime, seq: normalizedSeq });
         queue.expectedSeq = normalizedSeq + 1;
         patchQueuesChanged = true;
       } else {
@@ -534,7 +562,11 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
           if (exactIndex !== -1) {
             const [entry] = queue.buffer.splice(exactIndex, 1);
             patchQueuesChanged = true;
-            applyEntry(entry.patch, entry.turnId);
+            applyEntry(entry.patch, entry.turnId, {
+              seq: entry.seq,
+              receivedAt: entry.receivedAt,
+              queued: true,
+            });
             queue.expectedSeq = entry.seq + 1;
             continue;
           }
@@ -548,7 +580,12 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
             logPatchGapEvent({ expected: queue.expectedSeq, received: earliest.seq, turnId: turnId ?? earliest.turnId });
             queue.buffer = queue.buffer.filter((candidate) => candidate !== earliest);
             patchQueuesChanged = true;
-            applyEntry(earliest.patch, earliest.turnId);
+            applyEntry(earliest.patch, earliest.turnId, {
+              seq: earliest.seq,
+              receivedAt: earliest.receivedAt,
+              queued: true,
+              forced: true,
+            });
             queue.expectedSeq = earliest.seq + 1;
             continue;
           }

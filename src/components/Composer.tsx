@@ -214,7 +214,7 @@ const Composer: React.FC<ComposerProps> = ({
   const liveVoiceLabel = realtimeEnabled ? realtimeAriaLabel : recordingAriaLabel;
 
   return (
-    <div className="sticky bottom-0 left-0 right-0 z-20">
+    <div className="sticky bottom-0 left-0 right-0 z-50">
       <div className="rounded-3xl border border-white/60 bg-white/80 px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300 dark:border-slate-700/60 dark:bg-slate-900/50 dark:focus-within:ring-indigo-500">
         <label htmlFor={textareaId} className="sr-only">
           Message composer

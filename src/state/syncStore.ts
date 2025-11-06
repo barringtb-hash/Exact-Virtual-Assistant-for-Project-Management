@@ -492,6 +492,9 @@ export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}
     };
 
     if (seq === undefined) {
+      if (patch.version <= state.draft.version) {
+        return {};
+      }
       const applied = applyEntry(patch, turnId);
       if (!applied && !pendingTurnChanged) {
         return {};

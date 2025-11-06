@@ -57,7 +57,12 @@ import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 
-installSyncTelemetry();
+const SHOULD_INSTALL_SYNC_TELEMETRY =
+  import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
+
+if (SHOULD_INSTALL_SYNC_TELEMETRY) {
+  installSyncTelemetry();
+}
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";

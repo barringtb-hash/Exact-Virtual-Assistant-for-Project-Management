@@ -30,6 +30,31 @@ export interface DocumentPatch {
   appliedAt: number;
 }
 
+export interface RecentFinalInputEntry {
+  content: string;
+  timestamp: number;
+}
+
+export interface PendingPatchEntry {
+  seq: number;
+  receivedAt: number;
+  patch: DocumentPatch;
+  turnId?: string;
+}
+
+export interface PatchQueueState {
+  expectedSeq: number;
+  buffer: PendingPatchEntry[];
+}
+
+export interface PendingTurnState {
+  id: string;
+  startedAt: number;
+  hasAppliedPatch: boolean;
+  buffers: SyncBuffers;
+  activeTurnId?: string;
+}
+
 export interface DraftDocument {
   version: number;
   fields: Record<string, unknown>;
@@ -49,4 +74,7 @@ export interface SyncState {
   turns: AgentTurn[];
   buffers: SyncBuffers;
   activeTurnId?: string;
+  recentFinalInputs: RecentFinalInputEntry[];
+  patchQueues: Record<string, PatchQueueState>;
+  pendingTurn?: PendingTurnState;
 }

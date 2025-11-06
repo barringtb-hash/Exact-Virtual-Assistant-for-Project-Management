@@ -5,6 +5,9 @@ import type {
   DraftDocument,
   DocumentPatch,
   NormalizedInputEvent,
+  PatchQueueState,
+  PendingTurnState,
+  RecentFinalInputEntry,
   SyncBuffers,
   SyncState,
   InputPolicy,
@@ -14,6 +17,12 @@ type WorkingState = {
   turns: AgentTurn[];
   buffers: SyncBuffers;
   activeTurnId?: string;
+  recentFinalInputs: RecentFinalInputEntry[];
+};
+
+type ApplyPatchOptions = {
+  turnId?: string;
+  seq?: number;
 };
 
 function createId() {
@@ -26,8 +35,67 @@ function createId() {
 const cloneMetadata = (metadata: Record<string, unknown> | undefined) =>
   metadata ? { ...metadata } : undefined;
 
+const DEDUPE_WINDOW_MS = 1_000;
+const PATCH_GAP_WAIT_MS = 1_000;
+const GLOBAL_PATCH_QUEUE_KEY = "__global__";
+
 function cloneEvent(event: NormalizedInputEvent): NormalizedInputEvent {
   return { ...event, metadata: cloneMetadata(event.metadata) };
+}
+
+function normalizeContent(content: string): string {
+  return content.replace(/\s+/g, " ").trim();
+}
+
+function cloneBuffers(buffers: SyncBuffers): SyncBuffers {
+  return {
+    preview: buffers.preview.map(cloneEvent),
+    final: buffers.final.map(cloneEvent),
+  };
+}
+
+function cloneRecentFinalInputs(entries: RecentFinalInputEntry[]): RecentFinalInputEntry[] {
+  return entries.map((entry) => ({ ...entry }));
+}
+
+function clonePatchQueue(queue: PatchQueueState): PatchQueueState {
+  return {
+    expectedSeq: queue.expectedSeq,
+    buffer: queue.buffer.map((entry) => ({
+      seq: entry.seq,
+      receivedAt: entry.receivedAt,
+      turnId: entry.turnId,
+      patch: {
+        ...entry.patch,
+        fields: { ...entry.patch.fields },
+      },
+    })),
+  };
+}
+
+function clonePendingTurnState(pending: PendingTurnState | undefined): PendingTurnState | undefined {
+  if (!pending) {
+    return undefined;
+  }
+  return {
+    id: pending.id,
+    startedAt: pending.startedAt,
+    hasAppliedPatch: pending.hasAppliedPatch,
+    activeTurnId: pending.activeTurnId,
+    buffers: cloneBuffers(pending.buffers),
+  };
+}
+
+function getPatchQueueKey(turnId?: string) {
+  return turnId ?? GLOBAL_PATCH_QUEUE_KEY;
+}
+
+function logPatchGapEvent(details: Record<string, unknown>) {
+  try {
+    console.warn("sync.patch_gap", details);
+  } catch (_) {
+    // noop
+  }
 }
 
 function cloneWorkingState(state: SyncState): WorkingState {
@@ -36,11 +104,9 @@ function cloneWorkingState(state: SyncState): WorkingState {
       ...turn,
       events: turn.events.map(cloneEvent),
     })),
-    buffers: {
-      preview: state.buffers.preview.map(cloneEvent),
-      final: state.buffers.final.map(cloneEvent),
-    },
+    buffers: cloneBuffers(state.buffers),
     activeTurnId: state.activeTurnId,
+    recentFinalInputs: cloneRecentFinalInputs(state.recentFinalInputs),
   };
 }
 
@@ -193,6 +259,9 @@ function createInitialState(): SyncState {
     turns: [],
     buffers: { preview: [], final: [] },
     activeTurnId: undefined,
+    recentFinalInputs: [],
+    patchQueues: {},
+    pendingTurn: undefined,
   };
 }
 
@@ -201,12 +270,7 @@ const syncStore = createStore<SyncState>(createInitialState());
 export function resetSyncStore(overrides?: Partial<SyncState>) {
   const base = createInitialState();
   const draft = overrides?.draft ? { ...base.draft, ...overrides.draft } : { ...base.draft };
-  const buffers: SyncBuffers = overrides?.buffers
-    ? {
-        preview: overrides.buffers.preview?.map(cloneEvent) ?? [],
-        final: overrides.buffers.final?.map(cloneEvent) ?? [],
-      }
-    : { preview: [], final: [] };
+  const buffers: SyncBuffers = overrides?.buffers ? cloneBuffers(overrides.buffers) : cloneBuffers(base.buffers);
   const turns = overrides?.turns
     ? overrides.turns.map((turn) => ({
         ...turn,
@@ -219,6 +283,15 @@ export function resetSyncStore(overrides?: Partial<SyncState>) {
         fields: { ...patch.fields },
       }))
     : [];
+  const recentFinalInputs = overrides?.recentFinalInputs
+    ? cloneRecentFinalInputs(overrides.recentFinalInputs)
+    : [];
+  const patchQueues = overrides?.patchQueues
+    ? Object.fromEntries(
+        Object.entries(overrides.patchQueues).map(([key, queue]) => [key, clonePatchQueue(queue)]),
+      )
+    : {};
+  const pendingTurn = clonePendingTurnState(overrides?.pendingTurn);
 
   syncStore.setState(
     {
@@ -229,6 +302,9 @@ export function resetSyncStore(overrides?: Partial<SyncState>) {
       turns,
       buffers,
       activeTurnId: overrides?.activeTurnId,
+      recentFinalInputs,
+      patchQueues,
+      pendingTurn,
     },
     true,
   );
@@ -275,6 +351,7 @@ export function ingestInput(event: NormalizedInputEvent) {
 export function submitFinalInput(turnId?: string, timestamp?: number) {
   syncStore.setState((state) => {
     const work = cloneWorkingState(state);
+    const now = timestamp ?? Date.now();
     const targetId =
       turnId ??
       work.activeTurnId ??
@@ -286,37 +363,215 @@ export function submitFinalInput(turnId?: string, timestamp?: number) {
       return {};
     }
 
-    finalizeTurn(work, targetId, timestamp ?? Date.now());
+    const turnIndex = work.turns.findIndex((turn) => turn.id === targetId);
+    if (turnIndex === -1) {
+      return {};
+    }
+
+    const targetTurn = work.turns[turnIndex];
+    const windowStart = now - DEDUPE_WINDOW_MS;
+    const recentEntries = work.recentFinalInputs.filter((entry) => entry.timestamp >= windowStart);
+    const seenContents = new Set(recentEntries.map((entry) => entry.content));
+
+    const sanitizedById = new Map<string, NormalizedInputEvent>();
+    for (const event of work.buffers.preview) {
+      if (event.turnId !== targetId) {
+        continue;
+      }
+      const normalized = normalizeContent(event.content);
+      if (!normalized) {
+        continue;
+      }
+      if (seenContents.has(normalized)) {
+        continue;
+      }
+      const sanitized = cloneEvent(event);
+      sanitized.content = normalized;
+      sanitizedById.set(event.id, sanitized);
+      recentEntries.push({ content: normalized, timestamp: now });
+      seenContents.add(normalized);
+    }
+
+    const nextPreview: NormalizedInputEvent[] = [];
+    for (const event of work.buffers.preview) {
+      if (event.turnId !== targetId) {
+        nextPreview.push(event);
+        continue;
+      }
+      const sanitized = sanitizedById.get(event.id);
+      if (sanitized) {
+        nextPreview.push(sanitized);
+      }
+    }
+    work.buffers.preview = nextPreview;
+
+    const nextEvents: NormalizedInputEvent[] = [];
+    for (const event of targetTurn.events) {
+      if (event.turnId !== targetId) {
+        nextEvents.push(event);
+        continue;
+      }
+      if (event.stage === "final") {
+        nextEvents.push(event);
+        continue;
+      }
+      const sanitized = sanitizedById.get(event.id);
+      if (sanitized) {
+        nextEvents.push(sanitized);
+      }
+    }
+    targetTurn.events = nextEvents;
+    work.recentFinalInputs = recentEntries;
+
+    finalizeTurn(work, targetId, now);
 
     return {
       turns: work.turns,
       buffers: work.buffers,
       activeTurnId: work.activeTurnId,
+      recentFinalInputs: work.recentFinalInputs,
     };
   });
 }
 
-export function applyPatch(patch: DocumentPatch) {
+export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}) {
+  const invocationTime = Date.now();
   syncStore.setState((state) => {
-    if (patch.version <= state.draft.version) {
-      return {};
+    const turnId = typeof options.turnId === "string" && options.turnId ? options.turnId : undefined;
+    const seq = typeof options.seq === "number" && Number.isFinite(options.seq) ? options.seq : undefined;
+
+    if (turnId) {
+      const hasTurn = state.turns.some((turn) => turn.id === turnId && turn.source === "agent");
+      if (!hasTurn) {
+        return {};
+      }
     }
 
-    const nextDraft: DraftDocument = {
-      version: patch.version,
-      fields: { ...state.draft.fields, ...patch.fields },
-      updatedAt: Math.max(state.draft.updatedAt, patch.appliedAt),
+    let draft = state.draft;
+    let draftChanged = false;
+    let oplog = state.oplog;
+    let oplogChanged = false;
+    const appliedPatchIds = new Set(oplog.map((entry) => entry.id));
+    let pendingTurn = state.pendingTurn;
+    let pendingTurnChanged = false;
+
+    const nextPatchQueues = { ...state.patchQueues };
+    let patchQueuesChanged = false;
+
+    const markPendingTurnPatched = (candidateTurnId?: string) => {
+      if (!pendingTurn || !candidateTurnId) {
+        return;
+      }
+      if (pendingTurn.id !== candidateTurnId || pendingTurn.hasAppliedPatch) {
+        return;
+      }
+      pendingTurn = { ...pendingTurn, hasAppliedPatch: true };
+      pendingTurnChanged = true;
     };
 
-    const patchCopy: DocumentPatch = {
-      ...patch,
-      fields: { ...patch.fields },
+    const applyEntry = (entryPatch: DocumentPatch, entryTurnId?: string) => {
+      if (appliedPatchIds.has(entryPatch.id)) {
+        return false;
+      }
+      const patchCopy: DocumentPatch = {
+        ...entryPatch,
+        fields: { ...entryPatch.fields },
+      };
+      const nextDraft: DraftDocument = {
+        version: draft.version + 1,
+        fields: { ...draft.fields, ...patchCopy.fields },
+        updatedAt: Math.max(draft.updatedAt, patchCopy.appliedAt),
+      };
+      draft = nextDraft;
+      oplog = [...oplog, patchCopy];
+      appliedPatchIds.add(patchCopy.id);
+      draftChanged = true;
+      oplogChanged = true;
+      markPendingTurnPatched(entryTurnId ?? turnId ?? pendingTurn?.id);
+      return true;
     };
 
-    return {
-      draft: nextDraft,
-      oplog: [...state.oplog, patchCopy],
-    };
+    if (seq === undefined) {
+      const applied = applyEntry(patch, turnId);
+      if (!applied && !pendingTurnChanged) {
+        return {};
+      }
+    } else {
+      const queueKey = getPatchQueueKey(turnId);
+      const existingQueue = nextPatchQueues[queueKey];
+      const queue = existingQueue ? clonePatchQueue(existingQueue) : { expectedSeq: 0, buffer: [] };
+      if (!existingQueue) {
+        patchQueuesChanged = true;
+      }
+
+      const normalizedSeq = Math.floor(seq);
+      if (normalizedSeq < queue.expectedSeq) {
+        // Stale patch; continue to flush buffered entries.
+      } else if (normalizedSeq === queue.expectedSeq) {
+        applyEntry(patch, turnId);
+        queue.expectedSeq = normalizedSeq + 1;
+        patchQueuesChanged = true;
+      } else {
+        const clonedPatch: DocumentPatch = {
+          ...patch,
+          fields: { ...patch.fields },
+        };
+        const existingIndex = queue.buffer.findIndex((entry) => entry.seq === normalizedSeq);
+        if (existingIndex !== -1) {
+          queue.buffer.splice(existingIndex, 1);
+        }
+        queue.buffer.push({ seq: normalizedSeq, receivedAt: invocationTime, patch: clonedPatch, turnId });
+        queue.buffer.sort((a, b) => a.seq - b.seq);
+        patchQueuesChanged = true;
+      }
+
+      const flushQueue = () => {
+        while (true) {
+          const exactIndex = queue.buffer.findIndex((entry) => entry.seq === queue.expectedSeq);
+          if (exactIndex !== -1) {
+            const [entry] = queue.buffer.splice(exactIndex, 1);
+            patchQueuesChanged = true;
+            applyEntry(entry.patch, entry.turnId);
+            queue.expectedSeq = entry.seq + 1;
+            continue;
+          }
+          const earliest = queue.buffer.reduce<typeof queue.buffer[number] | null>((acc, entry) => {
+            if (!acc || entry.seq < acc.seq) {
+              return entry;
+            }
+            return acc;
+          }, null);
+          if (earliest && earliest.seq > queue.expectedSeq && invocationTime - earliest.receivedAt >= PATCH_GAP_WAIT_MS) {
+            logPatchGapEvent({ expected: queue.expectedSeq, received: earliest.seq, turnId: turnId ?? earliest.turnId });
+            queue.buffer = queue.buffer.filter((candidate) => candidate !== earliest);
+            patchQueuesChanged = true;
+            applyEntry(earliest.patch, earliest.turnId);
+            queue.expectedSeq = earliest.seq + 1;
+            continue;
+          }
+          break;
+        }
+      };
+
+      flushQueue();
+      nextPatchQueues[queueKey] = queue;
+    }
+
+    const result: Partial<SyncState> = {};
+    if (draftChanged) {
+      result.draft = draft;
+    }
+    if (oplogChanged) {
+      result.oplog = oplog;
+    }
+    if (patchQueuesChanged) {
+      result.patchQueues = nextPatchQueues;
+    }
+    if (pendingTurnChanged) {
+      result.pendingTurn = pendingTurn;
+    }
+
+    return Object.keys(result).length > 0 ? result : {};
   });
 }
 
@@ -324,10 +579,26 @@ export function beginAgentTurn(turnId?: string, timestamp = Date.now()): string 
   const resolvedId = turnId ?? `agent-${createId()}`;
   syncStore.setState((state) => {
     const turns = ensureAgentTurn(state.turns, resolvedId, timestamp);
-    if (turns === state.turns) {
-      return {};
+    let pendingTurnUpdate: PendingTurnState | undefined;
+    if (!state.pendingTurn || state.pendingTurn.id !== resolvedId) {
+      pendingTurnUpdate = {
+        id: resolvedId,
+        startedAt: timestamp,
+        hasAppliedPatch: false,
+        buffers: cloneBuffers(state.buffers),
+        activeTurnId: state.activeTurnId,
+      };
     }
-    return { turns };
+
+    const result: Partial<SyncState> = {};
+    if (turns !== state.turns) {
+      result.turns = turns;
+    }
+    if (pendingTurnUpdate) {
+      result.pendingTurn = pendingTurnUpdate;
+    }
+
+    return Object.keys(result).length > 0 ? result : {};
   });
   return resolvedId;
 }
@@ -338,26 +609,37 @@ export function completeAgentTurn(turnId: string, timestamp = Date.now()) {
   }
   syncStore.setState((state) => {
     const index = state.turns.findIndex((turn) => turn.id === turnId && turn.source === "agent");
-    if (index === -1) {
-      return {};
-    }
+    const result: Partial<SyncState> = {};
 
-    const target = state.turns[index];
-    if (target.status === "finalized" && target.completedAt && target.completedAt >= timestamp) {
-      if (target.updatedAt >= timestamp) {
-        return {};
+    if (index !== -1) {
+      const target = state.turns[index];
+      const shouldUpdateTurn =
+        target.status !== "finalized" ||
+        !target.completedAt ||
+        target.completedAt < timestamp ||
+        target.updatedAt < timestamp;
+
+      if (shouldUpdateTurn) {
+        const nextTurns = [...state.turns];
+        nextTurns[index] = {
+          ...target,
+          status: "finalized",
+          completedAt: timestamp,
+          updatedAt: Math.max(target.updatedAt, timestamp),
+        };
+        result.turns = nextTurns;
       }
     }
 
-    const nextTurns = [...state.turns];
-    nextTurns[index] = {
-      ...target,
-      status: "finalized",
-      completedAt: timestamp,
-      updatedAt: Math.max(target.updatedAt, timestamp),
-    };
+    if (state.pendingTurn && state.pendingTurn.id === turnId) {
+      if (!state.pendingTurn.hasAppliedPatch) {
+        result.buffers = cloneBuffers(state.pendingTurn.buffers);
+        result.activeTurnId = state.pendingTurn.activeTurnId;
+      }
+      result.pendingTurn = undefined;
+    }
 
-    return { turns: nextTurns };
+    return Object.keys(result).length > 0 ? result : {};
   });
 }
 
@@ -369,12 +651,22 @@ export function reconcileAgentTurnId(previousId: string | undefined, nextId: str
   const resolvedPrevious = previousId ?? "";
   syncStore.setState((state) => {
     const turns = updateAgentTurnId(state.turns, resolvedPrevious, nextId, timestamp);
-    if (turns === state.turns) {
-      return {};
+    const result: Partial<SyncState> = {};
+    if (turns !== state.turns) {
+      result.turns = turns;
+    }
+    const activeTurnId = state.activeTurnId === resolvedPrevious ? nextId : state.activeTurnId;
+    if (activeTurnId !== state.activeTurnId) {
+      result.activeTurnId = activeTurnId;
+    }
+    if (state.pendingTurn && state.pendingTurn.id === resolvedPrevious) {
+      result.pendingTurn = {
+        ...state.pendingTurn,
+        id: nextId,
+      };
     }
 
-    const activeTurnId = state.activeTurnId === resolvedPrevious ? nextId : state.activeTurnId;
-    return { turns, activeTurnId };
+    return Object.keys(result).length > 0 ? result : {};
   });
 
   return nextId;

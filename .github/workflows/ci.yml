@@ -8,15 +8,19 @@ on:
 
 jobs:
   test:
-    name: Build & Test
+    name: Build & Test (${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       TERM: xterm-256color
+      VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
+      VITE_CHARTER_WIZARD_VISIBLE: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
+      VITE_AUTO_EXTRACTION_ENABLED: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
     strategy:
       fail-fast: false
       matrix:
         node-version: [22]
+        mode: [guided, wizard]
 
     steps:
       - name: Checkout

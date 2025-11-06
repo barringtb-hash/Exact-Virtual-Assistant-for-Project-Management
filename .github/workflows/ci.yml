@@ -53,7 +53,7 @@ jobs:
         run: npm run qa:charter-wizard
 
       - name: Cypress end-to-end (${{ matrix.mode }})
-        run: xvfb-run -a npm run e2e:${{ matrix.mode }}
+        run: npm run e2e:${{ matrix.mode }}
         env:
           CI: true
 

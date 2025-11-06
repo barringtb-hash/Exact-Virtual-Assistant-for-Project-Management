@@ -53,6 +53,7 @@ import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
+import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -315,6 +316,34 @@ function getValueAtPath(source, path) {
   }
 
   return current;
+}
+
+function normalizeForComparison(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForComparison(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, normalizeForComparison(entryValue)])
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+    return entries.reduce((acc, [key, entryValue]) => {
+      acc[key] = entryValue;
+      return acc;
+    }, {});
+  }
+
+  if (value === undefined) {
+    return null;
+  }
+
+  return value;
+}
+
+function valuesEqual(a, b) {
+  return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b));
 }
 
 // --- Tiny inline icons (no external deps) ---
@@ -1359,6 +1388,97 @@ export default function ExactVirtualAssistantPM() {
     setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
   }, [appendAssistantMessage, isGuidedChatEnabled]);
 
+  const applyGuidedAnswersToDraft = useCallback(
+    (state) => {
+      if (!isGuidedChatEnabled) {
+        return null;
+      }
+      if (previewDocType !== "charter") {
+        return null;
+      }
+      if (!state || !state.fields) {
+        return null;
+      }
+
+      const patch = guidedStateToCharterDTO(state);
+      const entries = Object.entries(patch);
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const baseDraft =
+        charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const diff = {};
+
+      for (const [fieldId, nextValue] of entries) {
+        if (typeof nextValue === "undefined") {
+          continue;
+        }
+        const currentValue = getValueAtPath(baseDraft, fieldId);
+        if (!valuesEqual(currentValue, nextValue)) {
+          diff[fieldId] = nextValue;
+        }
+      }
+
+      if (Object.keys(diff).length === 0) {
+        return null;
+      }
+
+      const pointerLocksSnapshot =
+        pointerLocksRef.current instanceof Map ? pointerLocksRef.current : new Map();
+      const { draft: finalDraft, updatedPaths, metadataByPointer, updatedAt } =
+        mergeIntoDraftWithLocks(baseDraft, diff, pointerLocksSnapshot, {
+          source: "Guided",
+          updatedAt: Date.now(),
+        });
+
+      if (!updatedPaths || updatedPaths.size === 0) {
+        return null;
+      }
+
+      charterDraftRef.current = finalDraft;
+      draftActions.setDraft(finalDraft);
+
+      const timestamp =
+        typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
+      const locksSnapshot = locksRef.current || {};
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths: updatedPaths,
+          source: "Guided",
+          timestamp,
+          locks: locksSnapshot,
+        }),
+      );
+
+      recordDraftMetadata({
+        paths: metadataByPointer,
+        source: "Guided",
+        updatedAt: timestamp,
+      });
+
+      return finalDraft;
+    },
+    [
+      createBlankDraft,
+      isGuidedChatEnabled,
+      previewDocType,
+      setFieldStates,
+    ],
+  );
+
+  const flushGuidedAnswers = useCallback(() => {
+    if (!guidedState) {
+      return null;
+    }
+    return applyGuidedAnswersToDraft(guidedState);
+  }, [applyGuidedAnswersToDraft, guidedState]);
+
+  useEffect(() => {
+    flushGuidedAnswers();
+  }, [flushGuidedAnswers]);
+
   const scheduleChatPreviewSync = useCallback(
     ({ reason = "chat-completion" } = {}) => {
       if (!effectiveDocType) {
@@ -1573,6 +1693,8 @@ const resolveDocTypeForManualSync = useCallback(
   };
 
   const validateCharter = async (draft = charterPreview) => {
+    flushGuidedAnswers();
+
     if (!draft) {
       return {
         ok: false,
@@ -1725,6 +1847,8 @@ const resolveDocTypeForManualSync = useCallback(
     includePdf = true,
     introText,
   } = {}) => {
+    flushGuidedAnswers();
+
     const hasCharterDraft =
       charterPreview && typeof charterPreview === "object" && !Array.isArray(charterPreview);
     const normalizedDocument = hasCharterDraft ? normalizeDraft(charterPreview) : null;

@@ -1,7 +1,11 @@
 /// <reference types="cypress" />
 
 describe('Charter guided chat experience', () => {
-  const composer = () => cy.get('[data-testid="composer-textarea"]');
+  const sendComposerMessage = (text: string) => {
+    cy.typeIntoComposer(text);
+    cy.get('[data-testid="composer-send"]').should('not.be.disabled').click();
+    cy.get('[data-testid="composer-textarea"]').should('have.value', '');
+  };
 
   beforeEach(() => {
     cy.intercept('POST', '/api/chat', {
@@ -9,6 +13,7 @@ describe('Charter guided chat experience', () => {
     }).as('llmRequest');
 
     cy.visit('/');
+    cy.ensureAppReady();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');
   });
 
@@ -19,7 +24,7 @@ describe('Charter guided chat experience', () => {
       .should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Project Title (required).');
 
-    composer().type('North Star Initiative{enter}');
+    sendComposerMessage('North Star Initiative');
     cy.contains('[data-testid="assistant-message"]', 'Saved Project Title.').should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Sponsor (required).');
 
@@ -30,23 +35,23 @@ describe('Charter guided chat experience', () => {
     cy.get('[data-testid="chip-back"]').click();
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Sponsor (required).');
 
-    composer().type('Jordan Example{enter}');
+    sendComposerMessage('Jordan Example');
     cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Project Lead (required).');
 
-    composer().type('Taylor Projector{enter}');
+    sendComposerMessage('Taylor Projector');
     cy.contains('[data-testid="assistant-message"]', 'Saved Project Lead.').should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Start Date (required).');
 
-    composer().type('next quarter{enter}');
+    sendComposerMessage('next quarter');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Enter a valid date in YYYY-MM-DD format.');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Try again or type "skip" to move on.');
 
-    composer().type('2024-05-01{enter}');
+    sendComposerMessage('2024-05-01');
     cy.contains('[data-testid="assistant-message"]', 'Saved Start Date.').should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'End Date (required).');
 
-    composer().type('2024-10-15{enter}');
+    sendComposerMessage('2024-10-15');
     cy.contains('[data-testid="assistant-message"]', 'Saved End Date.').should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Vision (required).');
 

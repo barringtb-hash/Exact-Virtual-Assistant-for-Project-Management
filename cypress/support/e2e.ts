@@ -15,6 +15,7 @@ Cypress.on("window:before:load", (win) => {
     ...existingOverrides,
     VITE_CYPRESS_SAFE_MODE: true,
   };
+
   const styleEl = win.document.createElement("style");
   styleEl.setAttribute("data-cy", "anti-occlusion");
   styleEl.innerHTML = `

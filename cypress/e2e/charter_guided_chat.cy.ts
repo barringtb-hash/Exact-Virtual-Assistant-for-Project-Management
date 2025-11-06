@@ -12,8 +12,7 @@ describe('Charter guided chat experience', () => {
       body: { reply: 'stubbed llm response' },
     }).as('llmRequest');
 
-    cy.visit('/');
-    cy.ensureAppReady();
+    cy.waitForAppReady();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');
   });
 

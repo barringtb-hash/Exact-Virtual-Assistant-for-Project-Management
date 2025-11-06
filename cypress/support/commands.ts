@@ -1,20 +1,25 @@
 declare global {
   namespace Cypress {
     interface Chainable {
-      ensureAppReady(): Chainable<void>;
+      waitForAppReady(): Chainable<void>;
       typeIntoComposer(
         text: string
       ): Chainable<JQuery<HTMLInputElement | HTMLTextAreaElement>>;
       getComposerInput(): Chainable<
         JQuery<HTMLInputElement | HTMLTextAreaElement>
       >;
+      restoreGUM(): Chainable<void>;
+      stubGUMSuccess(stream?: MediaStream): Chainable<sinon.SinonStub>;
+      stubGUMReject(
+        errorName: "NotAllowedError" | "NotFoundError"
+      ): Chainable<sinon.SinonStub>;
     }
   }
 }
 
 const COMPOSER_SELECTOR_PRIORITIES = [
-  '[data-testid="composer-textarea"]',
   '[data-testid="composer-input"]',
+  '[data-testid="composer-textarea"]',
   '[data-testid="charter-wizard-input"]',
   '[data-testid="guided-input"]',
   '[data-testid="charter-guided-input"]',
@@ -42,10 +47,116 @@ Cypress.Commands.add("getComposerInput", () => {
     });
 });
 
-Cypress.Commands.add("ensureAppReady", () => {
-  cy.get('[data-testid="app-ready"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="app-header"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="composer-root"]', { timeout: 15000 }).should("exist");
+Cypress.Commands.add("restoreGUM", () => {
+  cy.window({ log: false }).then((win) => {
+    const gum = win.navigator?.mediaDevices?.getUserMedia as
+      | undefined
+      | (((...args: unknown[]) => Promise<MediaStream>) & {
+          restore?: () => void;
+        });
+
+    if (gum && typeof gum.restore === "function") {
+      gum.restore();
+    }
+  });
+});
+
+const ensureMediaDevices = (win: Window) => {
+  const navigatorWithDevices = win.navigator as Navigator & {
+    mediaDevices?: MediaDevices;
+  };
+
+  if (!navigatorWithDevices.mediaDevices) {
+    navigatorWithDevices.mediaDevices = {} as MediaDevices;
+  }
+
+  return navigatorWithDevices.mediaDevices;
+};
+
+Cypress.Commands.add("stubGUMSuccess", (stream?: MediaStream) => {
+  return cy.window({ log: false }).then((win) => {
+    const mediaDevices = ensureMediaDevices(win);
+    const existing = mediaDevices.getUserMedia as unknown as {
+      restore?: () => void;
+    } | undefined;
+
+    if (existing?.restore) {
+      existing.restore();
+    }
+
+    const resolvedStream = stream
+      ? stream
+      : typeof win.MediaStream === "function"
+      ? new win.MediaStream()
+      : ({} as MediaStream);
+
+    const stub = Cypress.sinon
+      .stub(mediaDevices, "getUserMedia")
+      .callsFake(() => Promise.resolve(resolvedStream));
+
+    return cy.wrap(stub, { log: false });
+  });
+});
+
+Cypress.Commands.add(
+  "stubGUMReject",
+  (errorName: "NotAllowedError" | "NotFoundError") => {
+    return cy.window({ log: false }).then((win) => {
+      const mediaDevices = ensureMediaDevices(win);
+      const existing = mediaDevices.getUserMedia as unknown as {
+        restore?: () => void;
+      } | undefined;
+
+      if (existing?.restore) {
+        existing.restore();
+      }
+
+      const rejection =
+        typeof win.DOMException === "function"
+          ? new win.DOMException(errorName, errorName)
+          : Object.assign(new Error(errorName), { name: errorName });
+
+      const stub = Cypress.sinon
+        .stub(mediaDevices, "getUserMedia")
+        .callsFake(() => Promise.reject(rejection));
+
+      return cy.wrap(stub, { log: false });
+    });
+  }
+);
+
+Cypress.Commands.add("waitForAppReady", () => {
+  cy.visit("/");
+
+  cy.document().its("readyState").should("eq", "complete");
+
+  cy.get("body", { timeout: 20000 }).should(($body) => {
+    if ($body.children().length === 0) {
+      Cypress.log({
+        name: "app DOM",
+        message: $body.html() ?? "<empty body>",
+      });
+
+      throw new Error("App body is empty after load");
+    }
+  });
+
+  cy.get('[data-testid="app-ready"]', { timeout: 20000 }).should(
+    ($beacon) => {
+      if ($beacon.length === 0) {
+        const body = Cypress.$("body");
+        Cypress.log({
+          name: "app DOM",
+          message: body.html() ?? "<empty body>",
+        });
+
+        throw new Error("App readiness beacon not found");
+      }
+    }
+  );
+
+  cy.get('[data-testid="app-header"]', { timeout: 20000 }).should("exist");
+  cy.get('[data-testid="composer-root"]', { timeout: 20000 }).should("exist");
   cy.getComposerInput().should("exist");
 });
 

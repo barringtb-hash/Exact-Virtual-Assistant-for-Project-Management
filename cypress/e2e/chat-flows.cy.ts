@@ -43,7 +43,7 @@ describe('Assistant chat flows', () => {
 
   it('streams typed messages, syncs preview, and allows resending', () => {
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
-    cy.get(composer).type('Draft the kickoff agenda for next Monday{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('Draft the kickoff agenda for next Monday{enter}');
 
     // Check button is disabled immediately after submission
     cy.get('button[title="Assistant is responding…"]').should('exist').and('be.disabled');
@@ -65,7 +65,7 @@ describe('Assistant chat flows', () => {
     // After response completes, button should be re-enabled with "Send" title
     cy.get('button[title="Send"]').should('exist').and('not.be.disabled');
 
-    cy.get(composer).type('Please resend the latest summary{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('Please resend the latest summary{enter}');
     cy.wait('@chatRequest');
     cy.contains('Here is the updated charter outline.').should('exist');
   });
@@ -105,7 +105,7 @@ describe('Assistant chat flows', () => {
     cy.wait('@transcribeRequest');
 
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
-    cy.get(composer).should('have.value', 'Voice triggered follow-up');
+    cy.get(composer).should('be.visible').and('not.be.disabled').should('have.value', 'Voice triggered follow-up');
     cy.get('button[title="Send"]').click();
 
     cy.wait('@chatRequest');
@@ -131,9 +131,9 @@ describe('Assistant chat flows', () => {
       }
     }).as('cancellableChat');
 
-    cy.get(composer).type('First attempt that will be cancelled{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('First attempt that will be cancelled{enter}');
     cy.wait(50);
-    cy.get(composer).type('retry this request with new context{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('retry this request with new context{enter}');
 
     cy.wait('@cancellableChat');
     cy.contains('Fresh response after cancel.').scrollIntoView().should('be.visible');
@@ -142,7 +142,7 @@ describe('Assistant chat flows', () => {
   it('recovers from network errors by allowing resend', () => {
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
 
-    cy.get(composer).type('trigger retry handling{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('trigger retry handling{enter}');
     cy.wait('@chatRequest');
     cy.contains('Unexpected response (500) from chat stream.').scrollIntoView().should('be.visible');
 
@@ -150,7 +150,7 @@ describe('Assistant chat flows', () => {
       reply: 'Second attempt succeeded.',
     }).as('retryChat');
 
-    cy.get(composer).type('retry this request with new context{enter}');
+    cy.get(composer).should('be.visible').and('not.be.disabled').type('retry this request with new context{enter}');
     cy.wait('@retryChat');
     cy.contains('Second attempt succeeded.').scrollIntoView().should('be.visible');
   });

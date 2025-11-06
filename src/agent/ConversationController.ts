@@ -1,4 +1,10 @@
-import { applyPatch, syncStoreApi } from "../state/syncStore.ts";
+import {
+  applyPatch,
+  beginAgentTurn,
+  completeAgentTurn,
+  reconcileAgentTurnId,
+  syncStoreApi,
+} from "../state/syncStore.ts";
 import type { AgentTurn, DocumentPatch, InputPolicy } from "../types/sync.ts";
 
 export interface ConversationControllerOptions {
@@ -59,6 +65,7 @@ export class ConversationController {
   private fetchImpl: typeof fetch;
   private inflight: AbortController | null = null;
   private onError?: (error: Error) => void;
+  private pendingTurnId: string | null = null;
 
   constructor(options: ConversationControllerOptions = {}) {
     this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
@@ -75,6 +82,7 @@ export class ConversationController {
       }
       this.inflight = null;
     }
+    this.completePendingTurn();
   }
 
   async sync(turns?: AgentTurn[]): Promise<void> {
@@ -83,6 +91,7 @@ export class ConversationController {
     const payload = this.buildPayload(turns);
     const controller = new AbortController();
     this.inflight = controller;
+    this.beginPendingTurn();
 
     try {
       const response = await this.fetchImpl(this.endpoint, {
@@ -133,6 +142,7 @@ export class ConversationController {
       throw error;
     } finally {
       this.inflight = null;
+      this.completePendingTurn();
     }
   }
 
@@ -185,9 +195,42 @@ export class ConversationController {
       applyPatch(patch);
     }
 
+    if (parsed.turnId) {
+      this.resolvePendingTurnId(parsed.turnId);
+    }
+
     if (isCompletionChunk(parsed)) {
       onComplete();
     }
+  }
+
+  private beginPendingTurn() {
+    const timestamp = Date.now();
+    const turnId = beginAgentTurn(undefined, timestamp);
+    this.pendingTurnId = turnId;
+  }
+
+  private resolvePendingTurnId(turnId: string) {
+    if (!turnId) {
+      return;
+    }
+    const timestamp = Date.now();
+    if (!this.pendingTurnId) {
+      this.pendingTurnId = beginAgentTurn(turnId, timestamp);
+      return;
+    }
+    if (this.pendingTurnId === turnId) {
+      return;
+    }
+    this.pendingTurnId = reconcileAgentTurnId(this.pendingTurnId, turnId, timestamp);
+  }
+
+  private completePendingTurn() {
+    if (!this.pendingTurnId) {
+      return;
+    }
+    completeAgentTurn(this.pendingTurnId, Date.now());
+    this.pendingTurnId = null;
   }
 }
 

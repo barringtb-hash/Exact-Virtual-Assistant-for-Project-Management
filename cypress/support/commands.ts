@@ -8,10 +8,20 @@ declare global {
 }
 
 Cypress.Commands.add("ensureAppReady", () => {
-  cy.get('[data-testid="app-ready"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="app-header"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="composer-root"]', { timeout: 15000 }).should("exist");
-  cy.get('[data-testid="composer-textarea"]', { timeout: 15000 }).should("exist");
+  cy.document().its("readyState", { timeout: 20000 }).should("eq", "complete");
+  cy.get("body", { timeout: 20000 }).should("not.be.empty");
+  cy.document({ timeout: 20000 }).should((doc) => {
+    const marker = doc.querySelector('[data-testid="app-ready"]');
+    if (!marker) {
+      const html = doc.documentElement?.outerHTML ?? "";
+      // eslint-disable-next-line no-console
+      console.error("DOM on readiness failure:", html.slice(0, 2000));
+      throw new Error("Expected to find readiness marker '[data-testid=\"app-ready\"]'");
+    }
+  });
+  cy.get('[data-testid="app-header"]', { timeout: 20000 }).should("exist");
+  cy.get('[data-testid="composer-root"]', { timeout: 20000 }).should("exist");
+  cy.get('[data-testid="composer-textarea"]', { timeout: 20000 }).should("exist");
 });
 
 Cypress.Commands.add("typeIntoComposer", (text: string) => {

@@ -114,6 +114,9 @@ function formatFieldPrompt(field: CharterField, fieldState: FieldValue | null): 
   const parts: string[] = [];
   const statusLabel = field.required ? "required" : "optional";
   parts.push(`${field.label} (${statusLabel}).`);
+  if (field.question) {
+    parts.push(field.question);
+  }
   if (field.helpText) {
     parts.push(field.helpText);
   }
@@ -236,13 +239,14 @@ export function createGuidedOrchestrator({
     sendAssistantMessage(prompt);
   }
 
-  function handleSkip(): boolean {
-    const field = getCurrentField(state);
-    if (!field) {
-      sendAssistantMessage("All charter fields are already complete.");
-      return true;
-    }
-    sendAssistantMessage(`Skipping ${field.label}.`);
+function handleSkip(): boolean {
+  const field = getCurrentField(state);
+  if (!field) {
+    sendAssistantMessage("All charter fields are already complete.");
+    return true;
+  }
+    const name = field.reviewLabel ?? field.label;
+    sendAssistantMessage(`Skipping ${name}.`);
     dispatch({ type: "SKIP", fieldId: field.id, reason: "user-skipped" });
     promptCurrentField();
     return true;
@@ -256,10 +260,11 @@ function handleBack(): boolean {
       sendAssistantMessage("We’re at the beginning of the charter questions.");
       return true;
     }
+    const name = current.reviewLabel ?? current.label;
     if (before && before.id === current.id) {
-      sendAssistantMessage(`You’re already focused on ${current.label}.`);
+      sendAssistantMessage(`You’re already focused on ${name}.`);
     } else {
-      sendAssistantMessage(`Let’s revisit ${current.label}.`);
+      sendAssistantMessage(`Let’s revisit ${name}.`);
     }
     promptCurrentField();
     return true;
@@ -279,7 +284,7 @@ function handleBack(): boolean {
       if (!fieldId) continue;
       const fieldState = state.fields[fieldId];
       if (!fieldState) continue;
-      const label = fieldState.definition?.label;
+      const label = fieldState.definition?.reviewLabel ?? fieldState.definition?.label;
       if (!label) continue;
 
       switch (fieldState.status) {
@@ -327,7 +332,8 @@ function handleBack(): boolean {
     } else {
       const currentField = getCurrentField(state);
       if (currentField) {
-        segments.push(`Currently focused on ${currentField.label}.`);
+        const name = currentField.reviewLabel ?? currentField.label;
+        segments.push(`Currently focused on ${name}.`);
       }
     }
 
@@ -356,7 +362,8 @@ function handleBack(): boolean {
     dispatch({ type: "ASK", fieldId: targetId });
     const current = getCurrentField(state);
     if (current) {
-      sendAssistantMessage(`Okay, updating ${current.label}.`);
+      const name = current.reviewLabel ?? current.label;
+      sendAssistantMessage(`Okay, updating ${name}.`);
       promptCurrentField();
     }
     return true;
@@ -416,7 +423,8 @@ function handleBack(): boolean {
       value: trimmed,
       normalizedValue: trimmed,
     });
-    sendAssistantMessage(`Saved ${field.label}.`);
+    const name = field.reviewLabel ?? field.label;
+    sendAssistantMessage(`Saved ${name}.`);
     dispatch({ type: "CONFIRM", fieldId: field.id });
     promptCurrentField();
     return true;

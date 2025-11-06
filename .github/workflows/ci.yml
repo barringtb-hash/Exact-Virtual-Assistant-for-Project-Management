@@ -52,16 +52,8 @@ jobs:
       - name: Charter wizard golden QA
         run: npm run qa:charter-wizard
 
-      - name: Build Vite app
-        run: npm run build
-
-      - name: Start preview on strict port
-        run: |
-          npm run preview -- --host --port 5173 --strictPort &
-          npx --yes wait-on http://127.0.0.1:5173
-
-      - name: Cypress E2E (headless via Xvfb)
-        run: xvfb-run -a npm run e2e:ci
+      - name: Cypress end-to-end (${{ matrix.mode }})
+        run: xvfb-run -a npm run e2e:${{ matrix.mode }}
         env:
           CI: true
 

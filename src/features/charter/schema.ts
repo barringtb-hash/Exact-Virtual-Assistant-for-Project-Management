@@ -32,12 +32,14 @@ export interface CharterFieldChild {
 export interface CharterField {
   id: CharterFieldId;
   label: string;
+  question: string;
   helpText: string;
   required: boolean;
   type: CharterFieldType;
   maxLength: number | null;
   placeholder: string | null;
   example: string | null;
+  reviewLabel?: string;
   children?: CharterFieldChild[];
 }
 
@@ -45,6 +47,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "project_name",
     label: "Project Title",
+    question: "What’s the official name of this project?",
     helpText:
       "Use the user-provided project title or the first heading from the uploaded scope document.",
     required: true,
@@ -56,6 +59,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "sponsor",
     label: "Sponsor",
+    question: "Who is sponsoring this project?",
     helpText:
       "Identify the primary project sponsor responsible for funding or approvals.",
     required: true,
@@ -67,6 +71,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "project_lead",
     label: "Project Lead",
+    question: "Who is leading the project day to day?",
     helpText: "Capture the name of the project lead (usually the logged-in PM).",
     required: true,
     type: "string",
@@ -77,6 +82,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "start_date",
     label: "Start Date",
+    question: "When does the project start? Use YYYY-MM-DD.",
     helpText: "Parse the project start date in ISO format (YYYY-MM-DD).",
     required: true,
     type: "date",
@@ -87,6 +93,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "end_date",
     label: "End Date",
+    question: "When should the project wrap up? Use YYYY-MM-DD.",
     helpText: "Parse the project end date in ISO format (YYYY-MM-DD).",
     required: true,
     type: "date",
@@ -97,6 +104,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "vision",
     label: "Vision",
+    question: "What vision or objective should this project achieve?",
     helpText: "Summarize the high-level vision or objectives of the project.",
     required: true,
     type: "textarea",
@@ -107,6 +115,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "problem",
     label: "Problem",
+    question: "Which problem or opportunity is the project addressing?",
     helpText: "Describe the problem or opportunity addressed by the project.",
     required: true,
     type: "textarea",
@@ -117,6 +126,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "description",
     label: "Project Description",
+    question: "Provide a short narrative that explains the project scope and goals.",
     helpText:
       "Provide a brief narrative description of the project including context and goals.",
     required: true,
@@ -128,6 +138,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "scope_in",
     label: "Scope In",
+    question: "List the items that fall in scope. Separate entries with commas or new lines.",
     helpText: "List the items explicitly included in scope.",
     required: false,
     type: "string_list",
@@ -138,6 +149,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "scope_out",
     label: "Scope Out",
+    question: "List the items that are explicitly out of scope.",
     helpText: "List the items explicitly excluded from scope.",
     required: false,
     type: "string_list",
@@ -148,6 +160,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "risks",
     label: "Risks",
+    question: "Call out any known risks the project team is tracking.",
     helpText: "Capture the known project risks.",
     required: false,
     type: "string_list",
@@ -158,6 +171,7 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "assumptions",
     label: "Assumptions",
+    question: "Document the key assumptions you are making.",
     helpText: "Capture any project assumptions.",
     required: false,
     type: "string_list",
@@ -168,6 +182,8 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "milestones",
     label: "Milestones",
+    question:
+      "Outline major milestones including the phase, deliverable, and target date for each entry.",
     helpText:
       "List project milestones with associated phases, deliverables, and target dates.",
     required: false,
@@ -199,6 +215,8 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "success_metrics",
     label: "Success Metrics",
+    question:
+      "Describe the success metrics, pairing the benefit, the metric, and the measurement system.",
     helpText:
       "List success metrics with benefit, metric, and system of measurement.",
     required: false,
@@ -230,6 +248,8 @@ export const CHARTER_FIELDS: CharterField[] = [
   {
     id: "core_team",
     label: "Core Team",
+    question:
+      "List the core team members along with their role and responsibilities.",
     helpText:
       "Create one entry per team member with name, role, and optional responsibilities.",
     required: false,

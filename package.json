@@ -11,6 +11,8 @@
     "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:e2e": "playwright test",
     "e2e:ci": "npx --yes cypress run --config-file cypress.config.ts",
+    "e2e:guided": "bash -lc 'VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_WIZARD_VISIBLE=false VITE_AUTO_EXTRACTION_ENABLED=false npm run build && (pkill -f \"vite preview\" || true) && VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_WIZARD_VISIBLE=false VITE_AUTO_EXTRACTION_ENABLED=false npm run preview -- --port 5173 --strictPort & npx --yes wait-on http://localhost:5173 && npm run e2e:ci; pkill -f \"vite preview\" || true'",
+    "e2e:wizard": "bash -lc 'VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_WIZARD_VISIBLE=true VITE_AUTO_EXTRACTION_ENABLED=true npm run build && (pkill -f \"vite preview\" || true) && VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_WIZARD_VISIBLE=true VITE_AUTO_EXTRACTION_ENABLED=true npm run preview -- --port 5173 --strictPort & npx --yes wait-on http://localhost:5173 && npm run e2e:ci; pkill -f \"vite preview\" || true'",
     "e2e:codespace": "bash -lc 'npm run build && (pkill -f \"vite preview\" || true) && npm run preview -- --port 5173 --strictPort & npx --yes wait-on http://localhost:5173 && xvfb-run -a npm run e2e:ci; pkill -f \"vite preview\" || true'",
     "validate:charter-docx": "node templates/validate-docx-template.mjs",
     "docx:encode": "node templates/tools/encode-docx.mjs",

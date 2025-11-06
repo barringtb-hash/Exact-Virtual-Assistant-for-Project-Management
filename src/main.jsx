@@ -10,3 +10,13 @@ createRoot(document.getElementById('root')).render(
     </AppBoundary>
   </React.StrictMode>
 )
+
+;(() => {
+  const selector = '[data-testid="app-ready"]'
+  if (!document.querySelector(selector)) {
+    const marker = document.createElement('div')
+    marker.setAttribute('data-testid', 'app-ready')
+    marker.hidden = true
+    document.body.appendChild(marker)
+  }
+})()

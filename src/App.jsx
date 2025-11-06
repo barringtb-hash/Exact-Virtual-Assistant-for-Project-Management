@@ -55,6 +55,9 @@ import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
+import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
+
+installSyncTelemetry();
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -3357,6 +3360,7 @@ const resolveDocTypeForManualSync = useCallback(
         onConfirm={handleDocTypeConfirm}
         onCancel={handleDocTypeCancel}
       />
+      {(import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress)) && <SyncDevtools />}
     </div>
   );
 }

@@ -1692,10 +1692,17 @@ const resolveDocTypeForManualSync = useCallback(
     appendAssistantMessage(message);
   };
 
-  const validateCharter = async (draft = charterPreview) => {
-    flushGuidedAnswers();
+  const validateCharter = async (draft = null) => {
+    const flushedDraft = flushGuidedAnswers();
+    const coerceDraft = (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    const effectiveDraft =
+      coerceDraft(draft) ??
+      coerceDraft(flushedDraft) ??
+      coerceDraft(charterDraftRef.current) ??
+      coerceDraft(charterPreview);
 
-    if (!draft) {
+    if (!effectiveDraft) {
       return {
         ok: false,
         errors: [
@@ -1706,8 +1713,8 @@ const resolveDocTypeForManualSync = useCallback(
 
     const docPayload = {
       docType: requestDocType,
-      document: draft,
-      charter: requestDocType === "charter" ? draft : undefined,
+      document: effectiveDraft,
+      charter: requestDocType === "charter" ? effectiveDraft : undefined,
     };
 
     if (suggested && typeof suggested?.type === "string") {
@@ -1847,17 +1854,20 @@ const resolveDocTypeForManualSync = useCallback(
     includePdf = true,
     introText,
   } = {}) => {
-    flushGuidedAnswers();
+    const flushedDraft = flushGuidedAnswers();
+    const coerceDraft = (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    const latestDraft =
+      coerceDraft(flushedDraft) ??
+      coerceDraft(charterDraftRef.current) ??
+      coerceDraft(charterPreview);
+    const normalizedDocument = latestDraft ? normalizeDraft(latestDraft) : null;
 
-    const hasCharterDraft =
-      charterPreview && typeof charterPreview === "object" && !Array.isArray(charterPreview);
-    const normalizedDocument = hasCharterDraft ? normalizeDraft(charterPreview) : null;
-
-    if (hasCharterDraft) {
+    if (normalizedDocument) {
       applyCharterDraft(normalizedDocument);
     }
 
-    const validation = await validateCharter(normalizedDocument);
+    const validation = await validateCharter(normalizedDocument ?? latestDraft);
     if (!validation.ok) {
       postValidationErrorsToChat(validation.errors);
       return { ok: false, reason: "validation" };

@@ -57,10 +57,23 @@ describe("@golden @voice Voice and text sync", () => {
 
     cy.submitComposer(TEST_MESSAGE);
 
+    // Preview should mirror the typed message immediately after submission.
+    cy.assertPreviewIncludes(TEST_MESSAGE);
+
     cy.wait("@chatCompletion");
     cy.wait("@previewExtraction");
 
-    cy.assertPreviewIncludes(TEST_MESSAGE);
+    // Eventually the assistant response should replace the mirrored text while
+    // remaining non-empty (covers "Acknowledged." or other assistant phrasing).
+    cy.getByTestId("preview-panel", { timeout: 6000 }).should(($panel) => {
+      const text = $panel.text().trim();
+      expect(text.length, "preview text should not be empty").to.be.greaterThan(0);
+      expect(
+        text.includes("Acknowledged.") || !text.includes(TEST_MESSAGE),
+        "preview should transition away from the mirrored message",
+      ).to.equal(true);
+    });
+
     cy.assertVoicePaused(false);
     cy.assertMicPressed(true);
   });

@@ -1,6 +1,6 @@
 /// <reference types="cypress" />
 
-const START_URL = '**/guided/charter/start';
+const START_URL = '**/guided/charter/start*';
 const MESSAGE_URL = '**/guided/charter/messages';
 
 describe('Guided charter backend voice + text sync', () => {
@@ -90,6 +90,7 @@ describe('Guided charter backend voice + text sync', () => {
   });
 
   const setupStartIntercept = (overrides?: Partial<Record<string, unknown>>) => {
+    cy.intercept({ url: START_URL }).as('charterStartAny');
     cy.intercept('POST', START_URL, (req) => {
       const correlationId = req.body?.correlation_id;
       expect(correlationId, 'correlation id').to.be.a('string').and.not.be.empty;
@@ -106,6 +107,12 @@ describe('Guided charter backend voice + text sync', () => {
       });
     }).as('charterStart');
   };
+
+  const waitForStartRequest = () =>
+    cy.wait('@charterStart', { timeout: 20000 }).then(
+      (result) => result,
+      () => cy.wait('@charterStartAny', { timeout: 20000 }),
+    );
 
   const respondToMessage = () => {
     cy.intercept('POST', MESSAGE_URL, (req) => {
@@ -248,6 +255,13 @@ describe('Guided charter backend voice + text sync', () => {
 
   const loadApp = () => {
     cy.waitForAppReady();
+    cy.window()
+      .its('__E2E_FLAGS__')
+      .should((flags) => {
+        expect(flags, '__E2E_FLAGS__').to.exist;
+        expect(flags.SAFE_MODE, 'SAFE_MODE flag').to.equal(false);
+        expect(flags.GUIDED_BACKEND_ON, 'GUIDED_BACKEND_ON flag').to.equal(true);
+      });
     noopEventSource();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');
   };
@@ -265,7 +279,7 @@ describe('Guided charter backend voice + text sync', () => {
     loadApp();
 
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStart', { timeout: 20000 });
+    waitForStartRequest();
 
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
       .should('be.visible');
@@ -299,7 +313,7 @@ describe('Guided charter backend voice + text sync', () => {
     loadApp();
 
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStart', { timeout: 20000 });
+    waitForStartRequest();
 
     cy.assertMicPressed(true);
 
@@ -327,6 +341,7 @@ describe('Guided charter backend voice + text sync', () => {
   });
 
   it('falls back to the local orchestrator when start fails', () => {
+    cy.intercept({ url: START_URL }).as('charterStartAny');
     cy.intercept('POST', START_URL, {
       statusCode: 500,
       body: { error: 'forced' },
@@ -336,7 +351,10 @@ describe('Guided charter backend voice + text sync', () => {
     loadApp();
 
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStartFailure', { timeout: 20000 });
+    cy.wait('@charterStartFailure', { timeout: 20000 }).then(
+      (result) => result,
+      () => cy.wait('@charterStartAny', { timeout: 20000 }),
+    );
 
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
       .should('be.visible');

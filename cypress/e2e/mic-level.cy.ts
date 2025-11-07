@@ -5,7 +5,12 @@
 
 describe("Microphone Level Indicator", () => {
   beforeEach(() => {
-    cy.visit("/");
+    cy.waitForAppReady();
+    cy.restoreGUM();
+  });
+
+  afterEach(() => {
+    cy.restoreGUM();
   });
 
   it("shows level indicator when mic starts with synthetic audio", () => {
@@ -33,12 +38,7 @@ describe("Microphone Level Indicator", () => {
       const fakeStream = dest.stream;
 
       // Stub getUserMedia to return our synthetic stream
-      const originalGetUserMedia = win.navigator.mediaDevices.getUserMedia.bind(
-        win.navigator.mediaDevices
-      );
-      cy.stub(win.navigator.mediaDevices, "getUserMedia").callsFake(
-        async () => fakeStream
-      );
+      cy.stubGUMSuccess(fakeStream);
 
       // Find and click the mic button
       // Note: This assumes the mic button is available in the UI
@@ -62,52 +62,41 @@ describe("Microphone Level Indicator", () => {
       cy.get('button[title*="Stop"]').first().click({ force: true });
 
       // Cleanup
-      osc.stop();
-      ctx.close();
-      // Restore original getUserMedia
-      (win.navigator.mediaDevices.getUserMedia as any).restore?.();
-      if ((win.navigator.mediaDevices.getUserMedia as any).wrappedMethod) {
-        win.navigator.mediaDevices.getUserMedia = originalGetUserMedia;
-      }
+      cy.then(() => {
+        osc.stop();
+        return ctx.close();
+      });
     });
   });
 
   it("handles microphone permission denial gracefully", () => {
-    cy.window().then((win) => {
-      // Stub getUserMedia to reject with permission denied error
-      cy.stub(win.navigator.mediaDevices, "getUserMedia").rejects(
-        new DOMException("Permission denied", "NotAllowedError")
-      );
+    // Stub getUserMedia to reject with permission denied error
+    cy.stubGUMReject("NotAllowedError");
 
-      // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+    // Try to start the mic
+    cy.get('button[title*="Voice"]').first().click({ force: true });
 
-      // Should show an error or handle gracefully
-      // Note: The exact error handling depends on your implementation
-      // This test verifies no uncaught errors occur
-      cy.wait(500);
+    // Should show an error or handle gracefully
+    // Note: The exact error handling depends on your implementation
+    // This test verifies no uncaught errors occur
+    cy.wait(500);
 
-      // Verify the app is still functional (no crash)
-      cy.get("textarea").should("exist");
-    });
+    // Verify the app is still functional (no crash)
+    cy.get("textarea").should("exist");
   });
 
   it("handles no microphone available scenario", () => {
-    cy.window().then((win) => {
-      // Stub getUserMedia to reject with device not found error
-      cy.stub(win.navigator.mediaDevices, "getUserMedia").rejects(
-        new DOMException("Requested device not found", "NotFoundError")
-      );
+    // Stub getUserMedia to reject with device not found error
+    cy.stubGUMReject("NotFoundError");
 
-      // Try to start the mic
-      cy.get('button[title*="Voice"]').first().click({ force: true });
+    // Try to start the mic
+    cy.get('button[title*="Voice"]').first().click({ force: true });
 
-      // Should handle gracefully
-      cy.wait(500);
+    // Should handle gracefully
+    cy.wait(500);
 
-      // Verify the app is still functional
-      cy.get("textarea").should("exist");
-    });
+    // Verify the app is still functional
+    cy.get("textarea").should("exist");
   });
 
   it("shows peak indicator that decays over time", () => {
@@ -131,12 +120,7 @@ describe("Microphone Level Indicator", () => {
       osc.start();
 
       const fakeStream = dest.stream;
-      const originalGetUserMedia = win.navigator.mediaDevices.getUserMedia.bind(
-        win.navigator.mediaDevices
-      );
-      cy.stub(win.navigator.mediaDevices, "getUserMedia").callsFake(
-        async () => fakeStream
-      );
+      cy.stubGUMSuccess(fakeStream);
 
       // Start mic
       cy.get('button[title*="Voice"]').first().click({ force: true });
@@ -151,12 +135,10 @@ describe("Microphone Level Indicator", () => {
 
       // Stop and cleanup
       cy.get('button[title*="Stop"]').first().click({ force: true });
-      osc.stop();
-      ctx.close();
-      (win.navigator.mediaDevices.getUserMedia as any).restore?.();
-      if ((win.navigator.mediaDevices.getUserMedia as any).wrappedMethod) {
-        win.navigator.mediaDevices.getUserMedia = originalGetUserMedia;
-      }
+      cy.then(() => {
+        osc.stop();
+        return ctx.close();
+      });
     });
   });
 });

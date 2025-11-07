@@ -41,7 +41,7 @@ import {
   useIsSyncingPreview,
   useInputLocked,
 } from "./state/chatStore.ts";
-import { draftActions, draftStoreApi, useDraft, useDraftStatus } from "./state/draftStore.ts";
+import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
 import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
 import {
   pathToPointer,
@@ -54,6 +54,16 @@ import { conversationActions, useConversationState } from "./state/conversationS
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
+import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
+import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
+import { dispatch } from "./sync/syncStore.js";
+
+const SHOULD_INSTALL_SYNC_TELEMETRY =
+  import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
+
+if (SHOULD_INSTALL_SYNC_TELEMETRY) {
+  installSyncTelemetry();
+}
 
 const THEME_STORAGE_KEY = "eva-theme-mode";
 const MANUAL_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -829,7 +839,9 @@ export default function ExactVirtualAssistantPM() {
   const requestDocType = previewDocType || defaultDocType || DEFAULT_DOC_TYPE;
   const lastDocTypeRef = useRef(requestDocType);
   const [extractionSeed, setExtractionSeed] = useState(() => Date.now());
-  const draftState = useDraft();
+  const { draft: previewDraftDocument, pendingTurn: hasPendingPreviewTurn } =
+    usePreviewSyncService();
+  const draftState = previewDraftDocument?.fields ?? null;
   const charterPreview = draftState ?? initialDraftRef.current;
   const [fieldStates, setFieldStates] = useState(() => {
     const draft = initialDraftRef.current;
@@ -845,7 +857,8 @@ export default function ExactVirtualAssistantPM() {
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
-  const isPreviewSyncing = isSyncingPreviewFlag || isDraftSyncing;
+  const isPreviewSyncing =
+    isSyncingPreviewFlag || isDraftSyncing || hasPendingPreviewTurn;
   const legacyDraftSnapshot = useLegacyDraftStore();
   const pointerLocks =
     legacyDraftSnapshot?.locks instanceof Map ? legacyDraftSnapshot.locks : new Map();
@@ -1260,6 +1273,7 @@ export default function ExactVirtualAssistantPM() {
         }),
       );
       draftActions.setDraft(next);
+      dispatch("PREVIEW_UPDATED", { source: "text" });
     },
     [createBlankDraft, previewDocType]
   );
@@ -2170,7 +2184,7 @@ const resolveDocTypeForManualSync = useCallback(
     }
   };
 
-  const cleanupRealtime = () => {
+  const cleanupRealtime = ({ dispatchStop = true, dispatchStreamClose = true } = {}) => {
     if (dataRef.current) {
       try {
         dataRef.current.close();
@@ -2180,6 +2194,9 @@ const resolveDocTypeForManualSync = useCallback(
       dataRef.current.onmessage = null;
       dataRef.current.onclose = null;
       dataRef.current = null;
+      if (dispatchStreamClose) {
+        dispatch("STREAM_CLOSE");
+      }
     }
     if (pcRef.current) {
       try {
@@ -2200,14 +2217,17 @@ const resolveDocTypeForManualSync = useCallback(
         }
       });
       micStreamRef.current = null;
+      if (dispatchStop) {
+        dispatch("VOICE_STOP");
+      }
     }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
     }
   };
 
-  const stopRealtime = () => {
-    cleanupRealtime();
+  const stopRealtime = (options) => {
+    cleanupRealtime(options);
     setRtcState("idle");
   };
 
@@ -2218,6 +2238,7 @@ const resolveDocTypeForManualSync = useCallback(
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       micStreamRef.current = stream;
+      dispatch("VOICE_START");
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -2255,8 +2276,13 @@ const resolveDocTypeForManualSync = useCallback(
         });
       };
 
+      dataChannel.onopen = () => {
+        dispatch("STREAM_OPEN");
+      };
+
       dataChannel.onclose = () => {
         dataRef.current = null;
+        dispatch("STREAM_CLOSE");
       };
 
       const offer = await pc.createOffer();
@@ -2314,6 +2340,7 @@ const resolveDocTypeForManualSync = useCallback(
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      dispatch("VOICE_START");
       const preferredMime =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
           ? MediaRecorder.isTypeSupported("audio/webm")
@@ -2362,6 +2389,7 @@ const resolveDocTypeForManualSync = useCallback(
           }
           setRec(null);
           voiceActions.setStatus("idle");
+          dispatch("VOICE_STOP");
         }
       };
 
@@ -2375,6 +2403,7 @@ const resolveDocTypeForManualSync = useCallback(
       }
       setRec(null);
       voiceActions.setStatus("idle");
+      dispatch("VOICE_STOP");
     }
   };
 
@@ -2533,6 +2562,10 @@ const resolveDocTypeForManualSync = useCallback(
         return { status: "busy" };
       }
 
+      if (source !== "voice") {
+        dispatch("PREVIEW_UPDATED", { source: "text" });
+      }
+
       chatActions.pushUser(trimmed);
       const nextHistory = chatStoreApi.getState().messages;
       messagesRef.current = nextHistory;
@@ -2683,6 +2716,7 @@ const resolveDocTypeForManualSync = useCallback(
       const nextVoice = [...baseVoice, entry].slice(-20);
       voiceTranscriptsRef.current = nextVoice;
       voiceActions.setTranscripts(nextVoice);
+      dispatch("PREVIEW_UPDATED", { source: "voice" });
 
       voiceActions.setStatus("transcribing");
       try {
@@ -3199,6 +3233,7 @@ const resolveDocTypeForManualSync = useCallback(
                 data-has-manifest-metadata={
                   activeManifestMetadata ? "true" : undefined
                 }
+                data-testid="preview-panel"
               >
                 {!hasPreviewDocType ? (
                   <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
@@ -3232,12 +3267,13 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 ) : (
                   <PreviewEditable
-                    draft={charterPreview}
+                    draft={previewDraftDocument}
                     locks={locks}
                     fieldStates={fieldStates}
                     highlightedPaths={highlightedPaths}
                     metadata={aiMetadataByPath}
                     isLoading={isCharterSyncInFlight}
+                    isPending={hasPendingPreviewTurn}
                     onDraftChange={handleDraftChange}
                     onLockField={handleLockField}
                     manifest={activeDocManifest}
@@ -3352,6 +3388,7 @@ const resolveDocTypeForManualSync = useCallback(
         onConfirm={handleDocTypeConfirm}
         onCancel={handleDocTypeCancel}
       />
+      {(import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress)) && <SyncDevtools />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ const INITIAL_STATE = Object.freeze({
   lastMicWasOn: false,
   resumeMicAfterSubmit: false,
   awaitingPreview: false,
+  pausedForText: false,
 });
 
 const ALLOWED_MODES = new Set([
@@ -43,6 +44,26 @@ function setVoiceStatus(status) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[syncStore] failed to update voice status", error);
     }
+  }
+}
+
+function getLastVoiceUtterance() {
+  try {
+    if (!voiceStoreApi || typeof voiceStoreApi.getState !== "function") {
+      return null;
+    }
+    const transcripts = voiceStoreApi.getState().transcripts;
+    if (!Array.isArray(transcripts) || transcripts.length === 0) {
+      return null;
+    }
+    const lastEntry = transcripts[transcripts.length - 1];
+    const text = typeof lastEntry?.text === "string" ? lastEntry.text.trim() : "";
+    return text || null;
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[syncStore] failed to read last utterance", error);
+    }
+    return null;
   }
 }
 
@@ -155,6 +176,7 @@ function handleVoiceStart(event) {
     lastMicWasOn: true,
     resumeMicAfterSubmit: false,
     awaitingPreview: false,
+    pausedForText: false,
   });
   return commit(event, nextState);
 }
@@ -166,6 +188,7 @@ function handleVoiceStop(event) {
     lastMicWasOn: false,
     resumeMicAfterSubmit: false,
     awaitingPreview: false,
+    pausedForText: false,
   });
   return commit(event, nextState);
 }
@@ -177,6 +200,7 @@ function handleVoiceError(event) {
     lastMicWasOn: false,
     resumeMicAfterSubmit: false,
     awaitingPreview: false,
+    pausedForText: false,
   });
   return commit(event, nextState);
 }
@@ -199,23 +223,34 @@ function handleTextFocus(event) {
     }
   }
 
+  const lastUtterance = wasActive ? getLastVoiceUtterance() : null;
   const nextState = freezeState({
     ...state,
     mode: "idle",
     lastMicWasOn: wasActive ? true : state.lastMicWasOn,
     resumeMicAfterSubmit: wasActive,
     awaitingPreview: false,
+    pausedForText: wasActive,
   });
-  return commit(event, nextState);
+  const augmentedEvent = {
+    ...event,
+    pausedForText: wasActive,
+    lastUserUtterance: lastUtterance ?? event?.lastUserUtterance,
+  };
+  return commit(augmentedEvent, nextState);
 }
 
 function handleTextSubmit(event) {
+  const pausedForText = state.resumeMicAfterSubmit;
+
   const nextState = freezeState({
     ...state,
     mode: "thinking",
     awaitingPreview: true,
+    pausedForText,
   });
-  return commit(event, nextState);
+  const augmentedEvent = { ...event, pausedForText };
+  return commit(augmentedEvent, nextState);
 }
 
 function handlePreviewUpdated(event) {
@@ -233,8 +268,10 @@ function handlePreviewUpdated(event) {
     ...state,
     mode: "speaking",
     awaitingPreview: false,
+    pausedForText: false,
   });
-  commit(event, nextState);
+  const augmentedEvent = { ...event, resumedMic: shouldResume };
+  commit(augmentedEvent, nextState);
 
   if (!shouldResume) {
     return state;
@@ -246,8 +283,9 @@ function handlePreviewUpdated(event) {
     mode: "listening",
     lastMicWasOn: true,
     resumeMicAfterSubmit: false,
+    pausedForText: false,
   });
-  return commit({ type: "VOICE_RESUMED" }, resumedState);
+  return commit({ type: "VOICE_RESUMED", resumed: true }, resumedState);
 }
 
 export function dispatch(eventOrType, payload) {

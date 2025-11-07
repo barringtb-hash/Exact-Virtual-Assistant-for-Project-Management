@@ -8,6 +8,7 @@ import {
   type GuidedState,
 } from "./guidedState";
 import { CHARTER_FIELDS, type CharterField, type CharterFieldId } from "./schema";
+import { getTitleCandidate } from "./titlePreprocessor";
 import { validateField } from "./validate";
 
 type StateListener = (state: GuidedState) => void;
@@ -390,24 +391,27 @@ function handleBack(): boolean {
       return false;
     }
 
-    const trimmed = normalizeWhitespace(raw);
-    if (!trimmed) {
+    const normalizedInput = normalizeWhitespace(raw);
+    if (!normalizedInput) {
       sendAssistantMessage(
         `I didn’t catch a response for ${field.label}. Share an update or type "skip".`
       );
       return true;
     }
 
-    dispatch({ type: "CAPTURE", fieldId: field.id, value: trimmed });
+    const candidate = field.id === "project_name" ? getTitleCandidate(raw) : "";
+    const capturedValue = candidate || normalizedInput;
 
-    const validation = validateField(field, trimmed);
+    dispatch({ type: "CAPTURE", fieldId: field.id, value: capturedValue });
+
+    const validation = validateField(field, capturedValue);
     if (!validation.valid) {
       dispatch({
         type: "VALIDATE",
         fieldId: field.id,
         valid: false,
         issues: validation.message ? [validation.message] : [],
-        value: trimmed,
+        value: capturedValue,
       });
       const errorMessage = validation.message
         ? `${validation.message} Try again or type "skip" to move on.`
@@ -420,8 +424,8 @@ function handleBack(): boolean {
       type: "VALIDATE",
       fieldId: field.id,
       valid: true,
-      value: trimmed,
-      normalizedValue: trimmed,
+      value: capturedValue,
+      normalizedValue: capturedValue,
     });
     const name = field.reviewLabel ?? field.label;
     sendAssistantMessage(`Saved ${name}.`);

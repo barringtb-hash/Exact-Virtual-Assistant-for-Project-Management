@@ -3492,6 +3492,20 @@ const resolveDocTypeForManualSync = useCallback(
     [submitChatTurn]
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.Cypress) {
+      return undefined;
+    }
+
+    window.__simulateGuidedVoiceFinal = async (text, options = {}) => {
+      await handleVoiceTranscriptMessage(text, options);
+    };
+
+    return () => {
+      delete window.__simulateGuidedVoiceFinal;
+    };
+  }, [handleVoiceTranscriptMessage]);
+
   const handleSend = async () => {
     const text = composerDraft.trim();
     if (!text) return;

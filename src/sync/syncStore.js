@@ -1,6 +1,10 @@
+import { voiceActions, voiceStoreApi } from "../state/voiceStore.ts";
+
 const INITIAL_STATE = Object.freeze({
   mode: "idle",
   lastMicWasOn: false,
+  resumeMicAfterSubmit: false,
+  awaitingPreview: false,
 });
 
 const ALLOWED_MODES = new Set([
@@ -13,6 +17,33 @@ const ALLOWED_MODES = new Set([
 
 const subscribers = new Set();
 let state = INITIAL_STATE;
+
+function getVoiceStatus() {
+  try {
+    if (!voiceStoreApi || typeof voiceStoreApi.getState !== "function") {
+      return undefined;
+    }
+    return voiceStoreApi.getState().status;
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[syncStore] failed to read voice status", error);
+    }
+    return undefined;
+  }
+}
+
+function setVoiceStatus(status) {
+  try {
+    if (!voiceActions || typeof voiceActions.setStatus !== "function") {
+      return;
+    }
+    voiceActions.setStatus(status);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[syncStore] failed to update voice status", error);
+    }
+  }
+}
 
 function freezeState(next) {
   return Object.freeze({ ...next });
@@ -95,6 +126,118 @@ function notify() {
   });
 }
 
+function commit(event, nextState) {
+  if (nextState === state) {
+    return state;
+  }
+
+  state = nextState;
+  notify();
+
+  if (typeof window !== "undefined" && typeof window.__syncLog === "function") {
+    try {
+      window.__syncLog("dispatch", { event, state: nextState });
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[syncStore] failed to log telemetry", error);
+      }
+    }
+  }
+
+  return state;
+}
+
+function handleVoiceStart(event) {
+  const nextState = freezeState({
+    ...state,
+    mode: "listening",
+    lastMicWasOn: true,
+    resumeMicAfterSubmit: false,
+    awaitingPreview: false,
+  });
+  return commit(event, nextState);
+}
+
+function handleVoiceStop(event) {
+  const nextState = freezeState({
+    ...state,
+    mode: "idle",
+    lastMicWasOn: false,
+    resumeMicAfterSubmit: false,
+    awaitingPreview: false,
+  });
+  return commit(event, nextState);
+}
+
+function handleVoiceError(event) {
+  const nextState = freezeState({
+    ...state,
+    mode: "error",
+    lastMicWasOn: false,
+    resumeMicAfterSubmit: false,
+    awaitingPreview: false,
+  });
+  return commit(event, nextState);
+}
+
+function handleTextFocus(event) {
+  const status = getVoiceStatus();
+  const wasActive = status === "listening" || status === "transcribing";
+  if (wasActive) {
+    setVoiceStatus("idle");
+  }
+
+  const nextState = freezeState({
+    ...state,
+    mode: "idle",
+    lastMicWasOn: wasActive ? true : state.lastMicWasOn,
+    resumeMicAfterSubmit: wasActive,
+    awaitingPreview: false,
+  });
+  return commit(event, nextState);
+}
+
+function handleTextSubmit(event) {
+  const nextState = freezeState({
+    ...state,
+    mode: "thinking",
+    awaitingPreview: true,
+  });
+  return commit(event, nextState);
+}
+
+function handlePreviewUpdated(event) {
+  const source = event?.payload?.source;
+  if (source !== "text") {
+    return state;
+  }
+
+  if (!state.awaitingPreview) {
+    return state;
+  }
+
+  const shouldResume = state.resumeMicAfterSubmit;
+  const nextState = freezeState({
+    ...state,
+    mode: "speaking",
+    awaitingPreview: false,
+  });
+  commit(event, nextState);
+
+  if (!shouldResume) {
+    return state;
+  }
+
+  setVoiceStatus("listening");
+  const resumedState = freezeState({
+    ...state,
+    mode: "listening",
+    lastMicWasOn: true,
+    resumeMicAfterSubmit: false,
+  });
+  return commit({ type: "VOICE_RESUMED" }, resumedState);
+}
+
 export function dispatch(eventOrType, payload) {
   let event = eventOrType;
   if (typeof eventOrType === "string") {
@@ -111,25 +254,24 @@ export function dispatch(eventOrType, payload) {
     return state;
   }
 
-  const nextState = applyEvent(state, event);
-  if (nextState === state) {
-    return state;
-  }
-
-  state = nextState;
-  notify();
-
-  if (typeof window !== "undefined" && typeof window.__syncLog === "function") {
-    try {
-      window.__syncLog("dispatch", { event, state });
-    } catch (error) {
-      if (process.env.NODE_ENV !== "production") {
-        console.error("[syncStore] failed to log telemetry", error);
-      }
+  switch (event.type) {
+    case "VOICE_START":
+      return handleVoiceStart(event);
+    case "VOICE_STOP":
+      return handleVoiceStop(event);
+    case "VOICE_ERROR":
+      return handleVoiceError(event);
+    case "TEXT_FOCUS":
+      return handleTextFocus(event);
+    case "TEXT_SUBMIT":
+      return handleTextSubmit(event);
+    case "PREVIEW_UPDATED":
+      return handlePreviewUpdated(event);
+    default: {
+      const nextState = applyEvent(state, event);
+      return commit(event, nextState);
     }
   }
-
-  return state;
 }
 
 export function getState() {

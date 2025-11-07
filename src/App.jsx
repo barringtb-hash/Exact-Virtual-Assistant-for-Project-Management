@@ -98,6 +98,83 @@ const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZAR
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
+function sendTelemetryEvent(eventName, { conversationId = null, metadata = {} } = {}) {
+  if (typeof fetch !== "function") {
+    return Promise.resolve();
+  }
+
+  const payload = {
+    event: eventName,
+    timestamp: Date.now(),
+    conversation_id: conversationId ?? null,
+    metadata,
+  };
+
+  try {
+    return fetch("/api/telemetry/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch (error) {
+    return Promise.resolve();
+  }
+}
+
+function summarizeGuidedSlots(state) {
+  if (!state || !state.fields || typeof state.fields !== "object") {
+    return {
+      totalSlots: 0,
+      confirmedSlots: 0,
+      capturedSlots: 0,
+      skippedSlots: 0,
+      rejectedSlots: 0,
+      pendingSlots: 0,
+    };
+  }
+
+  let totalSlots = 0;
+  let confirmedSlots = 0;
+  let capturedSlots = 0;
+  let skippedSlots = 0;
+  let rejectedSlots = 0;
+  let pendingSlots = 0;
+
+  for (const fieldState of Object.values(state.fields)) {
+    if (!fieldState || typeof fieldState !== "object") {
+      continue;
+    }
+
+    totalSlots += 1;
+    switch (fieldState.status) {
+      case "confirmed":
+        confirmedSlots += 1;
+        break;
+      case "captured":
+        capturedSlots += 1;
+        break;
+      case "skipped":
+        skippedSlots += 1;
+        break;
+      case "rejected":
+        rejectedSlots += 1;
+        break;
+      default:
+        pendingSlots += 1;
+        break;
+    }
+  }
+
+  return {
+    totalSlots,
+    confirmedSlots,
+    capturedSlots,
+    skippedSlots,
+    rejectedSlots,
+    pendingSlots,
+  };
+}
+
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
   if (!hasExplicitDocType) {
@@ -751,6 +828,7 @@ export default function ExactVirtualAssistantPM() {
   const guidedSlotMapRef = useRef(new Map());
   const guidedVoiceEnabledRef = useRef(false);
   const guidedConversationIdRef = useRef(null);
+  const guidedInitialPromptAtRef = useRef(null);
   const featureFlagsReady = true;
   useEffect(() => {
     guidedStateRef.current = guidedState;
@@ -761,6 +839,9 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     guidedVoiceEnabledRef.current = guidedVoiceEnabled;
   }, [guidedVoiceEnabled]);
+  useEffect(() => {
+    guidedInitialPromptAtRef.current = guidedInitialPromptAt;
+  }, [guidedInitialPromptAt]);
   useEffect(() => {
     const map = new Map();
     if (Array.isArray(guidedSlotMetadata)) {
@@ -789,6 +870,7 @@ export default function ExactVirtualAssistantPM() {
     setGuidedConversationId(null);
     setGuidedSlotMetadata([]);
     setGuidedInitialPromptAt(null);
+    guidedInitialPromptAtRef.current = null;
     setGuidedVoiceEnabled(false);
     if (CHARTER_GUIDED_BACKEND_ENABLED) {
       setGuidedAutoExtractionDisabled(false);
@@ -1890,6 +1972,63 @@ export default function ExactVirtualAssistantPM() {
     [effectiveDocType, pushToast, triggerExtraction]
   );
 
+  const emitGuidedCompletionTelemetry = useCallback(
+    (state, { reason = "complete" } = {}) => {
+      if (!CHARTER_GUIDED_BACKEND_ENABLED || !state) {
+        return;
+      }
+
+      const conversationId = guidedConversationIdRef.current;
+      const summary = summarizeGuidedSlots(state);
+      const startedAt = guidedInitialPromptAtRef.current;
+      const elapsedMs =
+        typeof startedAt === "number" && Number.isFinite(startedAt)
+          ? Math.max(0, Date.now() - startedAt)
+          : null;
+
+      const metadata = {
+        ...summary,
+        reason,
+        status: state.status,
+        elapsedMs,
+        completedAt: state.completedAt,
+        startedAt: state.startedAt,
+        voiceEnabled: Boolean(guidedVoiceEnabledRef.current),
+      };
+
+      sendTelemetryEvent("charter_guided_complete", {
+        conversationId,
+        metadata,
+      });
+    },
+    [],
+  );
+
+  const emitGuidedFallbackTelemetry = useCallback(
+    (phase, error, extraMetadata = {}) => {
+      if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+        return;
+      }
+
+      const conversationId = guidedConversationIdRef.current;
+      const metadata = {
+        phase,
+        status: error?.status ?? null,
+        message: error?.message ?? null,
+        errorName: error?.name ?? null,
+        voiceEnabled: Boolean(guidedVoiceEnabledRef.current),
+        hasConversationId: Boolean(conversationId),
+        ...extraMetadata,
+      };
+
+      sendTelemetryEvent("charter_guided_fallback_local", {
+        conversationId,
+        metadata,
+      });
+    },
+    [],
+  );
+
   const processGuidedEvents = useCallback(
     (events, { reason } = {}) => {
       if (!Array.isArray(events) || events.length === 0) {
@@ -1962,7 +2101,9 @@ export default function ExactVirtualAssistantPM() {
 
       if (appendedAssistant && !hasPostedInitialPromptRef.current) {
         hasPostedInitialPromptRef.current = true;
-        setGuidedInitialPromptAt(Date.now());
+        const firstPromptTimestamp = Date.now();
+        setGuidedInitialPromptAt(firstPromptTimestamp);
+        guidedInitialPromptAtRef.current = firstPromptTimestamp;
       }
 
       if (stateChanged || appendedAssistant) {
@@ -1970,12 +2111,18 @@ export default function ExactVirtualAssistantPM() {
       }
 
       if (sessionCompleted) {
+        emitGuidedCompletionTelemetry(nextState, { reason: reason || "guided-slot-update" });
         resetGuidedRemoteSession();
       }
 
       return { stateChanged, sessionCompleted, appendedAssistant };
     },
-    [appendAssistantMessage, resetGuidedRemoteSession, scheduleChatPreviewSync],
+    [
+      appendAssistantMessage,
+      emitGuidedCompletionTelemetry,
+      resetGuidedRemoteSession,
+      scheduleChatPreviewSync,
+    ],
   );
 
   const sendGuidedBackendMessage = useCallback(
@@ -3101,7 +3248,11 @@ const resolveDocTypeForManualSync = useCallback(
             });
             remoteHandled = response?.handled !== false;
           } catch (error) {
-            if (!(error instanceof CharterClientError)) {
+            if (error instanceof CharterClientError) {
+              emitGuidedFallbackTelemetry("message", error, {
+                source: source === "voice" ? "voice" : "chat",
+              });
+            } else {
               throw error;
             }
           } finally {
@@ -3178,6 +3329,7 @@ const resolveDocTypeForManualSync = useCallback(
     },
     [
       attemptIntentExtraction,
+      emitGuidedFallbackTelemetry,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
       scheduleChatPreviewSync,
@@ -3201,6 +3353,10 @@ const resolveDocTypeForManualSync = useCallback(
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : createTempId();
+
+    if (guidedStateRef.current?.status === "complete") {
+      emitGuidedCompletionTelemetry(guidedStateRef.current, { reason: "restart" });
+    }
 
     try {
       resetGuidedRemoteSession();
@@ -3226,16 +3382,31 @@ const resolveDocTypeForManualSync = useCallback(
       const prompt =
         typeof startResponse.prompt === "string" ? startResponse.prompt.trim() : "";
 
+      sendTelemetryEvent("charter_guided_start", {
+        conversationId: startResponse.conversationId,
+        metadata: {
+          correlationId,
+          slotCount: slotList.length,
+          voiceEnabled: Boolean(startResponse.hasVoiceSupport),
+          idempotent: Boolean(startResponse.idempotent),
+          initialEventCount: events.length,
+          hasInitialPrompt: Boolean(prompt),
+        },
+      });
+
       const result = processGuidedEvents(events, { reason: "guided-session-start" });
 
       if (prompt && !(result?.appendedAssistant)) {
         appendAssistantMessage(prompt);
         if (!hasPostedInitialPromptRef.current) {
           hasPostedInitialPromptRef.current = true;
-          setGuidedInitialPromptAt(Date.now());
+          const initialPromptTimestamp = Date.now();
+          setGuidedInitialPromptAt(initialPromptTimestamp);
+          guidedInitialPromptAtRef.current = initialPromptTimestamp;
         }
       }
     } catch (error) {
+      emitGuidedFallbackTelemetry("start", error, { correlationId });
       resetGuidedRemoteSession();
       if (error instanceof CharterClientError) {
         orchestrator?.start();
@@ -3246,6 +3417,8 @@ const resolveDocTypeForManualSync = useCallback(
     }
   }, [
     appendAssistantMessage,
+    emitGuidedCompletionTelemetry,
+    emitGuidedFallbackTelemetry,
     isGuidedChatEnabled,
     processGuidedEvents,
     resetGuidedRemoteSession,

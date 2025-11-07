@@ -138,21 +138,4 @@ Cypress.Commands.add("typeIntoComposer", (text: string) => {
     .should("have.value", text);
 });
 
-Cypress.Commands.add("waitForAppReady", () => {
-  cy.ensureAppReady();
-});
-
-Cypress.Commands.add("toggleMic", () => {
-  cy.get('button[title*="Voice"]', { timeout: 10000 })
-    .should("be.visible")
-    .click();
-});
-
-Cypress.Commands.add("submitComposer", () => {
-  cy.get('[data-testid="composer-send"]', { timeout: 10000 })
-    .should("be.visible")
-    .should("not.be.disabled")
-    .click();
-});
-
 export {};

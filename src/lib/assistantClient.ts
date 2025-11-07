@@ -1,12 +1,16 @@
-export interface CharterSessionStartResponse {
+export interface CharterSessionStartResponse<TEvent = unknown> {
   conversationId: string;
-  slots: Record<string, unknown>;
+  slots: Record<string, unknown>[];
   prompt: string;
   hasVoiceSupport: boolean;
+  events: TEvent[];
+  idempotent: boolean;
 }
 
 export interface CharterMessageResponse<TEvent = unknown> {
   events: TEvent[];
+  handled: boolean;
+  idempotent: boolean;
 }
 
 export type CharterStreamEvent = MessageEvent<string>;
@@ -74,6 +78,26 @@ async function ensureOk<T>(response: Response): Promise<T> {
  * request cannot be completed due to a network error. Callers should catch this error and
  * trigger the local orchestrator fallback.
  */
+type RawStartResponse<TEvent> = {
+  ok?: boolean;
+  conversation_id?: string;
+  conversationId?: string;
+  initial_prompt?: string;
+  prompt?: string;
+  slots?: Record<string, unknown>[];
+  voice_enabled?: boolean;
+  voiceEnabled?: boolean;
+  events?: TEvent[];
+  idempotent?: boolean;
+};
+
+type RawMessageResponse<TEvent> = {
+  ok?: boolean;
+  handled?: boolean;
+  idempotent?: boolean;
+  events?: TEvent[];
+};
+
 export async function startCharterSession(
   correlationId: string,
 ): Promise<CharterSessionStartResponse> {
@@ -86,7 +110,39 @@ export async function startCharterSession(
       body: JSON.stringify({ correlation_id: correlationId }),
     });
 
-    return ensureOk<CharterSessionStartResponse>(response);
+    const payload = await ensureOk<RawStartResponse<unknown>>(response);
+
+    const conversationId =
+      typeof payload?.conversation_id === "string" && payload.conversation_id
+        ? payload.conversation_id
+        : typeof payload?.conversationId === "string"
+        ? payload.conversationId
+        : "";
+
+    if (!conversationId) {
+      throw new CharterClientError("Charter assistant did not return a conversation id.");
+    }
+
+    const prompt =
+      typeof payload?.initial_prompt === "string" && payload.initial_prompt
+        ? payload.initial_prompt
+        : typeof payload?.prompt === "string"
+        ? payload.prompt
+        : "";
+
+    const slots = Array.isArray(payload?.slots) ? payload.slots : [];
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    const hasVoiceSupport = Boolean(payload?.voice_enabled ?? payload?.voiceEnabled);
+    const idempotent = Boolean(payload?.idempotent);
+
+    return {
+      conversationId,
+      slots,
+      prompt,
+      hasVoiceSupport,
+      events,
+      idempotent,
+    };
   } catch (error) {
     if (error instanceof CharterClientError) {
       throw error;
@@ -118,12 +174,18 @@ export async function postCharterMessage<TEvent = unknown>(
       body: JSON.stringify({
         conversation_id: conversationId,
         message: text,
-        command: source,
+        source,
         is_final: isFinal,
       }),
     });
 
-    return ensureOk<CharterMessageResponse<TEvent>>(response);
+    const payload = await ensureOk<RawMessageResponse<TEvent>>(response);
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    return {
+      events,
+      handled: payload?.handled ?? false,
+      idempotent: Boolean(payload?.idempotent),
+    };
   } catch (error) {
     if (error instanceof CharterClientError) {
       throw error;
@@ -148,16 +210,22 @@ export function subscribeToCharterStream(
     `/api/assistant/charter/stream?conversation_id=${encodeURIComponent(conversationId)}`,
   );
 
+  const eventTypes = ["message", "assistant_prompt", "slot_update", "close"] as const;
+
   const handler = (event: MessageEvent<string>) => {
     onEvent(event);
   };
 
-  eventSource.addEventListener("message", handler);
+  for (const eventType of eventTypes) {
+    eventSource.addEventListener(eventType, handler);
+  }
 
   return {
     eventSource,
     close: () => {
-      eventSource.removeEventListener("message", handler);
+      for (const eventType of eventTypes) {
+        eventSource.removeEventListener(eventType, handler);
+      }
       eventSource.close();
     },
   };

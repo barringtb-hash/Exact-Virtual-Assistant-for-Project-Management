@@ -1,9 +1,17 @@
 const TEST_ID_SELECTOR = (testId: string) => `[data-testid="${testId}"]`;
 
+type WaitForAppReadyVisitArg =
+  | string
+  | (Cypress.VisitOptions & { url: string });
+
+interface WaitForAppReadyOptions {
+  visit?: WaitForAppReadyVisitArg;
+}
+
 declare global {
   namespace Cypress {
     interface Chainable {
-      waitForAppReady(): Chainable<void>;
+      waitForAppReady(options?: WaitForAppReadyOptions): Chainable<void>;
       getByTestId<E extends Node = HTMLElement>(
         testId: string,
         options?: Partial<
@@ -21,8 +29,16 @@ declare global {
   }
 }
 
-Cypress.Commands.add("waitForAppReady", () => {
-  cy.visit("/");
+Cypress.Commands.add("waitForAppReady", (options?: WaitForAppReadyOptions) => {
+  const visitArg = options?.visit;
+
+  if (typeof visitArg === "string") {
+    cy.visit(visitArg);
+  } else if (visitArg && typeof visitArg === "object") {
+    cy.visit(visitArg);
+  } else {
+    cy.visit("/");
+  }
 
   cy.document().its("readyState").should("eq", "complete");
 

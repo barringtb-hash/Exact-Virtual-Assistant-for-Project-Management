@@ -11,7 +11,11 @@ export function sanitizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
     .map((entry) => {
-      const role = entry?.role === "assistant" ? "assistant" : "user";
+      // Skip assistant messages - extraction API should only receive user messages
+      if (entry?.role === "assistant") {
+        return null;
+      }
+      const role = "user";
       const text =
         typeof entry?.text === "string"
           ? entry.text

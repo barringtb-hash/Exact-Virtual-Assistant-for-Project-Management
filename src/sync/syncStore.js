@@ -1,4 +1,5 @@
 import { voiceActions, voiceStoreApi } from "../state/voiceStore.ts";
+import { asrService } from "../voice/ASRService.ts";
 
 const INITIAL_STATE = Object.freeze({
   mode: "idle",
@@ -184,7 +185,18 @@ function handleTextFocus(event) {
   const status = getVoiceStatus();
   const wasActive = status === "listening" || status === "transcribing";
   if (wasActive) {
-    setVoiceStatus("idle");
+    try {
+      if (asrService && typeof asrService.stop === "function") {
+        asrService.stop();
+      } else {
+        setVoiceStatus("idle");
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[syncStore] failed to stop active voice stream", error);
+      }
+      setVoiceStatus("idle");
+    }
   }
 
   const nextState = freezeState({

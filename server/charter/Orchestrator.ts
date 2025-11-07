@@ -60,6 +60,11 @@ function cleanupIdempotency(now: number) {
   }
 }
 
+function getIdempotencyKey(conversationId: string | undefined, correlationId: string) {
+  const trimmedConversationId = conversationId?.trim();
+  return trimmedConversationId ? `${trimmedConversationId}:${correlationId}` : correlationId;
+}
+
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -545,14 +550,15 @@ function withIdempotency(
   if (correlationId) {
     const now = Date.now();
     cleanupIdempotency(now);
-    const cached = idempotencyMap.get(correlationId);
+    const cacheKey = getIdempotencyKey(options.conversationId, correlationId);
+    const cached = idempotencyMap.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       const snapshot = cloneInteractionResult(cached.result);
       return { ...snapshot, idempotent: true };
     }
     const session = getSession(options.conversationId);
     const result = compute(session);
-    idempotencyMap.set(correlationId, {
+    idempotencyMap.set(cacheKey, {
       expiresAt: now + IDEMPOTENCY_TTL_MS,
       result: cloneInteractionResult(result),
     });

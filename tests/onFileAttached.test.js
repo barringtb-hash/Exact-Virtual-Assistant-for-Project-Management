@@ -106,7 +106,7 @@ test("useBackgroundExtraction trigger sends sanitized payload with intent", asyn
     assert.equal(payload.docType, "charter");
     assert.equal(payload.intent, "create_charter");
     assert.equal(payload.intentSource, "composer-intent");
-    assert.equal(payload.messages.length, 2);
+    assert.equal(payload.messages.length, 1); // Only user messages, assistant messages filtered out
     assert.equal(payload.messages[0].role, "user");
     assert.equal(payload.attachments.length, 1);
     assert.equal(payload.attachments[0].name, "demo-tpp.txt");

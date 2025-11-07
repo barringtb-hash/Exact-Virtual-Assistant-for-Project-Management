@@ -1,3 +1,22 @@
+/**
+---
+scenario: Multimodal assistant chat flows
+feature: chat
+subsystem: composer
+envs: [guided, wizard]
+risk: high
+owner: "@qa-team"
+ci_suites: [e2e-guided, e2e-wizard]
+flaky: false
+needs_review: false
+preconditions:
+  - App build succeeds with Cypress env flags
+  - Mocked chat responses configured via cy.intercept
+data_setup: Mock responses defined inline
+refs: [CI]
+---
+*/
+
 /// <reference types="cypress" />
 
 describe('Assistant chat flows', () => {

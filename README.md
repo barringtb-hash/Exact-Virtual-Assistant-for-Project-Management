@@ -86,6 +86,32 @@ Key router touchpoints:
 - **Document acceptance** – Follow [`docs/demo/README.md`](docs/demo/README.md) for the charter flow and [`docs/ddp/README.md`](docs/ddp/README.md) for the DDP flow. Both paths should execute exactly one extraction per intent.
 - **Regression coverage** – Ensure attaching files alone never issues a network call to `/api/documents/extract`, and that intent + upload flows call extraction exactly once.
 
+### Adding a new automated test
+1. Copy the metadata header template into the top of the spec. Every test file must start with:
+   ```ts
+   /**
+   ---
+   scenario: <human-readable scenario>
+   feature: <feature area>
+   subsystem: <subsystem or surface>
+   envs: [<envs that exercise the scenario>]
+   risk: <low|medium|high|critical>
+   owner: "<@github-handle>"
+   ci_suites: [<suite names, e.g., e2e-guided>]
+   flaky: false
+   needs_review: false
+   preconditions:
+     - <list any required setup>
+   data_setup: <describe fixtures/mocks>
+   refs: [<PRs or docs>]
+   ---
+   */
+   ```
+2. Prefer resilient selectors: add `data-testid` attributes to interactive elements referenced by Cypress or integration tests.
+3. Call out intercepts/fixtures in the metadata so the catalog stays accurate. Use shared helpers for deterministic network stubbing.
+4. Run `npm run test:catalog` (or `npm run test:catalog:check`) before committing. The pre-commit hook blocks changes that skip this metadata or break the catalog.
+5. Confirm the generated [`docs/TEST_SCENARIO_CATALOG.md`](docs/TEST_SCENARIO_CATALOG.md) entry reflects the new scenario and CI suite mapping.
+
 ## Operations & Support
 Operational expectations, deployment notes, and rollback tips live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Release cadence and template update workflows are captured in [`docs/RELEASE.md`](docs/RELEASE.md). For security posture (supported Node versions, vulnerability reporting, and hardening guidance) see [`docs/SECURITY.md`](docs/SECURITY.md).
 

@@ -10,12 +10,12 @@ export default defineConfig({
     specPattern: "cypress/e2e/**/*.cy.ts",
     supportFile: "cypress/support/e2e.ts",
     testIsolation: true,
-    video: false,
-    defaultCommandTimeout: 10000,
+    video: true,
+    defaultCommandTimeout: 8000,
     requestTimeout: 10000,
     responseTimeout: 10000,
     retries: {
-      runMode: 1,
+      runMode: 2,
       openMode: 0,
     },
     env: {

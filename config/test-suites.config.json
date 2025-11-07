@@ -1,0 +1,55 @@
+{
+  "unit": {
+    "description": "Node-based unit and component tests executed via npm test",
+    "workflows": ["CI"],
+    "jobs": ["Build & Test (guided)", "Build & Test (wizard)"],
+    "env": {
+      "CI": "true"
+    }
+  },
+  "integration": {
+    "description": "Integration scenarios exercised via npm test",
+    "workflows": ["CI"],
+    "jobs": ["Build & Test (guided)", "Build & Test (wizard)"],
+    "env": {
+      "CI": "true"
+    }
+  },
+  "qa-charter-wizard": {
+    "description": "Golden conversation snapshots for the charter wizard",
+    "workflows": ["CI"],
+    "jobs": ["Charter wizard golden QA"],
+    "env": {
+      "VITE_CHARTER_GUIDED_CHAT_ENABLED": "true",
+      "VITE_CHARTER_WIZARD_VISIBLE": "true"
+    }
+  },
+  "e2e-guided": {
+    "description": "Cypress end-to-end suite with guided charter flags",
+    "workflows": ["CI"],
+    "jobs": ["Cypress end-to-end (guided)"],
+    "env": {
+      "VITE_CHARTER_GUIDED_CHAT_ENABLED": "true",
+      "VITE_CHARTER_WIZARD_VISIBLE": "false",
+      "VITE_AUTO_EXTRACTION_ENABLED": "false",
+      "VITE_CYPRESS_SAFE_MODE": "true"
+    }
+  },
+  "e2e-wizard": {
+    "description": "Cypress end-to-end suite with wizard enabled",
+    "workflows": ["CI"],
+    "jobs": ["Cypress end-to-end (wizard)"],
+    "env": {
+      "VITE_CHARTER_GUIDED_CHAT_ENABLED": "true",
+      "VITE_CHARTER_WIZARD_VISIBLE": "true",
+      "VITE_AUTO_EXTRACTION_ENABLED": "true",
+      "VITE_CYPRESS_SAFE_MODE": "true"
+    }
+  },
+  "test-catalog": {
+    "description": "Generates the unified test scenario catalog",
+    "workflows": ["Test Catalog"],
+    "jobs": ["generate"],
+    "env": {}
+  }
+}

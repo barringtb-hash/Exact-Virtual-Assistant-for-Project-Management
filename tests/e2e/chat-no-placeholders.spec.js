@@ -1,3 +1,21 @@
+/**
+---
+scenario: Chat No Placeholders Spec
+feature: unknown
+subsystem: unknown
+envs: []
+risk: unknown
+owner: TBD
+ci_suites: []
+flaky: false
+needs_review: true
+preconditions:
+  - TBD
+data_setup: TBD
+refs: []
+---
+*/
+
 import { test, expect } from "@playwright/test";
 
 const PLACEHOLDER_TEXTS = [

@@ -1,0 +1,825 @@
+{
+  "generatedAt": "2025-11-07T04:30:24.474Z",
+  "scenarios": [
+    {
+      "filePath": "tests/api.chat.test.js",
+      "scenario": "Api Chat Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/api.doc.routes.test.js",
+      "scenario": "Api Doc Routes Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/api.documents.extract.test.js",
+      "scenario": "Api Documents Extract Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/api.export.pdf.test.js",
+      "scenario": "Api Export Pdf Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "cypress/e2e/smoke.cy.ts",
+      "scenario": "Application smoke validation",
+      "feature": "platform",
+      "subsystem": "shell",
+      "envs": [
+        "guided",
+        "wizard"
+      ],
+      "risk": "medium",
+      "owner": "@qa-team",
+      "ci_suites": [
+        "e2e-guided",
+        "e2e-wizard"
+      ],
+      "flaky": false,
+      "needs_review": false,
+      "preconditions": [
+        "Application build assets available",
+        "Cypress env configuration for smoke checks"
+      ],
+      "data_setup": "None",
+      "refs": [
+        "CI"
+      ],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/assistantFeedbackRichText.test.js",
+      "scenario": "AssistantFeedbackRichText Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/audioMath.test.js",
+      "scenario": "AudioMath Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/buildExtractionPayload.test.js",
+      "scenario": "BuildExtractionPayload Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/e2e/charter-download.api.spec.js",
+      "scenario": "Charter Download Api Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-formSchema.test.js",
+      "scenario": "Charter FormSchema Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-link-download.test.js",
+      "scenario": "Charter Link Download Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-normalize.test.js",
+      "scenario": "Charter Normalize Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-render-aliases.test.js",
+      "scenario": "Charter Render Aliases Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-render-handler.test.js",
+      "scenario": "Charter Render Handler Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/charter-render-smoke.test.js",
+      "scenario": "Charter Render Smoke Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/e2e/chat-no-placeholders.spec.js",
+      "scenario": "Chat No Placeholders Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/chatCharterWizard.integration.test.jsx",
+      "scenario": "ChatCharterWizard Integration Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/chatComposer.integration.test.jsx",
+      "scenario": "ChatComposer Integration Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/chatDocTypeCommands.test.js",
+      "scenario": "ChatDocTypeCommands Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/composer.voice-status.test.js",
+      "scenario": "Composer Voice Status Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/conversationMachine.test.ts",
+      "scenario": "ConversationMachine Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/conversationValidation.test.ts",
+      "scenario": "ConversationValidation Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/e2e/doc-router-on.spec.js",
+      "scenario": "Doc Router On Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/docTemplateStore.test.js",
+      "scenario": "DocTemplateStore Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/docTypeContext.test.js",
+      "scenario": "DocTypeContext Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/docTypeRouter.test.js",
+      "scenario": "DocTypeRouter Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/docTypeState.test.js",
+      "scenario": "DocTypeState Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/e2e/document-preview-sync.spec.js",
+      "scenario": "Document Preview Sync Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/export-pdf.test.js",
+      "scenario": "Export Pdf Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/qa/charter-wizard/golden.conversations.test.js",
+      "scenario": "Golden Conversations Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "cypress/e2e/charter_guided_chat.cy.ts",
+      "scenario": "Guided charter chat happy path",
+      "feature": "charter",
+      "subsystem": "guided-chat",
+      "envs": [
+        "guided"
+      ],
+      "risk": "high",
+      "owner": "@qa-team",
+      "ci_suites": [
+        "e2e-guided"
+      ],
+      "flaky": false,
+      "needs_review": false,
+      "preconditions": [
+        "Guided chat feature flag enabled",
+        "Charter wizard fixtures available"
+      ],
+      "data_setup": "Fixtures created via cy.intercept and fixture files",
+      "refs": [
+        "CI"
+      ],
+      "data_testids": [
+        "assistant-message",
+        "btn-start-charter",
+        "chip-back",
+        "chip-review",
+        "chip-skip",
+        "composer-send"
+      ],
+      "missingHeader": false
+    },
+    {
+      "filePath": "src/features/charter/guidedState.spec.ts",
+      "scenario": "GuidedState Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/mergeIntoDraftWithLocks.test.js",
+      "scenario": "MergeIntoDraftWithLocks Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "cypress/e2e/chat-flows.cy.ts",
+      "scenario": "Multimodal assistant chat flows",
+      "feature": "chat",
+      "subsystem": "composer",
+      "envs": [
+        "guided",
+        "wizard"
+      ],
+      "risk": "high",
+      "owner": "@qa-team",
+      "ci_suites": [
+        "e2e-guided",
+        "e2e-wizard"
+      ],
+      "flaky": false,
+      "needs_review": false,
+      "preconditions": [
+        "App build succeeds with Cypress env flags",
+        "Mocked chat responses configured via cy.intercept"
+      ],
+      "data_setup": "Mock responses defined inline",
+      "refs": [
+        "CI"
+      ],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/onFileAttached.test.js",
+      "scenario": "OnFileAttached Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "src/features/charter/persist.spec.ts",
+      "scenario": "Persist Spec",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/preview-manifest.test.js",
+      "scenario": "Preview Manifest Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/storage-safe-mode.test.js",
+      "scenario": "Storage Safe Mode Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/syncStore.test.ts",
+      "scenario": "SyncStore Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "tests/telemetry.fieldMetrics.test.ts",
+      "scenario": "Telemetry FieldMetrics Test",
+      "feature": "unknown",
+      "subsystem": "unknown",
+      "envs": [],
+      "risk": "unknown",
+      "owner": "TBD",
+      "ci_suites": [],
+      "flaky": false,
+      "needs_review": true,
+      "preconditions": [
+        "TBD"
+      ],
+      "data_setup": "TBD",
+      "refs": [],
+      "data_testids": [],
+      "missingHeader": false
+    },
+    {
+      "filePath": "cypress/e2e/mic-level.cy.ts",
+      "scenario": "Voice microphone level indicator renders and updates",
+      "feature": "voice",
+      "subsystem": "composer",
+      "envs": [
+        "guided",
+        "wizard"
+      ],
+      "risk": "medium",
+      "owner": "@qa-team",
+      "ci_suites": [
+        "e2e-guided",
+        "e2e-wizard"
+      ],
+      "flaky": false,
+      "needs_review": false,
+      "preconditions": [
+        "Browser microphone permissions granted",
+        "Voice feature flags enabled for target envs"
+      ],
+      "data_setup": "Mock audio stream using Web Audio API stubs",
+      "refs": [
+        "CI"
+      ],
+      "data_testids": [],
+      "missingHeader": false
+    }
+  ]
+}

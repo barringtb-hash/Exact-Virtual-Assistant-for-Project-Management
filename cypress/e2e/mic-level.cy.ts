@@ -1,4 +1,23 @@
 /**
+---
+scenario: Voice microphone level indicator renders and updates
+feature: voice
+subsystem: composer
+envs: [guided, wizard]
+risk: medium
+owner: "@qa-team"
+ci_suites: [e2e-guided, e2e-wizard]
+flaky: false
+needs_review: false
+preconditions:
+  - Browser microphone permissions granted
+  - Voice feature flags enabled for target envs
+data_setup: Mock audio stream using Web Audio API stubs
+refs: [CI]
+---
+*/
+
+/**
  * Cypress E2E tests for microphone level indicator
  * Tests both happy path and error scenarios
  */

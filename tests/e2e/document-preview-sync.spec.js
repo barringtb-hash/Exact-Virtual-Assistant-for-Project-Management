@@ -1,3 +1,21 @@
+/**
+---
+scenario: Document Preview Sync Spec
+feature: unknown
+subsystem: unknown
+envs: []
+risk: unknown
+owner: TBD
+ci_suites: []
+flaky: false
+needs_review: true
+preconditions:
+  - TBD
+data_setup: TBD
+refs: []
+---
+*/
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 

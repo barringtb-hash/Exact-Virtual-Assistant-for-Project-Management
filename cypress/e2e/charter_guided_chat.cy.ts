@@ -1,3 +1,22 @@
+/**
+---
+scenario: Guided charter chat happy path
+feature: charter
+subsystem: guided-chat
+envs: [guided]
+risk: high
+owner: "@qa-team"
+ci_suites: [e2e-guided]
+flaky: false
+needs_review: false
+preconditions:
+  - Guided chat feature flag enabled
+  - Charter wizard fixtures available
+data_setup: Fixtures created via cy.intercept and fixture files
+refs: [CI]
+---
+*/
+
 /// <reference types="cypress" />
 
 describe('Charter guided chat experience', () => {

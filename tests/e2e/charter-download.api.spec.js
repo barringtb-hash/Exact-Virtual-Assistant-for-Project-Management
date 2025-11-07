@@ -1,3 +1,21 @@
+/**
+---
+scenario: Charter Download Api Spec
+feature: unknown
+subsystem: unknown
+envs: []
+risk: unknown
+owner: TBD
+ci_suites: []
+flaky: false
+needs_review: true
+preconditions:
+  - TBD
+data_setup: TBD
+refs: []
+---
+*/
+
 import { test, expect } from "@playwright/test";
 
 const VALID_CHARTER = {

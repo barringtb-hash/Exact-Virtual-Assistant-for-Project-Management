@@ -1,3 +1,21 @@
+/**
+---
+scenario: Composer Voice Status Test
+feature: unknown
+subsystem: unknown
+envs: []
+risk: unknown
+owner: TBD
+ci_suites: []
+flaky: false
+needs_review: true
+preconditions:
+  - TBD
+data_setup: TBD
+refs: []
+---
+*/
+
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import React from "react";

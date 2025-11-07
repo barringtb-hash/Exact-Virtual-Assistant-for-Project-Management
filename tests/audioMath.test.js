@@ -1,4 +1,22 @@
 /**
+---
+scenario: AudioMath Test
+feature: unknown
+subsystem: unknown
+envs: []
+risk: unknown
+owner: TBD
+ci_suites: []
+flaky: false
+needs_review: true
+preconditions:
+  - TBD
+data_setup: TBD
+refs: []
+---
+*/
+
+/**
  * Unit tests for audio math utilities
  */
 

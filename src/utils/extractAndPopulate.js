@@ -1,4 +1,5 @@
 import { docApi } from "../lib/docApi.js";
+import { FLAGS } from "../config/flags.ts";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 
 const DEFAULT_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -269,9 +270,17 @@ export async function extractAndPopulate({
 
   const normalizedDocType = payload.docType;
 
+  const docApiOptions = { fetchImpl, signal };
+  if (
+    FLAGS.CHARTER_GUIDED_BACKEND_ENABLED &&
+    normalizedDocType === "charter"
+  ) {
+    docApiOptions.bases = ["/api/charter", "/api/documents", "/api/doc"];
+  }
+
   let data;
   try {
-    data = await docApi("extract", payload, { fetchImpl, signal });
+    data = await docApi("extract", payload, docApiOptions);
   } catch (error) {
     const status = error?.status;
     const errorPayload = error?.payload;

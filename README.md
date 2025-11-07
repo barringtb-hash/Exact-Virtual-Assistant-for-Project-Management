@@ -14,7 +14,7 @@ The Exact Virtual Assistant for Project Management routes every request through 
 - **Statement of Work (`sow`)** – Placeholder that remains disabled in the registry by default; see [`docs/sow/README.md`](docs/sow/README.md) for status updates.
 
 ### Guided charter flow
-- The charter experience defaults to a guided chat that replaces the wizard UI, walks through each schema field sequentially, and pauses background extraction until the session finishes. The feature is enabled by `VITE_CHARTER_GUIDED_CHAT_ENABLED` and starts from the **Start Charter** button beneath the composer; see [`docs/charter-guided-chat.md`](docs/charter-guided-chat.md) for behaviour, commands, and flag details. 【F:docs/charter-guided-chat.md†L1-L44】【F:src/App.jsx†L2611-L3076】
+- The charter experience defaults to a guided chat that replaces the wizard UI, walks through each schema field sequentially, and pauses background extraction until the session finishes. The feature is enabled by `VITE_CHARTER_GUIDED_CHAT_ENABLED` and starts from the **Start Charter** button beneath the composer; set `VITE_CHARTER_GUIDED_BACKEND=on` to exercise the dedicated charter backend used by CI, then see [`docs/charter-guided-chat.md`](docs/charter-guided-chat.md) for behaviour, commands, and flag details. 【F:docs/charter-guided-chat.md†L1-L44】【F:docs/charter-guided-chat.md†L12-L22】【F:package.json†L13-L19】
 
 ## Intent-only extraction contract
 - **Upload only** → No extraction. The preview remains unchanged and `/api/documents/extract` is never called.

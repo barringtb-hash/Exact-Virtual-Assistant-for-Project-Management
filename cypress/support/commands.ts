@@ -2,7 +2,10 @@ declare global {
   namespace Cypress {
     interface Chainable {
       ensureAppReady(): Chainable<void>;
+      waitForAppReady(): Chainable<void>;
       typeIntoComposer(text: string): Chainable<JQuery<HTMLTextAreaElement>>;
+      toggleMic(): Chainable<void>;
+      submitComposer(): Chainable<void>;
     }
   }
 }
@@ -26,6 +29,23 @@ Cypress.Commands.add("typeIntoComposer", (text: string) => {
     .click({ scrollBehavior: "center" })
     .type(text, { delay: 0 })
     .should("have.value", text);
+});
+
+Cypress.Commands.add("waitForAppReady", () => {
+  cy.ensureAppReady();
+});
+
+Cypress.Commands.add("toggleMic", () => {
+  cy.get('button[title*="Voice"]', { timeout: 10000 })
+    .should("be.visible")
+    .click();
+});
+
+Cypress.Commands.add("submitComposer", () => {
+  cy.get('[data-testid="composer-send"]', { timeout: 10000 })
+    .should("be.visible")
+    .should("not.be.disabled")
+    .click();
 });
 
 export {};

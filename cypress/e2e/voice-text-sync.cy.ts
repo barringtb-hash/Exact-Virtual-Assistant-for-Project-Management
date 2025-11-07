@@ -49,9 +49,11 @@ describe("@golden @voice Voice and text sync", () => {
   it("pauses voice capture while typing and resumes after submission with synced preview", () => {
     cy.toggleMic();
     cy.assertMicPressed(true);
+    cy.assertVoicePaused(false);
 
     cy.getComposerInput().focus().should("be.focused");
     cy.assertMicPressed(false);
+    cy.assertVoicePaused(true);
 
     cy.submitComposer(TEST_MESSAGE);
 
@@ -59,6 +61,7 @@ describe("@golden @voice Voice and text sync", () => {
     cy.wait("@previewExtraction");
 
     cy.assertPreviewIncludes(TEST_MESSAGE);
+    cy.assertVoicePaused(false);
     cy.assertMicPressed(true);
   });
 });

@@ -25,6 +25,7 @@ declare global {
       submitComposer(message: string): Chainable<void>;
       assertPreviewIncludes(text: string): Chainable<void>;
       assertMicPressed(pressed?: boolean): Chainable<void>;
+      assertVoicePaused(paused?: boolean): Chainable<void>;
     }
   }
 }
@@ -117,6 +118,20 @@ Cypress.Commands.add("assertMicPressed", (pressed = true) => {
       if (ariaPressed !== expected) {
         throw new Error(
           `Expected mic aria-pressed to be ${expected}, but received ${ariaPressed}`
+        );
+      }
+    });
+});
+
+Cypress.Commands.add("assertVoicePaused", (paused = true) => {
+  const expected = paused ? "true" : "false";
+  cy.getByTestId("mic-button", { timeout: 15000 })
+    .should("have.attr", "data-paused", expected)
+    .and(($button) => {
+      const dataPaused = $button.attr("data-paused");
+      if (dataPaused !== expected) {
+        throw new Error(
+          `Expected mic data-paused to be ${expected}, but received ${dataPaused}`
         );
       }
     });

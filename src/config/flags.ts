@@ -76,6 +76,7 @@ function readBooleanFlag(keys: string | readonly string[], fallback: boolean): b
 export const FLAGS = {
   CHARTER_GUIDED_CHAT_ENABLED: readBooleanFlag("VITE_CHARTER_GUIDED_CHAT_ENABLED", true),
   CHARTER_WIZARD_VISIBLE: readBooleanFlag("VITE_CHARTER_WIZARD_VISIBLE", false),
+  CHARTER_GUIDED_BACKEND: readBooleanFlag("VITE_CHARTER_GUIDED_BACKEND", true),
   AUTO_EXTRACTION_ENABLED: readBooleanFlag(
     ["VITE_AUTO_EXTRACTION_ENABLED", "VITE_AUTO_EXTRACT", "AUTO_EXTRACT"],
     false,

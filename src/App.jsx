@@ -58,6 +58,7 @@ import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
 import { isVoiceE2EModeActive } from "./utils/e2eMode.js";
+import { startCharterSession, postCharterMessage, createCharterEventStream } from "./lib/assistantClient.ts";
 
 const SHOULD_INSTALL_SYNC_TELEMETRY =
   import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
@@ -80,6 +81,7 @@ const GENERIC_DOC_NORMALIZER = (draft) =>
 const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
+const CHARTER_GUIDED_BACKEND = FLAGS.CHARTER_GUIDED_BACKEND;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
 const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
@@ -544,6 +546,8 @@ export default function ExactVirtualAssistantPM() {
   const [guidedState, setGuidedState] = useState(null);
   const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
   const guidedOrchestratorRef = useRef(null);
+  const [charterConversationId, setCharterConversationId] = useState(null);
+  const charterEventSourceRef = useRef(null);
   const featureFlagsReady = true;
   const voiceE2EModeActive = useMemo(() => {
     if (typeof window === "undefined") {
@@ -1472,6 +1476,42 @@ export default function ExactVirtualAssistantPM() {
     setGuidedState(orchestrator.getState());
     setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
   }, [appendAssistantMessage, isGuidedChatEnabled]);
+
+  // SSE subscription for backend charter session
+  useEffect(() => {
+    if (!charterConversationId || !CHARTER_GUIDED_BACKEND) {
+      return;
+    }
+
+    const handleEvent = (event) => {
+      if (event.type === "assistant_prompt" && event.text) {
+        appendAssistantMessage(event.text);
+      } else if (event.type === "slot_update") {
+        scheduleChatPreviewSync({
+          reason: "charter-sse-slot-update",
+        });
+      }
+    };
+
+    const handleError = (error) => {
+      console.error("Charter SSE stream error:", error);
+    };
+
+    const eventSource = createCharterEventStream(
+      charterConversationId,
+      handleEvent,
+      handleError
+    );
+
+    charterEventSourceRef.current = eventSource;
+
+    return () => {
+      if (charterEventSourceRef.current) {
+        charterEventSourceRef.current.close();
+        charterEventSourceRef.current = null;
+      }
+    };
+  }, [charterConversationId, appendAssistantMessage, scheduleChatPreviewSync]);
 
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {
@@ -2633,6 +2673,36 @@ const resolveDocTypeForManualSync = useCallback(
       // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
+      // Route through backend charter session if active
+      if (charterConversationId && CHARTER_GUIDED_BACKEND) {
+        try {
+          const response = await postCharterMessage(
+            charterConversationId,
+            trimmed,
+            source === "voice" ? "voice" : "chat",
+            true
+          );
+
+          // Process events from backend
+          for (const event of response.events || []) {
+            if (event.type === "assistant_prompt" && event.text) {
+              appendAssistantMessage(event.text);
+            } else if (event.type === "slot_update") {
+              // Slot updates will be handled through state sync
+              scheduleChatPreviewSync({
+                reason: "charter-slot-update",
+              });
+            }
+          }
+
+          chatActions.unlockField("composer");
+          return { status: "guided-backend" };
+        } catch (error) {
+          console.error("Failed to post charter message to backend:", error);
+          // Fall through to local handling
+        }
+      }
+
       const orchestrator = guidedOrchestratorRef.current;
       const shouldBypassGuided = trimmed.startsWith("/");
       if (orchestrator && !shouldBypassGuided) {
@@ -2705,6 +2775,8 @@ const resolveDocTypeForManualSync = useCallback(
       return { status: "responded" };
     },
     [
+      charterConversationId,
+      appendAssistantMessage,
       attemptIntentExtraction,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
@@ -2712,13 +2784,40 @@ const resolveDocTypeForManualSync = useCallback(
     ]
   );
 
-  const handleStartGuidedCharter = useCallback(() => {
+  const handleStartGuidedCharter = useCallback(async () => {
     if (!isGuidedChatEnabled) {
       return;
     }
+
+    // Use backend-driven charter session if enabled
+    if (CHARTER_GUIDED_BACKEND) {
+      try {
+        const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const response = await startCharterSession(correlationId);
+
+        setCharterConversationId(response.conversation_id);
+
+        // Post initial prompt as assistant message
+        if (response.initial_prompt) {
+          appendAssistantMessage(response.initial_prompt);
+        }
+
+        // Start voice if enabled and available
+        if (response.voice_enabled && voiceStatus === "idle") {
+          // Voice will be handled through the existing voice flow
+        }
+
+        return;
+      } catch (error) {
+        console.error("Failed to start backend charter session, falling back to local:", error);
+        // Fall through to local orchestrator
+      }
+    }
+
+    // Fallback to local orchestrator
     const orchestrator = guidedOrchestratorRef.current;
     orchestrator?.start();
-  }, [isGuidedChatEnabled]);
+  }, [isGuidedChatEnabled, appendAssistantMessage, voiceStatus]);
 
   const handleGuidedCommandChip = useCallback(
     async (command) => {

@@ -12,7 +12,7 @@
 - **Goal**: When the LLM walks the PM through filling out a document (like a project charter), it should guide them from the topmost field to the bottom in a logical order.
 - **Task**: Adjust the LLM prompt flow so it requests and fills each field sequentially from top to bottom, ensuring a more natural workflow.
 
-## 4. Seamless Switching Between Voice and Text
+## 4. Seamless Switching Between Voice and Text (Completed)
 - **Goal**: Allow PMs to seamlessly move between talking and typing without losing context or sync in the preview panel.
 - **Task**: Integrate a synchronization layer so that whether input is voice or text, the agent and the preview panel both stay up-to-date.
 

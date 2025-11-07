@@ -25,7 +25,7 @@ npx vite preview --port "${PORT}" --strictPort --host &
 PREVIEW_PID=$!
 
 echo "==> Wait for server to be ready"
-npx --yes wait-on --timeout 60000 "tcp:${PORT}"
+npx --yes wait-on --timeout 60000 "http://127.0.0.1:${PORT}"
 
 echo "==> Run Cypress"
 XVFB=""

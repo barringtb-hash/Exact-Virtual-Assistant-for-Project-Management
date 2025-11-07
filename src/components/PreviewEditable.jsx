@@ -6,6 +6,12 @@ import { FLAGS } from "../config/flags.ts";
 
 const CUSTOM_EDITORS = {};
 
+const FIELD_TEST_IDS = {
+  project_name: "preview-field-title",
+  scope_in: "preview-field-scope",
+  sponsor: "preview-field-sponsor",
+};
+
 function includesSchemaType(schemaType, target) {
   if (!schemaType) return false;
   if (Array.isArray(schemaType)) {
@@ -308,6 +314,7 @@ function ScalarInput({
   description,
   meta,
   highlighted = false,
+  dataTestId,
 }) {
   const baseClass =
     "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
@@ -326,7 +333,7 @@ function ScalarInput({
   };
 
   return (
-    <label className="block">
+    <label className="block" data-testid={dataTestId}>
       <FieldHeader
         label={label}
         locked={locked}
@@ -357,6 +364,7 @@ function StringArrayEditor({
   itemMeta,
   description,
   isHighlighted = () => false,
+  dataTestId,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
   const highlightPath = typeof isHighlighted === "function" ? isHighlighted(path) : false;
@@ -366,7 +374,7 @@ function StringArrayEditor({
       : "";
 
   return (
-    <div>
+    <div data-testid={dataTestId}>
       <FieldHeader
         label={label}
         locked={isLocked(path)}
@@ -569,6 +577,7 @@ export default function PreviewEditable({
   onDraftChange = noop,
   onLockField = noop,
   isLoading = false,
+  isPending = false,
   schema,
   manifest,
 }) {
@@ -581,7 +590,17 @@ export default function PreviewEditable({
   );
   const { docType: previewDocType, templateLabel } = useDocTemplate(selectDocTemplate);
   const storeDraft = useDraft();
-  const baseDraft = draft ?? storeDraft ?? {};
+  const providedDraft =
+    draft && typeof draft === "object" && !Array.isArray(draft) ? draft : null;
+  const providedFields =
+    providedDraft && Object.prototype.hasOwnProperty.call(providedDraft, "fields")
+      ? providedDraft.fields &&
+        typeof providedDraft.fields === "object" &&
+        !Array.isArray(providedDraft.fields)
+        ? providedDraft.fields
+        : {}
+      : providedDraft;
+  const baseDraft = providedFields ?? storeDraft ?? {};
   const safeDraft =
     baseDraft && typeof baseDraft === "object" && !Array.isArray(baseDraft) ? baseDraft : {};
   const highlightSet =
@@ -598,6 +617,20 @@ export default function PreviewEditable({
             ? Object.entries(metadata)
             : []
         );
+  const previewLocked = Boolean(isLoading || isPending);
+  const showPendingOverlay = Boolean(isPending);
+  const withOverlay = (node) => (
+    <div className="relative">
+      {showPendingOverlay ? (
+        <div
+          className="pointer-events-none absolute inset-0 rounded-2xl border border-sky-200/60 bg-white/60 backdrop-blur-sm animate-pulse dark:border-sky-400/30 dark:bg-slate-900/40"
+          aria-hidden="true"
+          data-testid="preview-pending-overlay"
+        />
+      ) : null}
+      {node}
+    </div>
+  );
   const isLocked = (path) => Boolean(locks && locks[path]);
   const isHighlighted = (path) => (typeof path === "string" ? highlightSet.has(path) : false);
   const metaFor = (path) => {
@@ -668,7 +701,7 @@ export default function PreviewEditable({
     "Document";
 
   if (!normalizedDocType) {
-    return (
+    return withOverlay(
       <div className="space-y-3 rounded-2xl border border-dashed border-slate-300 bg-white/60 p-4 text-sm text-slate-600 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200">
         <p className="font-medium">No template selected.</p>
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -704,9 +737,8 @@ export default function PreviewEditable({
     const type =
       field?.type === "date" ? "date" : field?.type || "text";
     const multiline = Boolean(field?.multiline);
-    const disabledFlag = Boolean(
-      overrides.disabled ?? field?.disabled
-    );
+    const disabledFlag = Boolean(overrides.disabled ?? field?.disabled);
+    const testId = FIELD_TEST_IDS[path];
 
     return (
       <ScalarInput
@@ -718,12 +750,13 @@ export default function PreviewEditable({
         onChange={(value) => onDraftChange(path, value)}
         onLock={onLockField}
         locked={isLocked(path)}
-        disabled={isLoading || disabledFlag}
+        disabled={previewLocked || disabledFlag}
         type={type}
         multiline={multiline}
         description={field?.description}
         meta={metaFor(path)}
         highlighted={isHighlighted(path)}
+        dataTestId={testId}
       />
     );
   };
@@ -746,9 +779,8 @@ export default function PreviewEditable({
     const placeholder =
       field?.placeholder ||
       buildTextPlaceholder(singularizeLabel(label));
-    const disabledFlag = Boolean(
-      overrides.disabled ?? field?.disabled
-    );
+    const disabledFlag = Boolean(overrides.disabled ?? field?.disabled);
+    const testId = FIELD_TEST_IDS[path];
 
     return (
       <StringArrayEditor
@@ -761,11 +793,12 @@ export default function PreviewEditable({
         onChange={onDraftChange}
         onLock={onLockField}
         isLocked={isLocked}
-        disabled={isLoading || disabledFlag}
+        disabled={previewLocked || disabledFlag}
         meta={metaFor(path)}
         itemMeta={metaCollectionForPrefix(path)}
         description={field?.description}
         isHighlighted={isHighlighted}
+        dataTestId={testId}
       />
     );
   };
@@ -802,9 +835,7 @@ export default function PreviewEditable({
           };
         })
       : [];
-    const disabledFlag = Boolean(
-      overrides.disabled ?? field?.disabled
-    );
+    const disabledFlag = Boolean(overrides.disabled ?? field?.disabled);
 
     return (
       <ObjectArrayEditor
@@ -817,7 +848,7 @@ export default function PreviewEditable({
         onChange={onDraftChange}
         onLock={onLockField}
         isLocked={isLocked}
-        disabled={isLoading || disabledFlag}
+        disabled={previewLocked || disabledFlag}
         meta={metaFor(path)}
         fieldMeta={metaCollectionForPrefix(path)}
         description={field?.description}
@@ -1096,13 +1127,15 @@ export default function PreviewEditable({
   ) {
     const rendered = renderManifestSections();
     if (rendered) {
-      return rendered;
+      return withOverlay(rendered);
     }
   }
 
   if ((manifestMode === "schema" || manifestRequiresSchema) && !hasSchemaConfigs) {
-    return renderStructuredPreviewUnavailable(
-      `Schema metadata not available for “${displayDocLabel}”.`
+    return withOverlay(
+      renderStructuredPreviewUnavailable(
+        `Schema metadata not available for “${displayDocLabel}”.`
+      )
     );
   }
 
@@ -1112,7 +1145,7 @@ export default function PreviewEditable({
       (!manifestMode && normalizedDocType !== "charter"));
 
   if (shouldUseSchemaFallback) {
-    return (
+    return withOverlay(
       <div className="space-y-6">
         <section className="space-y-3">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
@@ -1132,7 +1165,9 @@ export default function PreviewEditable({
     );
   }
 
-  return renderStructuredPreviewUnavailable(
-    `Structured preview not available for “${displayDocLabel}”.`
+  return withOverlay(
+    renderStructuredPreviewUnavailable(
+      `Structured preview not available for “${displayDocLabel}”.`
+    )
   );
 }

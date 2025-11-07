@@ -61,6 +61,16 @@ jobs:
         if: ${{ failure() || always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: cypress-screenshots
+          name: cypress-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}-screenshots
           path: cypress/screenshots
           if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Cypress videos
+        if: ${{ failure() || always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}-videos
+          path: cypress/videos
+          if-no-files-found: ignore
+          retention-days: 7

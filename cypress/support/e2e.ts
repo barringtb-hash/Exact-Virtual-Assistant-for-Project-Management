@@ -1,4 +1,6 @@
 import "./commands";
+import "./commands.voice";
+import "./mocks.voice";
 
 declare global {
   interface Window {
@@ -15,6 +17,7 @@ Cypress.on("window:before:load", (win) => {
     ...existingOverrides,
     VITE_CYPRESS_SAFE_MODE: true,
   };
+
   const styleEl = win.document.createElement("style");
   styleEl.setAttribute("data-cy", "anti-occlusion");
   styleEl.innerHTML = `

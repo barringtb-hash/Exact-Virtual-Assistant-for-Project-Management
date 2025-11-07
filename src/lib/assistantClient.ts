@@ -78,12 +78,12 @@ export async function startCharterSession(
   correlationId: string,
 ): Promise<CharterSessionStartResponse> {
   try {
-    const response = await fetch("/assistant/charter/start", {
+    const response = await fetch("/api/assistant/charter/start", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ correlationId }),
+      body: JSON.stringify({ correlation_id: correlationId }),
     });
 
     return ensureOk<CharterSessionStartResponse>(response);
@@ -110,12 +110,17 @@ export async function postCharterMessage<TEvent = unknown>(
   isFinal = true,
 ): Promise<CharterMessageResponse<TEvent>> {
   try {
-    const response = await fetch("/assistant/charter/messages", {
+    const response = await fetch("/api/assistant/charter/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ conversationId, text, source, isFinal }),
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        message: text,
+        command: source,
+        is_final: isFinal,
+      }),
     });
 
     return ensureOk<CharterMessageResponse<TEvent>>(response);
@@ -140,7 +145,7 @@ export function subscribeToCharterStream(
   onEvent: (event: CharterStreamEvent) => void,
 ): CharterStreamSubscription {
   const eventSource = new EventSource(
-    `/assistant/charter/stream?conversationId=${encodeURIComponent(conversationId)}`,
+    `/api/assistant/charter/stream?conversation_id=${encodeURIComponent(conversationId)}`,
   );
 
   const handler = (event: MessageEvent<string>) => {

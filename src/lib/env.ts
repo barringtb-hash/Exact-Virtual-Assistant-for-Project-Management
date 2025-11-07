@@ -24,7 +24,8 @@ export function envTruthy(v: Raw): boolean {
   return s === "1" || s === "true" || s === "on" || s === "yes";
 }
 
-export const SAFE_MODE = envTruthy(readEnv("VITE_CYPRESS_SAFE_MODE"));
+export const SAFE_MODE =
+  envTruthy(readEnv("VITE_CYPRESS_SAFE_MODE")) || envTruthy(readEnv("VITE_SAFE_MODE"));
 export const GUIDED_BACKEND_ON = envTruthy(readEnv("VITE_CHARTER_GUIDED_BACKEND"));
 export const WIZARD_VISIBLE = envTruthy(readEnv("VITE_CHARTER_WIZARD_VISIBLE"));
 export const AUTO_EXTRACTION_ENABLED = envTruthy(readEnv("VITE_AUTO_EXTRACTION_ENABLED"));

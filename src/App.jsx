@@ -89,7 +89,6 @@ const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
-const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
 const CHARTER_GUIDED_BACKEND_ENABLED = FLAGS.CHARTER_GUIDED_BACKEND_ENABLED;
 const CHARTER_DOC_API_BASES = CHARTER_GUIDED_BACKEND_ENABLED
   ? ["/api/charter", "/api/documents", "/api/doc"]
@@ -97,8 +96,8 @@ const CHARTER_DOC_API_BASES = CHARTER_GUIDED_BACKEND_ENABLED
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 const REMOTE_GUIDED_BACKEND_ENABLED =
-  (CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON) && !(CYPRESS_SAFE_MODE || SAFE_MODE);
-const E2E_FLAG_SAFE_MODE = Boolean(CYPRESS_SAFE_MODE || SAFE_MODE);
+  (CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON) && !SAFE_MODE;
+const E2E_FLAG_SAFE_MODE = SAFE_MODE;
 const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON);
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
@@ -805,7 +804,7 @@ export default function ExactVirtualAssistantPM() {
     schemaStatus,
     schema: activeDocSchema,
   } = useDocTemplate();
-  const storedContextRef = useRef(CYPRESS_SAFE_MODE ? null : readStoredSession());
+  const storedContextRef = useRef(SAFE_MODE ? null : readStoredSession());
   const chatHydratedRef = useRef(false);
   const voiceHydratedRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -1417,7 +1416,7 @@ export default function ExactVirtualAssistantPM() {
   ]);
 
   useEffect(() => {
-    if (CYPRESS_SAFE_MODE) {
+    if (SAFE_MODE) {
       return;
     }
     mergeStoredSession({ attachments, messages });

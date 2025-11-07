@@ -28,6 +28,15 @@ interface SessionContext {
   pendingMessages: string[];
 }
 
+export class SessionNotFoundError extends Error {
+  code: string;
+
+  constructor(message: string) {
+    super(message);
+    this.code = "session_not_found";
+  }
+}
+
 export interface InteractionOptions {
   conversationId: string;
   correlationId?: string | null;
@@ -208,15 +217,24 @@ function requireConversationId(conversationId: string): string {
   return key;
 }
 
-function getSession(conversationId: string): SessionContext {
+function createSessionContext(): SessionContext {
+  return {
+    state: createInitialGuidedState(),
+    completionNotified: false,
+    pendingMessages: [],
+  };
+}
+
+function getExistingSession(conversationId: string): SessionContext | null {
+  const key = requireConversationId(conversationId);
+  return sessions.get(key) ?? null;
+}
+
+function getOrCreateSession(conversationId: string): SessionContext {
   const key = requireConversationId(conversationId);
   let session = sessions.get(key);
   if (!session) {
-    session = {
-      state: createInitialGuidedState(),
-      completionNotified: false,
-      pendingMessages: [],
-    };
+    session = createSessionContext();
     sessions.set(key, session);
   }
   return session;
@@ -542,9 +560,30 @@ function cloneInteractionResult(result: InteractionResult): InteractionResult {
   };
 }
 
+interface WithIdempotencyOptions {
+  createIfMissing?: boolean;
+}
+
+function ensureSession(
+  conversationId: string,
+  { createIfMissing = false }: WithIdempotencyOptions = {},
+): SessionContext {
+  if (createIfMissing) {
+    return getOrCreateSession(conversationId);
+  }
+  const existing = getExistingSession(conversationId);
+  if (!existing) {
+    throw new SessionNotFoundError(
+      `Session not found for conversation ${conversationId}`,
+    );
+  }
+  return existing;
+}
+
 function withIdempotency(
   options: InteractionOptions,
   compute: (session: SessionContext) => InteractionResult,
+  helperOptions: WithIdempotencyOptions = {},
 ): InteractionResult {
   const correlationId = options.correlationId?.trim();
   if (correlationId) {
@@ -556,7 +595,7 @@ function withIdempotency(
       const snapshot = cloneInteractionResult(cached.result);
       return { ...snapshot, idempotent: true };
     }
-    const session = getSession(options.conversationId);
+    const session = ensureSession(options.conversationId, helperOptions);
     const result = compute(session);
     idempotencyMap.set(cacheKey, {
       expiresAt: now + IDEMPOTENCY_TTL_MS,
@@ -564,30 +603,34 @@ function withIdempotency(
     });
     return result;
   }
-  const session = getSession(options.conversationId);
+  const session = ensureSession(options.conversationId, helperOptions);
   return compute(session);
 }
 
 export function startSession(options: InteractionOptions): InteractionResult {
-  return withIdempotency(options, (session) => {
-    if (session.state.status === "complete") {
-      session.completionNotified = false;
-      setState(session, createInitialGuidedState(), options);
-    }
+  return withIdempotency(
+    options,
+    (session) => {
+      if (session.state.status === "complete") {
+        session.completionNotified = false;
+        setState(session, createInitialGuidedState(), options);
+      }
 
-    if (session.state.status !== "idle") {
-      return finalizeInteraction(session, false);
-    }
+      if (session.state.status !== "idle") {
+        return finalizeInteraction(session, false);
+      }
 
-    sendAssistantMessage(
-      session,
-      options,
-      "Let’s build your charter step-by-step. I’ll ask about each section—type \"skip\" to move on, \"back\" to revisit the previous question, or \"edit <field name>\" to jump to a specific section.",
-    );
-    dispatch(session, { type: "START" }, options);
-    promptCurrentFieldInternal(session, options);
-    return finalizeInteraction(session, true);
-  });
+      sendAssistantMessage(
+        session,
+        options,
+        "Let’s build your charter step-by-step. I’ll ask about each section—type \"skip\" to move on, \"back\" to revisit the previous question, or \"edit <field name>\" to jump to a specific section.",
+      );
+      dispatch(session, { type: "START" }, options);
+      promptCurrentFieldInternal(session, options);
+      return finalizeInteraction(session, true);
+    },
+    { createIfMissing: true },
+  );
 }
 
 export function handleCommand(
@@ -636,11 +679,11 @@ export function promptCurrentField(options: InteractionOptions): InteractionResu
 }
 
 export function getState(conversationId: string): GuidedState {
-  return getSession(conversationId).state;
+  return ensureSession(conversationId).state;
 }
 
 export function resetSession(conversationId: string) {
-  const session = getSession(conversationId);
+  const session = ensureSession(conversationId, { createIfMissing: true });
   session.completionNotified = false;
   setState(session, createInitialGuidedState(), undefined);
   session.pendingMessages.length = 0;
@@ -651,4 +694,33 @@ export function toCharterDTO(state: GuidedState | null | undefined): CharterDTO 
 }
 
 export { SYSTEM_PROMPT };
+
+export function hasSession(conversationId: string): boolean {
+  const key = conversationId?.trim();
+  if (!key) {
+    return false;
+  }
+  return sessions.has(key);
+}
+
+function deleteIdempotencyEntries(conversationId: string) {
+  const prefix = `${conversationId}:`;
+  for (const key of idempotencyMap.keys()) {
+    if (key === conversationId || key.startsWith(prefix)) {
+      idempotencyMap.delete(key);
+    }
+  }
+}
+
+export function deleteSession(conversationId: string): boolean {
+  const key = conversationId?.trim();
+  if (!key) {
+    return false;
+  }
+  const existed = sessions.delete(key);
+  if (existed) {
+    deleteIdempotencyEntries(key);
+  }
+  return existed;
+}
 

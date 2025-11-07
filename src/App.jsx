@@ -57,6 +57,7 @@ import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
+import { isVoiceE2EModeActive } from "./utils/e2eMode.js";
 
 const SHOULD_INSTALL_SYNC_TELEMETRY =
   import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
@@ -543,10 +544,37 @@ export default function ExactVirtualAssistantPM() {
   const [guidedState, setGuidedState] = useState(null);
   const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
   const guidedOrchestratorRef = useRef(null);
+  const featureFlagsReady = true;
+  const voiceE2EModeActive = useMemo(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return isVoiceE2EModeActive(window);
+  }, []);
+  const shouldRenderSyncDevtools = useMemo(
+    () =>
+      import.meta.env.DEV ||
+      (typeof window !== "undefined" && window.Cypress) ||
+      voiceE2EModeActive,
+    [voiceE2EModeActive],
+  );
+  const [overlayReady, setOverlayReady] = useState(() => !shouldRenderSyncDevtools);
+  const [voiceReady, setVoiceReady] = useState(false);
+  const [baseConversationReady, setBaseConversationReady] = useState(false);
+  const appReadyRef = useRef(false);
+  const handleDevtoolsReady = useCallback(() => {
+    setOverlayReady(true);
+  }, []);
   const isGuidedChatEnabled = useMemo(
     () => GUIDED_CHAT_WITHOUT_WIZARD && templateDocType === "charter",
     [templateDocType],
   );
+
+  useEffect(() => {
+    if (!shouldRenderSyncDevtools) {
+      setOverlayReady(true);
+    }
+  }, [shouldRenderSyncDevtools]);
 
   // Detect if Charter Wizard is active - if so, disable background extraction
   // The wizard handles field collection sequentially through conversationMachine
@@ -715,6 +743,9 @@ export default function ExactVirtualAssistantPM() {
   const initialDraftValue = initialDraftRef.current;
   useEffect(() => {
     if (chatHydratedRef.current) {
+      if (!baseConversationReady) {
+        setBaseConversationReady(true);
+      }
       return;
     }
     const stored = storedContextRef.current;
@@ -733,14 +764,19 @@ export default function ExactVirtualAssistantPM() {
     }));
     chatActions.hydrate(normalized);
     chatHydratedRef.current = true;
-  }, []);
+    setBaseConversationReady(true);
+  }, [baseConversationReady]);
   useEffect(() => {
     if (voiceHydratedRef.current) {
+      if (!voiceReady) {
+        setVoiceReady(true);
+      }
       return;
     }
     voiceActions.setTranscripts(Array.isArray(voiceTranscripts) ? voiceTranscripts : []);
     voiceHydratedRef.current = true;
-  }, [voiceTranscripts]);
+    setVoiceReady(true);
+  }, [voiceReady, voiceTranscripts]);
   useEffect(() => {
     if (draftHydratedRef.current) {
       return;
@@ -758,6 +794,30 @@ export default function ExactVirtualAssistantPM() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (appReadyRef.current) {
+      return;
+    }
+    if (!featureFlagsReady || !voiceReady || !baseConversationReady || !overlayReady) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.__appReady = true;
+    }
+    if (typeof document !== "undefined" && document.body) {
+      if (voiceE2EModeActive || document.body.dataset.e2eReady !== undefined) {
+        document.body.dataset.e2eReady = "1";
+      }
+    }
+    appReadyRef.current = true;
+  }, [
+    featureFlagsReady,
+    voiceReady,
+    baseConversationReady,
+    overlayReady,
+    voiceE2EModeActive,
+  ]);
 
   const clearPendingIntentExtraction = useCallback(() => {
     pendingIntentRef.current = null;
@@ -3388,7 +3448,7 @@ const resolveDocTypeForManualSync = useCallback(
         onConfirm={handleDocTypeConfirm}
         onCancel={handleDocTypeCancel}
       />
-      {(import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress)) && <SyncDevtools />}
+      {shouldRenderSyncDevtools && <SyncDevtools onReady={handleDevtoolsReady} />}
     </div>
   );
 }

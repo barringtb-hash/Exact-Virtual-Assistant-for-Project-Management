@@ -1,4 +1,4 @@
-export async function docApi(operation, payload, { fetchImpl, signal } = {}) {
+export async function docApi(operation, payload, { fetchImpl, signal, bases } = {}) {
   const supportedOperations = new Set(['extract', 'validate', 'render']);
   if (!supportedOperations.has(operation)) {
     throw new Error(`Unsupported doc API operation: ${operation}`);
@@ -7,10 +7,10 @@ export async function docApi(operation, payload, { fetchImpl, signal } = {}) {
   const fetchFn = typeof fetchImpl === 'function' ? fetchImpl : fetch;
   const body = payload === undefined ? undefined : JSON.stringify(payload);
 
-  const bases = ['/api/documents', '/api/doc'];
+  const baseList = Array.isArray(bases) && bases.length > 0 ? bases : ['/api/documents', '/api/doc'];
   let lastError;
 
-  for (const base of bases) {
+  for (const base of baseList) {
     try {
       const response = await fetchFn(`${base}/${operation}`, {
         method: 'POST',

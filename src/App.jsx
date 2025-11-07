@@ -82,6 +82,10 @@ const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
 const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
+const CHARTER_GUIDED_BACKEND_ENABLED = FLAGS.CHARTER_GUIDED_BACKEND_ENABLED;
+const CHARTER_DOC_API_BASES = CHARTER_GUIDED_BACKEND_ENABLED
+  ? ["/api/charter", "/api/documents", "/api/doc"]
+  : null;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
@@ -1814,9 +1818,14 @@ const resolveDocTypeForManualSync = useCallback(
       };
     }
 
+    const docApiOptions =
+      CHARTER_GUIDED_BACKEND_ENABLED && requestDocType === "charter" && CHARTER_DOC_API_BASES
+        ? { bases: CHARTER_DOC_API_BASES }
+        : undefined;
+
     let payload;
     try {
-      payload = await docApi("validate", docPayload);
+      payload = await docApi("validate", docPayload, docApiOptions);
     } catch (error) {
       console.error("/api/documents/validate request failed", error);
       const structuredErrors = extractValidationErrorsFromPayload(error?.payload);
@@ -1924,8 +1933,13 @@ const resolveDocTypeForManualSync = useCallback(
       };
     }
 
+    const docApiOptions =
+      CHARTER_GUIDED_BACKEND_ENABLED && requestDocType === "charter" && CHARTER_DOC_API_BASES
+        ? { bases: CHARTER_DOC_API_BASES }
+        : undefined;
+
     try {
-      const payload = await docApi("render", docPayload);
+      const payload = await docApi("render", docPayload, docApiOptions);
       return { ok: true, payload };
     } catch (error) {
       error.endpoint = "/api/documents/render";

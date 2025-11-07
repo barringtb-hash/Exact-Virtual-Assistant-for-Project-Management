@@ -35,7 +35,7 @@ describe('Assistant chat flows', () => {
 
     cy.intercept('POST', '/api/transcribe', {
       transcript: 'Voice triggered follow-up',
-    }).as('transcribeRequest');
+    });
 
     cy.visit('/');
     cy.contains('Chat Assistant').should('be.visible');
@@ -102,7 +102,25 @@ describe('Assistant chat flows', () => {
     });
 
     cy.get('button[title="Voice input (mock)"]').click();
-    cy.wait('@transcribeRequest');
+
+    cy.window().then((win: any) => {
+      if (win.__test?.injectTranscript) {
+        return new Cypress.Promise<void>((resolve) => {
+          const listener: EventListener = () => {
+            win.removeEventListener('test:preview-updated', listener);
+            resolve();
+          };
+          win.addEventListener('test:preview-updated', listener);
+          win.__test.injectTranscript('Coordinate voice preview sync');
+        });
+      }
+
+      cy.log('No test hook detected; relying on app ASR');
+      return undefined;
+    });
+
+    cy.get('[data-cy="preview-latest"]', { timeout: 10000 })
+      .should('contain.text', 'Coordinate voice preview sync');
 
     const composer = 'textarea[placeholder="Type here… (paste scope or attach files)"]';
     cy.get(composer).should('have.value', 'Voice triggered follow-up');

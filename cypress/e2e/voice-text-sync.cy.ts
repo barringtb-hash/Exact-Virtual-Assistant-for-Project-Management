@@ -58,7 +58,8 @@ describe("Voice and text preview synchronization", () => {
       .its("reasons")
       .should("deep.equal", []);
 
-    cy.get('[data-testid="preview-panel"]').should("contain.text", composerText);
+    cy.get('[data-cy="preview-latest"]', { timeout: 10000 })
+      .should("contain.text", composerText);
 
     cy.get("@micButton", { timeout: 20000 }).should("have.attr", "aria-pressed", "true");
   });

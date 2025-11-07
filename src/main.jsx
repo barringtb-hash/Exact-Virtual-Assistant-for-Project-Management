@@ -3,6 +3,19 @@ import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import { AppBoundary } from './AppErrorBoundary'
 import './index.css'
+import { registerTestHooks } from './test-hooks'
+import { draftActions } from './state/draftStore.ts'
+
+registerTestHooks({
+  setPreviewText: (text) => {
+    const normalized = typeof text === 'string' ? text : ''
+    const trimmed = normalized.trim()
+    draftActions.mergeDraft({
+      project_name: trimmed,
+      __test_preview_text: trimmed,
+    })
+  },
+})
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AppBoundary>

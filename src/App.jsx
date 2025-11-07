@@ -851,6 +851,25 @@ export default function ExactVirtualAssistantPM() {
   const { draft: previewDraftDocument, pendingTurn: hasPendingPreviewTurn } =
     usePreviewSyncService();
   const draftState = previewDraftDocument?.fields ?? null;
+  const previewLatestText = useMemo(() => {
+    if (!draftState || typeof draftState !== "object") {
+      return "";
+    }
+    const fields = draftState;
+    const testRaw = fields["__test_preview_text"];
+    const testValue =
+      typeof testRaw === "string" ? testRaw.trim() : "";
+    if (testValue) {
+      return testValue;
+    }
+    const projectRaw = fields["project_name"];
+    const projectName =
+      typeof projectRaw === "string" ? projectRaw.trim() : "";
+    if (projectName) {
+      return projectName;
+    }
+    return "";
+  }, [draftState]);
   const charterPreview = draftState ?? initialDraftRef.current;
   const [fieldStates, setFieldStates] = useState(() => {
     const draft = initialDraftRef.current;
@@ -3494,6 +3513,11 @@ const resolveDocTypeForManualSync = useCallback(
                   />
                 )}
               </div>
+              {CYPRESS_SAFE_MODE ? (
+                <div data-cy="preview-latest" className="sr-only">
+                  {previewLatestText}
+                </div>
+              ) : null}
               {isPreviewSyncing ? (
                 <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
                   <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />

@@ -329,7 +329,7 @@ describe('Guided charter backend voice + text sync', () => {
   it('falls back to the local orchestrator when start fails', () => {
     cy.intercept('POST', START_URL, {
       statusCode: 500,
-      body: { error: 'server exploded' },
+      body: { error: 'forced' },
     }).as('charterStartFailure');
     cy.intercept('POST', MESSAGE_URL).as('charterMessages');
 

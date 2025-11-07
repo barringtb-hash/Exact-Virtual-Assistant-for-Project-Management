@@ -19,8 +19,8 @@
     "docx:lint": "node templates/tools/lint-tokens.mjs",
     "docx:smoke": "node templates/tools/render-smoke.mjs",
     "prepare": "husky install",
-    "test:catalog": "ts-node scripts/generate-test-catalog.ts",
-    "test:catalog:check": "ts-node scripts/generate-test-catalog.ts --check",
+    "test:catalog": "node --loader ts-node/esm scripts/generate-test-catalog.ts",
+    "test:catalog:check": "node --loader ts-node/esm scripts/generate-test-catalog.ts --check",
     "qa:charter-wizard": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs scripts/run-golden-conversations.mjs",
     "dep:check": "node ./scripts/checkCircularDeps.mjs",
     "analyze:cycles": "node ./scripts/checkCircularDeps.mjs"

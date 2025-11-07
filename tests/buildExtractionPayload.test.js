@@ -93,3 +93,19 @@ test("buildExtractionPayload trims intent reason", () => {
     assert.equal(payload.intentReason, "reason that should be trimmed");
   });
 });
+
+test("buildExtractionPayload strips assistant messages", () => {
+  const payload = buildExtractionPayload({
+    docType: "charter",
+    messages: [
+      { role: "user", text: "User input" },
+      { role: "assistant", text: "Acknowledged." },
+      { role: "user", text: "Another detail" },
+    ],
+  });
+
+  assert.equal(payload.messages.length, 2);
+  assert(payload.messages.every((entry) => entry.role === "user"));
+  assert.equal(payload.messages[0].content, "User input");
+  assert.equal(payload.messages[1].content, "Another detail");
+});

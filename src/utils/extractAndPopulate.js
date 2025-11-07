@@ -11,7 +11,11 @@ export function sanitizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
     .map((entry) => {
-      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const role = typeof entry?.role === "string" ? entry.role.trim() : "user";
+      if (role !== "user") {
+        return null;
+      }
+
       const text =
         typeof entry?.text === "string"
           ? entry.text
@@ -20,7 +24,7 @@ export function sanitizeMessages(messages) {
           : "";
       const trimmed = text.trim();
       if (!trimmed) return null;
-      return { role, content: trimmed, text: trimmed };
+      return { role: "user", content: trimmed, text: trimmed };
     })
     .filter(Boolean);
 }

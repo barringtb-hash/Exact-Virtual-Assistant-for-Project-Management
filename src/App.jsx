@@ -42,7 +42,7 @@ import {
   useInputLocked,
 } from "./state/chatStore.ts";
 import { draftActions, draftStoreApi, useDraftStatus } from "./state/draftStore.ts";
-import { useTranscript, useVoiceStatus, voiceActions } from "./state/voiceStore.ts";
+import { useTranscript, useVoiceStatus, useVoicePaused, voiceActions } from "./state/voiceStore.ts";
 import {
   pathToPointer,
   pointerMapToPathMap,
@@ -537,6 +537,7 @@ export default function ExactVirtualAssistantPM() {
   const isComposerLocked = useInputLocked();
   const isSyncingPreviewFlag = useIsSyncingPreview();
   const voiceStatus = useVoiceStatus();
+  const voicePaused = useVoicePaused();
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
@@ -905,6 +906,33 @@ export default function ExactVirtualAssistantPM() {
   const micStreamRef = useRef(null);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  useEffect(() => {
+    const stream = micStreamRef.current;
+    if (stream && typeof stream.getAudioTracks === "function") {
+      const shouldEnable = !voicePaused;
+      try {
+        stream.getAudioTracks().forEach((track) => {
+          if (track && track.enabled !== shouldEnable) {
+            track.enabled = shouldEnable;
+          }
+        });
+      } catch (error) {
+        console.error("Failed to toggle mic tracks", error);
+      }
+    }
+    if (rec && typeof rec.pause === "function" && typeof rec.resume === "function") {
+      try {
+        if (voicePaused && rec.state === "recording") {
+          rec.pause();
+        } else if (!voicePaused && rec.state === "paused") {
+          rec.resume();
+        }
+      } catch (error) {
+        console.error("Failed to toggle recorder pause", error);
+      }
+    }
+  }, [voicePaused, rec]);
+
   const hideEmptySections = useMemo(() => {
     const raw = import.meta?.env?.VITE_HIDE_EMPTY_SECTIONS;
     if (raw == null) {
@@ -2217,6 +2245,7 @@ const resolveDocTypeForManualSync = useCallback(
         }
       });
       micStreamRef.current = null;
+      voiceActions.resumeAll();
       if (dispatchStop) {
         dispatch("VOICE_STOP");
       }
@@ -2340,6 +2369,7 @@ const resolveDocTypeForManualSync = useCallback(
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
       dispatch("VOICE_START");
       const preferredMime =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
@@ -2387,8 +2417,12 @@ const resolveDocTypeForManualSync = useCallback(
           if (stream) {
             stream.getTracks().forEach((track) => track.stop());
           }
+          if (micStreamRef.current === stream) {
+            micStreamRef.current = null;
+          }
           setRec(null);
           voiceActions.setStatus("idle");
+          voiceActions.resumeAll();
           dispatch("VOICE_STOP");
         }
       };
@@ -2415,8 +2449,12 @@ const resolveDocTypeForManualSync = useCallback(
     } catch (error) {
       console.error("Error stopping recorder", error);
     } finally {
+      if (micStreamRef.current && rec.stream && micStreamRef.current === rec.stream) {
+        micStreamRef.current = null;
+      }
       setRec(null);
       voiceActions.setStatus("idle");
+      voiceActions.resumeAll();
     }
   };
   const handleCommandFromText = useCallback(

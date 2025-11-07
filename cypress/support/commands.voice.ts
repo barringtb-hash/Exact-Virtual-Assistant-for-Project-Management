@@ -1,9 +1,17 @@
 const TEST_ID_SELECTOR = (testId: string) => `[data-testid="${testId}"]`;
 
+type WaitForAppReadyVisitArg =
+  | string
+  | (Cypress.VisitOptions & { url: string });
+
+interface WaitForAppReadyOptions {
+  visit?: WaitForAppReadyVisitArg;
+}
+
 declare global {
   namespace Cypress {
     interface Chainable {
-      waitForAppReady(): Chainable<void>;
+      waitForAppReady(options?: WaitForAppReadyOptions): Chainable<void>;
       getByTestId<E extends Node = HTMLElement>(
         testId: string,
         options?: Partial<
@@ -17,12 +25,21 @@ declare global {
       submitComposer(message: string): Chainable<void>;
       assertPreviewIncludes(text: string): Chainable<void>;
       assertMicPressed(pressed?: boolean): Chainable<void>;
+      assertVoicePaused(paused?: boolean): Chainable<void>;
     }
   }
 }
 
-Cypress.Commands.add("waitForAppReady", () => {
-  cy.visit("/");
+Cypress.Commands.add("waitForAppReady", (options?: WaitForAppReadyOptions) => {
+  const visitArg = options?.visit;
+
+  if (typeof visitArg === "string") {
+    cy.visit(visitArg);
+  } else if (visitArg && typeof visitArg === "object") {
+    cy.visit(visitArg);
+  } else {
+    cy.visit("/");
+  }
 
   cy.document().its("readyState").should("eq", "complete");
 
@@ -101,6 +118,20 @@ Cypress.Commands.add("assertMicPressed", (pressed = true) => {
       if (ariaPressed !== expected) {
         throw new Error(
           `Expected mic aria-pressed to be ${expected}, but received ${ariaPressed}`
+        );
+      }
+    });
+});
+
+Cypress.Commands.add("assertVoicePaused", (paused = true) => {
+  const expected = paused ? "true" : "false";
+  cy.getByTestId("mic-button", { timeout: 15000 })
+    .should("have.attr", "data-paused", expected)
+    .and(($button) => {
+      const dataPaused = $button.attr("data-paused");
+      if (dataPaused !== expected) {
+        throw new Error(
+          `Expected mic data-paused to be ${expected}, but received ${dataPaused}`
         );
       }
     });

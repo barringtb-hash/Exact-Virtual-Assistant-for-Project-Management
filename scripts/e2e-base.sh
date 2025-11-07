@@ -36,7 +36,7 @@ fi
 CYPRESS_CFG="${CYPRESS_CFG:-cypress.config.ts}"
 
 set +e
-$XVFB npx --yes cypress run --config-file "$CYPRESS_CFG"
+$XVFB npx --yes cypress run --config-file "$CYPRESS_CFG" ${CYPRESS_SPEC:+--spec "$CYPRESS_SPEC"}
 E2E_EXIT=$?
 set -e
 

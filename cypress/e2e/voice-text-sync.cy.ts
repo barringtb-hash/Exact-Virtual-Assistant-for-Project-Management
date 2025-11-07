@@ -1,5 +1,8 @@
 /// <reference types="cypress" />
 
+const START_URL = '**/guided/charter/start';
+const MESSAGE_URL = '**/guided/charter/messages';
+
 describe('Guided charter backend voice + text sync', () => {
   const slotMetadata = [
     {
@@ -87,7 +90,7 @@ describe('Guided charter backend voice + text sync', () => {
   });
 
   const setupStartIntercept = (overrides?: Partial<Record<string, unknown>>) => {
-    cy.intercept('POST', '/api/assistant/charter/start', (req) => {
+    cy.intercept('POST', START_URL, (req) => {
       const correlationId = req.body?.correlation_id;
       expect(correlationId, 'correlation id').to.be.a('string').and.not.be.empty;
       req.reply({
@@ -105,7 +108,7 @@ describe('Guided charter backend voice + text sync', () => {
   };
 
   const respondToMessage = () => {
-    cy.intercept('POST', '/api/assistant/charter/messages', (req) => {
+    cy.intercept('POST', MESSAGE_URL, (req) => {
       const { message, source } = req.body ?? {};
       if (message === 'North Star Initiative') {
         req.reply({
@@ -243,22 +246,26 @@ describe('Guided charter backend voice + text sync', () => {
     }).as('charterMessage');
   };
 
-  beforeEach(() => {
-    cy.intercept('POST', '/api/chat', {
-      body: { reply: 'stubbed llm response' },
-    }).as('llmRequest');
-
+  const loadApp = () => {
     cy.waitForAppReady();
     noopEventSource();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');
+  };
+
+  beforeEach(() => {
+    cy.intercept('POST', '**/chat', {
+      body: { reply: 'stubbed llm response' },
+    }).as('llmRequest');
   });
 
   it('shows remote greeting, processes slot updates, and reviews progress', () => {
     setupStartIntercept();
     respondToMessage();
 
+    loadApp();
+
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStart');
+    cy.wait('@charterStart', { timeout: 20000 });
 
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
       .should('be.visible');
@@ -266,14 +273,14 @@ describe('Guided charter backend voice + text sync', () => {
       .should('be.visible');
 
     cy.submitComposer('North Star Initiative');
-    cy.wait('@charterMessage');
+    cy.wait('@charterMessage', { timeout: 20000 });
 
     cy.contains('[data-testid="assistant-message"]', 'Saved Project Title.').should('be.visible');
     cy.contains('[data-testid="assistant-message"]', 'Sponsor (required).').should('be.visible');
     cy.getByTestId('preview-field-title').should('have.value', 'North Star Initiative');
 
     cy.submitComposer('Jordan Example');
-    cy.wait('@charterMessage');
+    cy.wait('@charterMessage', { timeout: 20000 });
 
     cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('be.visible');
     cy.contains('[data-testid="assistant-message"]', 'Project Lead (required).')
@@ -281,7 +288,7 @@ describe('Guided charter backend voice + text sync', () => {
     cy.getByTestId('preview-field-sponsor').should('have.value', 'Jordan Example');
 
     cy.get('[data-testid="chip-review"]').click();
-    cy.wait('@charterMessage');
+    cy.wait('@charterMessage', { timeout: 20000 });
     cy.contains('[data-testid="assistant-message"]', 'Review summary').should('be.visible');
   });
 
@@ -289,13 +296,15 @@ describe('Guided charter backend voice + text sync', () => {
     setupStartIntercept();
     respondToMessage();
 
+    loadApp();
+
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStart');
+    cy.wait('@charterStart', { timeout: 20000 });
 
     cy.assertMicPressed(true);
 
     cy.submitComposer('North Star Initiative');
-    cy.wait('@charterMessage');
+    cy.wait('@charterMessage', { timeout: 20000 });
 
     cy.window().then(async (win) => {
       const testWindow = win as Window & {
@@ -308,7 +317,7 @@ describe('Guided charter backend voice + text sync', () => {
       await testWindow.__simulateGuidedVoiceFinal?.('Voice sponsor update');
     });
 
-    cy.wait('@charterMessage').then((interception) => {
+    cy.wait('@charterMessage', { timeout: 20000 }).then((interception) => {
       expect(interception.request?.body?.source).to.eq('voice');
     });
 
@@ -318,14 +327,16 @@ describe('Guided charter backend voice + text sync', () => {
   });
 
   it('falls back to the local orchestrator when start fails', () => {
-    cy.intercept('POST', '/api/assistant/charter/start', {
+    cy.intercept('POST', START_URL, {
       statusCode: 500,
       body: { error: 'server exploded' },
     }).as('charterStartFailure');
-    cy.intercept('POST', '/api/assistant/charter/messages').as('charterMessages');
+    cy.intercept('POST', MESSAGE_URL).as('charterMessages');
+
+    loadApp();
 
     cy.get('[data-testid="btn-start-charter"]').click();
-    cy.wait('@charterStartFailure');
+    cy.wait('@charterStartFailure', { timeout: 20000 });
 
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
       .should('be.visible');

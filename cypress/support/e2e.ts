@@ -1,4 +1,6 @@
 import "./commands";
+import "./commands.voice";
+import "./mocks.voice";
 
 declare global {
   interface Window {

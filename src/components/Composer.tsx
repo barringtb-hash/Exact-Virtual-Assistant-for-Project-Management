@@ -7,7 +7,7 @@ import {
   useIsAssistantThinking,
   useIsStreaming,
 } from "../state/chatStore.ts";
-import { useVoiceStatus, useVoicePaused, voiceActions } from "../state/voiceStore.ts";
+import { useVoiceStatus } from "../state/voiceStore.ts";
 import { dispatch } from "../sync/syncStore.js";
 
 import { useDocType } from "../state/docType.js";
@@ -100,33 +100,14 @@ const Composer: React.FC<ComposerProps> = ({
   const isStreaming = useIsStreaming();
   const inputLocked = useInputLocked();
   const voiceStatus = useVoiceStatus();
-  const isVoicePaused = useVoicePaused();
   const recording =
-    typeof recordingOverride === "boolean"
-      ? recordingOverride
-      : voiceStatus === "listening" && !isVoicePaused;
+    typeof recordingOverride === "boolean" ? recordingOverride : voiceStatus === "listening";
   const resolvedSendDisabled =
     sendDisabled || isAssistantThinking || isStreaming || inputLocked;
   const resolvedDraftDisabled = inputLocked;
 
   // Mic level monitoring (optional feature)
   const micLevel = FEATURE_MIC_LEVEL ? useMicLevel() : null;
-
-  const pauseVoiceForTyping = useCallback(() => {
-    if (voiceStatus === "listening" || voiceStatus === "transcribing") {
-      voiceActions.pause("typing");
-    }
-  }, [voiceStatus]);
-
-  const resumeVoiceAfterTyping = useCallback(() => {
-    voiceActions.resume("typing");
-  }, []);
-
-  useEffect(() => {
-    if (voiceStatus === "idle") {
-      voiceActions.resume("typing");
-    }
-  }, [voiceStatus]);
 
   const adjustTextareaHeight = useCallback(() => {
     const element = textareaRef.current;
@@ -139,47 +120,29 @@ const Composer: React.FC<ComposerProps> = ({
     adjustTextareaHeight();
   }, [draft, adjustTextareaHeight]);
 
-  const handleTextareaFocus = useCallback(() => {
-    pauseVoiceForTyping();
-    dispatch("TEXT_FOCUS");
-  }, [pauseVoiceForTyping]);
-
-  const handleTextareaBlur: React.FocusEventHandler<HTMLTextAreaElement> = useCallback(() => {
-    resumeVoiceAfterTyping();
-  }, [resumeVoiceAfterTyping]);
-
   const handleChange: React.ChangeEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
-      pauseVoiceForTyping();
       chatActions.setComposerDraft(event.target.value);
       adjustTextareaHeight();
       dispatch("PREVIEW_UPDATED", { source: "text" });
     },
-    [adjustTextareaHeight, pauseVoiceForTyping]
+    [adjustTextareaHeight]
   );
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
-      pauseVoiceForTyping();
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
         if (!resolvedSendDisabled) {
           dispatch("TEXT_SUBMIT");
           onSend();
-          resumeVoiceAfterTyping();
         }
       }
     },
-    [onSend, pauseVoiceForTyping, resumeVoiceAfterTyping, resolvedSendDisabled]
+    [onSend, resolvedSendDisabled]
   );
 
-  const handleSendClick = useCallback(() => {
-    resumeVoiceAfterTyping();
-    onSend();
-  }, [onSend, resumeVoiceAfterTyping]);
-
   const handleMicClick = useCallback(async () => {
-    voiceActions.resume("typing");
     if (recording) {
       dispatch("VOICE_STOP");
       if (onStopRecording) {
@@ -219,7 +182,6 @@ const Composer: React.FC<ComposerProps> = ({
   }, [rtcState]);
 
   const handleRealtimeClick = useCallback(async () => {
-    voiceActions.resume("typing");
     if (rtcState === "live" || rtcState === "connecting") {
       dispatch("VOICE_STOP");
       stopRealtime?.({ dispatchStop: false });
@@ -270,8 +232,7 @@ const Composer: React.FC<ComposerProps> = ({
           value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onFocus={handleTextareaFocus}
-          onBlur={handleTextareaBlur}
+          onFocus={() => dispatch("TEXT_FOCUS")}
           onDrop={onDrop}
           onDragOver={onDragOver}
           placeholder={resolvedPlaceholder}
@@ -306,7 +267,6 @@ const Composer: React.FC<ComposerProps> = ({
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
                   data-testid="mic-button"
-                  data-paused={isVoicePaused ? "true" : "false"}
                   aria-pressed={rtcState === "live" || rtcState === "connecting"}
                 >
                   <IconMic className="h-5 w-5" />
@@ -335,7 +295,6 @@ const Composer: React.FC<ComposerProps> = ({
                 title={recording ? "Stop recording" : "Voice input (mock)"}
                 aria-label={recordingAriaLabel}
                 data-testid="mic-button"
-                data-paused={isVoicePaused ? "true" : "false"}
                 aria-pressed={recording}
               >
                 <IconMic className="h-5 w-5" />
@@ -355,7 +314,7 @@ const Composer: React.FC<ComposerProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleSendClick}
+              onClick={onSend}
               disabled={resolvedSendDisabled}
               className={`shrink-0 rounded-xl p-2 shadow-sm transition ${
                 resolvedSendDisabled

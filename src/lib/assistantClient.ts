@@ -210,16 +210,22 @@ export function subscribeToCharterStream(
     `/api/assistant/charter/stream?conversation_id=${encodeURIComponent(conversationId)}`,
   );
 
+  const eventTypes = ["message", "assistant_prompt", "slot_update", "close"] as const;
+
   const handler = (event: MessageEvent<string>) => {
     onEvent(event);
   };
 
-  eventSource.addEventListener("message", handler);
+  for (const eventType of eventTypes) {
+    eventSource.addEventListener(eventType, handler);
+  }
 
   return {
     eventSource,
     close: () => {
-      eventSource.removeEventListener("message", handler);
+      for (const eventType of eventTypes) {
+        eventSource.removeEventListener(eventType, handler);
+      }
       eventSource.close();
     },
   };

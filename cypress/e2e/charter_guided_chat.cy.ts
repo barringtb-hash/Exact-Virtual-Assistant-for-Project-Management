@@ -12,8 +12,19 @@ describe('Charter guided chat experience', () => {
       body: { reply: 'stubbed llm response' },
     }).as('llmRequest');
 
-    cy.waitForAppReady();
-    cy.get('[data-testid="btn-start-charter"]').should('be.visible');
+    // Force LOCAL wizard mode for this spec (remote guided hides the CTA)
+    cy.waitForAppReady({
+      GUIDED_BACKEND_ON: false,
+      CHARTER_GUIDED_BACKEND_ENABLED: false,
+      WIZARD_VISIBLE: true,
+    });
+
+    // Sanity-check: the app actually booted with local wizard
+    cy.window().its('__APP_FLAGS__').its('GUIDED_BACKEND_ON').should('eq', false);
+
+    // The Start Charter CTA must be visible in local wizard mode
+    cy.get('[data-testid="btn-start-charter"]', { timeout: 10000 })
+      .should('be.visible');
   });
 
   it('walks through prompts, validation, navigation, and review', () => {

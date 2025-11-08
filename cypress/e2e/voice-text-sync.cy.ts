@@ -284,17 +284,17 @@ describe('Guided charter backend voice + text sync', () => {
   };
 
   beforeEach(() => {
-    cy.intercept('POST', '**/chat', {
-      body: { reply: 'stubbed llm response' },
-    }).as('llmRequest');
-  });
-
-  it('shows remote greeting, processes slot updates, and reviews progress', () => {
     setupStartIntercept();
     respondToMessage();
 
-    loadApp();
+    cy.intercept('POST', '**/chat', {
+      body: { reply: 'stubbed llm response' },
+    }).as('llmRequest');
 
+    loadApp();
+  });
+
+  it('shows remote greeting, processes slot updates, and reviews progress', () => {
     cy.get('[data-testid="btn-start-charter"]').click();
     waitForStartRequest();
 
@@ -324,11 +324,6 @@ describe('Guided charter backend voice + text sync', () => {
   });
 
   it('submits voice transcripts through the guided backend', () => {
-    setupStartIntercept();
-    respondToMessage();
-
-    loadApp();
-
     cy.get('[data-testid="btn-start-charter"]').click();
     waitForStartRequest();
 

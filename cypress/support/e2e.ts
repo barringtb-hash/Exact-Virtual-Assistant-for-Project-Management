@@ -13,6 +13,14 @@ Cypress.on("window:before:load", (win) => {
     win.__FLAG_OVERRIDES__ = {};
   }
 
+  // Bridge Cypress.env() flags into the app's __FLAG_OVERRIDES__
+  // This ensures the app sees the same flag values that Cypress was configured with
+  win.__FLAG_OVERRIDES__.VITE_CHARTER_GUIDED_CHAT_ENABLED = Cypress.env("GUIDED_CHAT_ENABLED");
+  win.__FLAG_OVERRIDES__.VITE_CHARTER_GUIDED_BACKEND = Cypress.env("GUIDED_BACKEND_ON");
+  win.__FLAG_OVERRIDES__.VITE_CHARTER_WIZARD_VISIBLE = Cypress.env("WIZARD_VISIBLE");
+  win.__FLAG_OVERRIDES__.VITE_AUTO_EXTRACTION_ENABLED = Cypress.env("AUTO_EXTRACTION_ENABLED");
+  win.__FLAG_OVERRIDES__.VITE_CYPRESS_SAFE_MODE = Cypress.env("CYPRESS_SAFE_MODE");
+
   const styleEl = win.document.createElement("style");
   styleEl.setAttribute("data-cy", "anti-occlusion");
   styleEl.innerHTML = `

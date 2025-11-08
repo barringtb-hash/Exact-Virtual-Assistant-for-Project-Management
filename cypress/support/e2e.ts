@@ -9,14 +9,9 @@ declare global {
 }
 
 Cypress.on("window:before:load", (win) => {
-  const existingOverrides =
-    typeof win.__FLAG_OVERRIDES__ === "object" && win.__FLAG_OVERRIDES__ !== null
-      ? win.__FLAG_OVERRIDES__
-      : {};
-  win.__FLAG_OVERRIDES__ = {
-    ...existingOverrides,
-    VITE_CYPRESS_SAFE_MODE: true,
-  };
+  if (typeof win.__FLAG_OVERRIDES__ !== "object" || win.__FLAG_OVERRIDES__ === null) {
+    win.__FLAG_OVERRIDES__ = {};
+  }
 
   const styleEl = win.document.createElement("style");
   styleEl.setAttribute("data-cy", "anti-occlusion");

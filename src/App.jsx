@@ -65,6 +65,7 @@ import {
   startCharterSession,
   subscribeToCharterStream,
 } from "./lib/assistantClient.ts";
+import { GUIDED_BACKEND_ON, SAFE_MODE } from "./lib/env.ts";
 
 const SHOULD_INSTALL_SYNC_TELEMETRY =
   import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
@@ -88,13 +89,16 @@ const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
-const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
 const CHARTER_GUIDED_BACKEND_ENABLED = FLAGS.CHARTER_GUIDED_BACKEND_ENABLED;
 const CHARTER_DOC_API_BASES = CHARTER_GUIDED_BACKEND_ENABLED
   ? ["/api/charter", "/api/documents", "/api/doc"]
   : null;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
+const REMOTE_GUIDED_BACKEND_ENABLED =
+  (CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON) && !SAFE_MODE;
+const E2E_FLAG_SAFE_MODE = SAFE_MODE;
+const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON);
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
@@ -800,7 +804,7 @@ export default function ExactVirtualAssistantPM() {
     schemaStatus,
     schema: activeDocSchema,
   } = useDocTemplate();
-  const storedContextRef = useRef(CYPRESS_SAFE_MODE ? null : readStoredSession());
+  const storedContextRef = useRef(SAFE_MODE ? null : readStoredSession());
   const chatHydratedRef = useRef(false);
   const voiceHydratedRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -815,6 +819,15 @@ export default function ExactVirtualAssistantPM() {
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
   const [guidedState, setGuidedState] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.Cypress) {
+      window.__E2E_FLAGS__ = {
+        SAFE_MODE: E2E_FLAG_SAFE_MODE,
+        GUIDED_BACKEND_ON: E2E_FLAG_GUIDED_BACKEND,
+      };
+    }
+  }, []);
   const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
   const guidedOrchestratorRef = useRef(null);
   const [guidedConversationId, setGuidedConversationId] = useState(null);
@@ -1403,7 +1416,7 @@ export default function ExactVirtualAssistantPM() {
   ]);
 
   useEffect(() => {
-    if (CYPRESS_SAFE_MODE) {
+    if (SAFE_MODE) {
       return;
     }
     mergeStoredSession({ attachments, messages });
@@ -3344,7 +3357,7 @@ const resolveDocTypeForManualSync = useCallback(
 
     const orchestrator = guidedOrchestratorRef.current;
 
-    if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+    if (!REMOTE_GUIDED_BACKEND_ENABLED) {
       orchestrator?.start();
       return;
     }
@@ -3491,6 +3504,20 @@ const resolveDocTypeForManualSync = useCallback(
     },
     [submitChatTurn]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.Cypress) {
+      return undefined;
+    }
+
+    window.__simulateGuidedVoiceFinal = async (text, options = {}) => {
+      await handleVoiceTranscriptMessage(text, options);
+    };
+
+    return () => {
+      delete window.__simulateGuidedVoiceFinal;
+    };
+  }, [handleVoiceTranscriptMessage]);
 
   const handleSend = async () => {
     const text = composerDraft.trim();

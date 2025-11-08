@@ -254,13 +254,30 @@ describe('Guided charter backend voice + text sync', () => {
   };
 
   const loadApp = () => {
-    cy.waitForAppReady();
+    cy.waitForAppReady({
+      GUIDED_BACKEND_ON: true,
+      CHARTER_GUIDED_BACKEND_ENABLED: true,
+      CYPRESS_SAFE_MODE: false,
+    });
+
+    cy.window()
+      .its('__APP_FLAGS__')
+      .should((flags) => {
+        expect(flags, '__APP_FLAGS__').to.exist;
+        expect(flags?.GUIDED_BACKEND_ON, 'GUIDED_BACKEND_ON flag').to.equal(true);
+        expect(
+          flags?.CHARTER_GUIDED_BACKEND_ENABLED,
+          'CHARTER_GUIDED_BACKEND_ENABLED flag',
+        ).to.equal(true);
+        expect(flags?.CYPRESS_SAFE_MODE, 'CYPRESS_SAFE_MODE flag').to.equal(false);
+      });
+
     cy.window()
       .its('__E2E_FLAGS__')
       .should((flags) => {
         expect(flags, '__E2E_FLAGS__').to.exist;
-        expect(flags.SAFE_MODE, 'SAFE_MODE flag').to.equal(false);
-        expect(flags.GUIDED_BACKEND_ON, 'GUIDED_BACKEND_ON flag').to.equal(true);
+        expect(flags?.SAFE_MODE, 'SAFE_MODE flag').to.equal(false);
+        expect(flags?.GUIDED_BACKEND_ON, 'GUIDED_BACKEND_ON flag').to.equal(true);
       });
     noopEventSource();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');

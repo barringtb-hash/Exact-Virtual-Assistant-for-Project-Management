@@ -1,12 +1,5 @@
 type Raw = string | number | boolean | undefined | null;
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __FLAG_OVERRIDES__:
-    | Record<string, Raw>
-    | undefined;
-}
-
 function readEnv(key: string): Raw {
   if (typeof globalThis !== "undefined") {
     const overrides = globalThis.__FLAG_OVERRIDES__;

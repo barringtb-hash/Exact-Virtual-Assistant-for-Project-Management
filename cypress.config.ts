@@ -1,8 +1,18 @@
 import { defineConfig } from "cypress";
 
 // Normalize typical truthy strings into a boolean
-const asOn = (value?: string) =>
-  !!value && /^(1|true|on|yes)$/i.test(String(value).trim());
+const asOn = (value?: string) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return /^(1|true|on|yes|enabled)$/i.test(trimmed);
+};
 
 const baseUrl = process.env.CYPRESS_BASE_URL ?? "http://localhost:5173";
 

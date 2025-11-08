@@ -2,13 +2,6 @@ import type { InputPolicy, InputSyncLayer } from "../types/sync.ts";
 
 type EnvValue = string | number | boolean | undefined | null;
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __FLAG_OVERRIDES__:
-    | Record<string, EnvValue>
-    | undefined;
-}
-
 const VALID_LAYERS: readonly InputSyncLayer[] = ["none", "local", "remote"];
 const VALID_POLICIES: readonly InputPolicy[] = ["exclusive", "mixed"];
 

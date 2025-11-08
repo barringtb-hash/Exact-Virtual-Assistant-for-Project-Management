@@ -10,7 +10,7 @@ Three flags determine which experience you see and whether the background extrac
 | --- | --- | --- |
 | `VITE_CHARTER_GUIDED_CHAT_ENABLED` | `true` | Enables the guided charter experience without the legacy wizard UI. 【F:src/config/flags.ts†L77-L88】 |
 | `VITE_CHARTER_WIZARD_VISIBLE` | `false` | Opts back into the side-panel wizard when you need the sequential form. 【F:src/config/flags.ts†L77-L88】 |
-| `VITE_CHARTER_GUIDED_BACKEND` | `off` | Routes charter validation, rendering, and extraction calls through the dedicated charter backend endpoints when available. 【F:src/config/flags.ts†L77-L88】【F:src/App.jsx†L1821-L1943】【F:src/utils/extractAndPopulate.js†L1-L284】 |
+| `VITE_CHARTER_GUIDED_BACKEND` | `off` | Routes charter validation, rendering, and extraction calls through the dedicated charter backend endpoints when available; set this to `true` in CI or e2e runs to exercise the remote flow. 【F:src/config/flags.ts†L77-L88】【F:src/App.jsx†L1821-L1943】【F:src/utils/extractAndPopulate.js†L1-L284】 |
 | `VITE_AUTO_EXTRACTION_ENABLED` / `VITE_AUTO_EXTRACT` | `false` | Allows background extraction to run; the guided orchestrator disables it while a session is active. 【F:src/config/flags.ts†L77-L88】【F:config/featureFlags.js†L53-L72】【F:src/App.jsx†L1071-L1089】【F:src/features/charter/guidedOrchestrator.ts†L23-L30】【F:src/features/charter/guidedOrchestrator.ts†L470-L475】 |
 
 When the orchestrator reports an active session, the app clears the inputs it passes to `useBackgroundExtraction`, preventing any automatic updates until the user finishes or exits the guided flow. 【F:src/App.jsx†L1071-L1089】【F:src/features/charter/guidedOrchestrator.ts†L470-L475】

@@ -2,8 +2,11 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import { AppBoundary } from './AppErrorBoundary'
+import { initFlagsForRuntimeExposure } from './config/flags.ts'
 import { isVoiceE2EModeActive } from './utils/e2eMode.js'
 import './index.css'
+
+initFlagsForRuntimeExposure()
 
 const isVoiceE2EMode = typeof window !== 'undefined' ? isVoiceE2EModeActive(window) : false
 

@@ -11,6 +11,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+echo "==> Using Vite flags for e2e:"
+env | grep -E '^VITE_(CHARTER|AUTO_|CYPRESS_)' | sort || true
+
 echo "==> Build"
 npm run build
 

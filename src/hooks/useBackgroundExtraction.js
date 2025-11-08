@@ -37,6 +37,25 @@ const LEGACY_AUTO_EXTRACTION_ENABLED = !isIntentOnlyExtractionEnabled() && FLAGS
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function logSyncEvent(kind, event) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const logger = window.__syncLog;
+  if (typeof logger !== "function") {
+    return;
+  }
+
+  try {
+    logger(kind, { event });
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[useBackgroundExtraction] failed to log sync event", error);
+    }
+  }
+}
+
 function shouldRetryStatus(status) {
   if (typeof status !== "number") return false;
   if (status === 408 || status === 425 || status === 429) return true;
@@ -606,6 +625,16 @@ export default function useBackgroundExtraction({
     const formattedAttachments = sanitizeAttachments(latestAttachments);
     const formattedVoice = sanitizeVoiceEvents(latestVoice);
     const formattedMessages = sanitizeMessages(latestMessages);
+
+    if (formattedMessages.length > 0) {
+      const lastUserUtterance = formattedMessages.at(-1)?.text || null;
+      logSyncEvent("extraction", {
+        type: "EXTRACTION_PAYLOAD",
+        messageCount: formattedMessages.length,
+        lastUserUtterance,
+        messages: formattedMessages.map((entry) => entry.text || entry.content || ""),
+      });
+    }
 
     const shouldExtract =
       formattedAttachments.length > 0 || formattedVoice.length > 0 || hasUserInput(latestMessages);

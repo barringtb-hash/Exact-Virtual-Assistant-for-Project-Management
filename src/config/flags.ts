@@ -80,5 +80,9 @@ export const FLAGS = {
     ["VITE_AUTO_EXTRACTION_ENABLED", "VITE_AUTO_EXTRACT", "AUTO_EXTRACT"],
     false,
   ),
+  CHARTER_GUIDED_BACKEND_ENABLED: readBooleanFlag(
+    ["VITE_CHARTER_GUIDED_BACKEND", "CHARTER_GUIDED_BACKEND", "GUIDED_BACKEND"],
+    false,
+  ),
   CYPRESS_SAFE_MODE: readBooleanFlag("VITE_CYPRESS_SAFE_MODE", false),
 } as const;

@@ -52,12 +52,20 @@ import {
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
+import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
 import { isVoiceE2EModeActive } from "./utils/e2eMode.js";
+import {
+  CharterClientError,
+  postCharterMessage,
+  startCharterSession,
+  subscribeToCharterStream,
+} from "./lib/assistantClient.ts";
+import { GUIDED_BACKEND_ON, SAFE_MODE } from "./lib/env.ts";
 
 const SHOULD_INSTALL_SYNC_TELEMETRY =
   import.meta.env.DEV || (typeof window !== "undefined" && window.Cypress);
@@ -81,11 +89,95 @@ const INTENT_ONLY_EXTRACTION_ENABLED = isIntentOnlyExtractionEnabled();
 const CHARTER_GUIDED_CHAT_ENABLED = FLAGS.CHARTER_GUIDED_CHAT_ENABLED;
 const CHARTER_WIZARD_VISIBLE = FLAGS.CHARTER_WIZARD_VISIBLE;
 const AUTO_EXTRACTION_ENABLED = FLAGS.AUTO_EXTRACTION_ENABLED;
-const CYPRESS_SAFE_MODE = FLAGS.CYPRESS_SAFE_MODE;
+const CHARTER_GUIDED_BACKEND_ENABLED = FLAGS.CHARTER_GUIDED_BACKEND_ENABLED;
+const CHARTER_DOC_API_BASES = CHARTER_GUIDED_BACKEND_ENABLED
+  ? ["/api/charter", "/api/documents", "/api/doc"]
+  : null;
 const SHOULD_SHOW_CHARTER_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && CHARTER_WIZARD_VISIBLE;
 const GUIDED_CHAT_WITHOUT_WIZARD = CHARTER_GUIDED_CHAT_ENABLED && !CHARTER_WIZARD_VISIBLE;
+const REMOTE_GUIDED_BACKEND_ENABLED =
+  (CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON) && !SAFE_MODE;
+const E2E_FLAG_SAFE_MODE = SAFE_MODE;
+const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON);
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
+
+function sendTelemetryEvent(eventName, { conversationId = null, metadata = {} } = {}) {
+  if (typeof fetch !== "function") {
+    return Promise.resolve();
+  }
+
+  const payload = {
+    event: eventName,
+    timestamp: Date.now(),
+    conversation_id: conversationId ?? null,
+    metadata,
+  };
+
+  try {
+    return fetch("/api/telemetry/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch (error) {
+    return Promise.resolve();
+  }
+}
+
+function summarizeGuidedSlots(state) {
+  if (!state || !state.fields || typeof state.fields !== "object") {
+    return {
+      totalSlots: 0,
+      confirmedSlots: 0,
+      capturedSlots: 0,
+      skippedSlots: 0,
+      rejectedSlots: 0,
+      pendingSlots: 0,
+    };
+  }
+
+  let totalSlots = 0;
+  let confirmedSlots = 0;
+  let capturedSlots = 0;
+  let skippedSlots = 0;
+  let rejectedSlots = 0;
+  let pendingSlots = 0;
+
+  for (const fieldState of Object.values(state.fields)) {
+    if (!fieldState || typeof fieldState !== "object") {
+      continue;
+    }
+
+    totalSlots += 1;
+    switch (fieldState.status) {
+      case "confirmed":
+        confirmedSlots += 1;
+        break;
+      case "captured":
+        capturedSlots += 1;
+        break;
+      case "skipped":
+        skippedSlots += 1;
+        break;
+      case "rejected":
+        rejectedSlots += 1;
+        break;
+      default:
+        pendingSlots += 1;
+        break;
+    }
+  }
+
+  return {
+    totalSlots,
+    confirmedSlots,
+    capturedSlots,
+    skippedSlots,
+    rejectedSlots,
+    pendingSlots,
+  };
+}
 
 function buildDocTypeConfig(docType, metadataMap = new Map()) {
   const hasExplicitDocType = typeof docType === "string" && docType.trim();
@@ -472,6 +564,191 @@ function restoreFilesFromStoredAttachments(attachments) {
     .filter(Boolean);
 }
 
+function cloneGuidedStateShallow(state) {
+  if (!state) {
+    return createInitialGuidedState();
+  }
+
+  const fields = {};
+  if (state.fields && typeof state.fields === "object") {
+    for (const [id, value] of Object.entries(state.fields)) {
+      if (!value || typeof value !== "object") {
+        continue;
+      }
+      fields[id] = {
+        ...value,
+        issues: Array.isArray(value.issues) ? value.issues.slice() : [],
+      };
+    }
+  }
+
+  return {
+    ...state,
+    order: Array.isArray(state.order) ? state.order.slice() : [],
+    fields,
+    waiting: state.waiting
+      ? { ...state.waiting }
+      : { assistant: false, user: false, validation: false },
+  };
+}
+
+function ensureFieldDefinition(fieldId, existingDefinition, descriptor) {
+  if (existingDefinition) {
+    return existingDefinition;
+  }
+
+  if (descriptor && typeof descriptor === "object") {
+    return {
+      id: descriptor.slot_id ?? descriptor.id ?? fieldId,
+      label: descriptor.label ?? fieldId,
+      question: descriptor.question ?? null,
+      helpText: descriptor.help_text ?? null,
+      required: Boolean(descriptor.required),
+      type: descriptor.type ?? "text",
+      placeholder: descriptor.placeholder ?? null,
+      example: descriptor.example ?? null,
+      maxLength: descriptor.max_length ?? null,
+      reviewLabel: descriptor.review_label ?? null,
+      children: Array.isArray(descriptor.children)
+        ? descriptor.children.map((child) => ({
+            id: child.id,
+            label: child.label,
+            type: child.type,
+            placeholder: child.placeholder ?? null,
+          }))
+        : [],
+    };
+  }
+
+  return {
+    id: fieldId,
+    label: fieldId,
+    question: null,
+    helpText: null,
+    required: false,
+    type: "text",
+    placeholder: null,
+    example: null,
+    maxLength: null,
+    reviewLabel: null,
+    children: [],
+  };
+}
+
+function applySlotUpdateToGuidedStateEvent(event, slotMetadataMap, previousState) {
+  const baseState = cloneGuidedStateShallow(previousState);
+  const nextState = cloneGuidedStateShallow(baseState);
+
+  if (event && typeof event === "object") {
+    const status =
+      typeof event.status === "string"
+        ? event.status
+        : typeof event.state === "string"
+        ? event.state
+        : null;
+    if (status) {
+      nextState.status = status;
+    }
+
+    const currentFieldId =
+      typeof event.current_slot_id === "string"
+        ? event.current_slot_id
+        : typeof event.currentSlotId === "string"
+        ? event.currentSlotId
+        : null;
+    if (currentFieldId !== null) {
+      nextState.currentFieldId = currentFieldId;
+    }
+
+    const startedAt =
+      typeof event.started_at === "string"
+        ? event.started_at
+        : typeof event.startedAt === "string"
+        ? event.startedAt
+        : null;
+    if (startedAt !== null) {
+      nextState.startedAt = startedAt;
+    }
+
+    const completedAt =
+      typeof event.completed_at === "string"
+        ? event.completed_at
+        : typeof event.completedAt === "string"
+        ? event.completedAt
+        : null;
+    if (completedAt !== null) {
+      nextState.completedAt = completedAt;
+    }
+
+    if (event.waiting && typeof event.waiting === "object") {
+      nextState.waiting = {
+        assistant: Boolean(event.waiting.assistant),
+        user: Boolean(event.waiting.user),
+        validation: Boolean(event.waiting.validation),
+      };
+    }
+
+    if (Array.isArray(event.slots)) {
+      const fields = { ...nextState.fields };
+
+      for (const slot of event.slots) {
+        if (!slot || typeof slot !== "object") {
+          continue;
+        }
+
+        const fieldId =
+          typeof slot.slot_id === "string"
+            ? slot.slot_id
+            : typeof slot.slotId === "string"
+            ? slot.slotId
+            : null;
+        if (!fieldId) {
+          continue;
+        }
+
+        const existing = fields[fieldId] || baseState.fields?.[fieldId] || null;
+        const descriptor = slotMetadataMap?.get?.(fieldId);
+        const definition = ensureFieldDefinition(fieldId, existing?.definition, descriptor);
+
+        const issues = Array.isArray(slot.issues)
+          ? slot.issues
+              .map((issue) => (typeof issue === "string" ? issue : String(issue)))
+              .filter(Boolean)
+          : [];
+
+        fields[fieldId] = {
+          id: fieldId,
+          definition,
+          status: typeof slot.status === "string" ? slot.status : existing?.status ?? "pending",
+          value:
+            slot.value !== undefined
+              ? slot.value
+              : slot.captured_value !== undefined
+              ? slot.captured_value
+              : existing?.value ?? null,
+          confirmedValue:
+            slot.confirmed_value !== undefined
+              ? slot.confirmed_value
+              : slot.confirmedValue !== undefined
+              ? slot.confirmedValue
+              : existing?.confirmedValue ?? null,
+          issues,
+          skippedReason:
+            slot.skipped_reason ?? slot.skippedReason ?? existing?.skippedReason ?? null,
+          lastAskedAt:
+            slot.last_asked_at ?? slot.lastAskedAt ?? existing?.lastAskedAt ?? null,
+          lastUpdatedAt:
+            slot.last_updated_at ?? slot.lastUpdatedAt ?? existing?.lastUpdatedAt ?? null,
+        };
+      }
+
+      nextState.fields = fields;
+    }
+  }
+
+  return nextState;
+}
+
 // --- Seed messages ---
 // Friendly, generic starter messages to welcome users
 const seedMessages = [
@@ -527,7 +804,7 @@ export default function ExactVirtualAssistantPM() {
     schemaStatus,
     schema: activeDocSchema,
   } = useDocTemplate();
-  const storedContextRef = useRef(CYPRESS_SAFE_MODE ? null : readStoredSession());
+  const storedContextRef = useRef(SAFE_MODE ? null : readStoredSession());
   const chatHydratedRef = useRef(false);
   const voiceHydratedRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -542,9 +819,85 @@ export default function ExactVirtualAssistantPM() {
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
   const [guidedState, setGuidedState] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.Cypress) {
+      window.__E2E_FLAGS__ = {
+        SAFE_MODE: E2E_FLAG_SAFE_MODE,
+        GUIDED_BACKEND_ON: E2E_FLAG_GUIDED_BACKEND,
+      };
+    }
+  }, []);
   const [guidedAutoExtractionDisabled, setGuidedAutoExtractionDisabled] = useState(false);
   const guidedOrchestratorRef = useRef(null);
+  const [guidedConversationId, setGuidedConversationId] = useState(null);
+  const [guidedSlotMetadata, setGuidedSlotMetadata] = useState([]);
+  const [guidedInitialPromptAt, setGuidedInitialPromptAt] = useState(null);
+  const [guidedVoiceEnabled, setGuidedVoiceEnabled] = useState(false);
+  const charterStreamRef = useRef(null);
+  const processedGuidedEventIdsRef = useRef(new Set());
+  const hasPostedInitialPromptRef = useRef(false);
+  const guidedStateRef = useRef(null);
+  const guidedSlotMapRef = useRef(new Map());
+  const guidedVoiceEnabledRef = useRef(false);
+  const guidedConversationIdRef = useRef(null);
+  const guidedInitialPromptAtRef = useRef(null);
   const featureFlagsReady = true;
+  useEffect(() => {
+    guidedStateRef.current = guidedState;
+  }, [guidedState]);
+  useEffect(() => {
+    guidedConversationIdRef.current = guidedConversationId;
+  }, [guidedConversationId]);
+  useEffect(() => {
+    guidedVoiceEnabledRef.current = guidedVoiceEnabled;
+  }, [guidedVoiceEnabled]);
+  useEffect(() => {
+    guidedInitialPromptAtRef.current = guidedInitialPromptAt;
+  }, [guidedInitialPromptAt]);
+  useEffect(() => {
+    const map = new Map();
+    if (Array.isArray(guidedSlotMetadata)) {
+      for (const slot of guidedSlotMetadata) {
+        if (!slot || typeof slot !== "object") continue;
+        const slotId = slot.slot_id ?? slot.slotId;
+        if (!slotId) continue;
+        map.set(slotId, slot);
+      }
+    }
+    guidedSlotMapRef.current = map;
+  }, [guidedSlotMetadata]);
+  const resetGuidedRemoteSession = useCallback(() => {
+    if (charterStreamRef.current) {
+      try {
+        charterStreamRef.current.close();
+      } catch (error) {
+        console.error("Failed to close charter stream", error);
+      }
+      charterStreamRef.current = null;
+    }
+    processedGuidedEventIdsRef.current = new Set();
+    hasPostedInitialPromptRef.current = false;
+    guidedConversationIdRef.current = null;
+    guidedVoiceEnabledRef.current = false;
+    setGuidedConversationId(null);
+    setGuidedSlotMetadata([]);
+    setGuidedInitialPromptAt(null);
+    guidedInitialPromptAtRef.current = null;
+    setGuidedVoiceEnabled(false);
+    if (CHARTER_GUIDED_BACKEND_ENABLED) {
+      setGuidedAutoExtractionDisabled(false);
+    }
+    voiceActions.setStatus("idle");
+  }, []);
+  useEffect(() => {
+    if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+      return;
+    }
+    if (guidedConversationId) {
+      setGuidedAutoExtractionDisabled(true);
+    }
+  }, [guidedConversationId]);
   const voiceE2EModeActive = useMemo(() => {
     if (typeof window === "undefined") {
       return false;
@@ -604,7 +957,8 @@ export default function ExactVirtualAssistantPM() {
     guidedState && guidedState.status !== "idle" && guidedState.status !== "complete"
   );
   const canStartGuided =
-    !guidedState || guidedState.status === "idle" || guidedState.status === "complete";
+    (!guidedState || guidedState.status === "idle" || guidedState.status === "complete") &&
+    (!CHARTER_GUIDED_BACKEND_ENABLED || !guidedConversationId);
   const guidedCurrentField = useMemo(() => {
     if (!guidedState?.currentFieldId) {
       return null;
@@ -1062,7 +1416,7 @@ export default function ExactVirtualAssistantPM() {
   ]);
 
   useEffect(() => {
-    if (CYPRESS_SAFE_MODE) {
+    if (SAFE_MODE) {
       return;
     }
     mergeStoredSession({ attachments, messages });
@@ -1462,6 +1816,11 @@ export default function ExactVirtualAssistantPM() {
 
     const orchestrator = guidedOrchestratorRef.current;
 
+    if (CHARTER_GUIDED_BACKEND_ENABLED && guidedConversationId) {
+      orchestrator.reset();
+      return;
+    }
+
     if (!isGuidedChatEnabled) {
       orchestrator.reset();
       setGuidedState(orchestrator.getState());
@@ -1471,7 +1830,7 @@ export default function ExactVirtualAssistantPM() {
 
     setGuidedState(orchestrator.getState());
     setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
-  }, [appendAssistantMessage, isGuidedChatEnabled]);
+  }, [appendAssistantMessage, guidedConversationId, isGuidedChatEnabled]);
 
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {
@@ -1625,6 +1984,247 @@ export default function ExactVirtualAssistantPM() {
     },
     [effectiveDocType, pushToast, triggerExtraction]
   );
+
+  const emitGuidedCompletionTelemetry = useCallback(
+    (state, { reason = "complete" } = {}) => {
+      if (!CHARTER_GUIDED_BACKEND_ENABLED || !state) {
+        return;
+      }
+
+      const conversationId = guidedConversationIdRef.current;
+      const summary = summarizeGuidedSlots(state);
+      const startedAt = guidedInitialPromptAtRef.current;
+      const elapsedMs =
+        typeof startedAt === "number" && Number.isFinite(startedAt)
+          ? Math.max(0, Date.now() - startedAt)
+          : null;
+
+      const metadata = {
+        ...summary,
+        reason,
+        status: state.status,
+        elapsedMs,
+        completedAt: state.completedAt,
+        startedAt: state.startedAt,
+        voiceEnabled: Boolean(guidedVoiceEnabledRef.current),
+      };
+
+      sendTelemetryEvent("charter_guided_complete", {
+        conversationId,
+        metadata,
+      });
+    },
+    [],
+  );
+
+  const emitGuidedFallbackTelemetry = useCallback(
+    (phase, error, extraMetadata = {}) => {
+      if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+        return;
+      }
+
+      const conversationId = guidedConversationIdRef.current;
+      const metadata = {
+        phase,
+        status: error?.status ?? null,
+        message: error?.message ?? null,
+        errorName: error?.name ?? null,
+        voiceEnabled: Boolean(guidedVoiceEnabledRef.current),
+        hasConversationId: Boolean(conversationId),
+        ...extraMetadata,
+      };
+
+      sendTelemetryEvent("charter_guided_fallback_local", {
+        conversationId,
+        metadata,
+      });
+    },
+    [],
+  );
+
+  const processGuidedEvents = useCallback(
+    (events, { reason } = {}) => {
+      if (!Array.isArray(events) || events.length === 0) {
+        return { stateChanged: false, sessionCompleted: false, appendedAssistant: false };
+      }
+
+      const seen = processedGuidedEventIdsRef.current;
+      let nextState = guidedStateRef.current;
+      let stateChanged = false;
+      let sessionCompleted = false;
+      let appendedAssistant = false;
+
+      for (const rawEvent of events) {
+        if (!rawEvent || typeof rawEvent !== "object") {
+          continue;
+        }
+
+        const eventId =
+          typeof rawEvent.event_id === "string" && rawEvent.event_id
+            ? rawEvent.event_id
+            : typeof rawEvent.eventId === "string"
+            ? rawEvent.eventId
+            : null;
+
+        if (eventId && seen.has(eventId)) {
+          continue;
+        }
+
+        if (eventId) {
+          seen.add(eventId);
+        }
+
+        const eventType =
+          typeof rawEvent.type === "string" && rawEvent.type
+            ? rawEvent.type
+            : typeof rawEvent.event === "string"
+            ? rawEvent.event
+            : null;
+
+        if (eventType === "assistant_prompt") {
+          const message =
+            typeof rawEvent.message === "string" ? rawEvent.message.trim() : "";
+          if (message) {
+            appendAssistantMessage(message);
+            appendedAssistant = true;
+            if (guidedVoiceEnabledRef.current) {
+              voiceActions.setStatus("listening");
+            }
+          }
+          continue;
+        }
+
+        if (eventType === "slot_update") {
+          nextState = applySlotUpdateToGuidedStateEvent(
+            rawEvent,
+            guidedSlotMapRef.current,
+            nextState,
+          );
+          stateChanged = true;
+          if (nextState?.status === "complete") {
+            sessionCompleted = true;
+          }
+        }
+      }
+
+      if (stateChanged && nextState) {
+        setGuidedState(nextState);
+        scheduleChatPreviewSync({ reason: reason || "guided-slot-update" });
+      }
+
+      if (appendedAssistant && !hasPostedInitialPromptRef.current) {
+        hasPostedInitialPromptRef.current = true;
+        const firstPromptTimestamp = Date.now();
+        setGuidedInitialPromptAt(firstPromptTimestamp);
+        guidedInitialPromptAtRef.current = firstPromptTimestamp;
+      }
+
+      if (stateChanged || appendedAssistant) {
+        messagesRef.current = chatStoreApi.getState().messages;
+      }
+
+      if (sessionCompleted) {
+        emitGuidedCompletionTelemetry(nextState, { reason: reason || "guided-slot-update" });
+        resetGuidedRemoteSession();
+      }
+
+      return { stateChanged, sessionCompleted, appendedAssistant };
+    },
+    [
+      appendAssistantMessage,
+      emitGuidedCompletionTelemetry,
+      resetGuidedRemoteSession,
+      scheduleChatPreviewSync,
+    ],
+  );
+
+  const sendGuidedBackendMessage = useCallback(
+    async (text, { source = "chat", isFinal = true } = {}) => {
+      const conversationId = guidedConversationIdRef.current;
+      if (!conversationId) {
+        throw new CharterClientError("No active guided conversation.");
+      }
+
+      const response = await postCharterMessage(conversationId, text, source, isFinal);
+      processGuidedEvents(response?.events ?? [], {
+        reason: source === "voice" ? "guided-voice-update" : "guided-chat-update",
+      });
+      messagesRef.current = chatStoreApi.getState().messages;
+      return response;
+    },
+    [processGuidedEvents],
+  );
+
+  useEffect(() => {
+    if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+      return;
+    }
+
+    if (!guidedConversationId) {
+      if (charterStreamRef.current) {
+        charterStreamRef.current.close();
+        charterStreamRef.current = null;
+      }
+      return;
+    }
+
+    try {
+      const subscription = subscribeToCharterStream(guidedConversationId, (event) => {
+        if (!event) {
+          return;
+        }
+
+        if (event.type === "close") {
+          resetGuidedRemoteSession();
+          return;
+        }
+
+        const payload = typeof event.data === "string" ? event.data.trim() : "";
+        if (!payload) {
+          return;
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(payload);
+        } catch (error) {
+          console.error("Failed to parse charter stream event", error);
+          return;
+        }
+
+        if (!parsed || typeof parsed !== "object") {
+          return;
+        }
+
+        if (!parsed.type && event.type) {
+          parsed.type = event.type;
+        }
+
+        if (!parsed.event_id && event.lastEventId) {
+          parsed.event_id = event.lastEventId;
+        }
+
+        processGuidedEvents([parsed], { reason: "guided-stream-update" });
+      });
+
+      charterStreamRef.current = subscription;
+    } catch (error) {
+      console.error("Unable to subscribe to charter stream", error);
+    }
+
+    return () => {
+      if (charterStreamRef.current) {
+        charterStreamRef.current.close();
+        charterStreamRef.current = null;
+      }
+    };
+  }, [guidedConversationId, processGuidedEvents, resetGuidedRemoteSession]);
+
+  useEffect(() => {
+    return () => {
+      resetGuidedRemoteSession();
+    };
+  }, [resetGuidedRemoteSession]);
 
   const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
@@ -1814,9 +2414,14 @@ const resolveDocTypeForManualSync = useCallback(
       };
     }
 
+    const docApiOptions =
+      CHARTER_GUIDED_BACKEND_ENABLED && requestDocType === "charter" && CHARTER_DOC_API_BASES
+        ? { bases: CHARTER_DOC_API_BASES }
+        : undefined;
+
     let payload;
     try {
-      payload = await docApi("validate", docPayload);
+      payload = await docApi("validate", docPayload, docApiOptions);
     } catch (error) {
       console.error("/api/documents/validate request failed", error);
       const structuredErrors = extractValidationErrorsFromPayload(error?.payload);
@@ -1924,8 +2529,13 @@ const resolveDocTypeForManualSync = useCallback(
       };
     }
 
+    const docApiOptions =
+      CHARTER_GUIDED_BACKEND_ENABLED && requestDocType === "charter" && CHARTER_DOC_API_BASES
+        ? { bases: CHARTER_DOC_API_BASES }
+        : undefined;
+
     try {
-      const payload = await docApi("render", docPayload);
+      const payload = await docApi("render", docPayload, docApiOptions);
       return { ok: true, payload };
     } catch (error) {
       error.endpoint = "/api/documents/render";
@@ -2630,95 +3240,203 @@ const resolveDocTypeForManualSync = useCallback(
       const nextHistory = chatStoreApi.getState().messages;
       messagesRef.current = nextHistory;
 
-      // Lock the input immediately to provide user feedback
       chatActions.lockField("composer");
 
       const orchestrator = guidedOrchestratorRef.current;
       const shouldBypassGuided = trimmed.startsWith("/");
-      if (orchestrator && !shouldBypassGuided) {
-        const handled = orchestrator.handleUserMessage(trimmed);
-        if (handled) {
-          chatActions.unlockField("composer");
-          return { status: "guided" };
-        }
-      }
+      const shouldAttemptRemote =
+        CHARTER_GUIDED_BACKEND_ENABLED &&
+        Boolean(guidedConversationIdRef.current) &&
+        !shouldBypassGuided;
 
-      // Real-time sync: In intent-only mode, attemptIntentExtraction() handles immediate sync
-      // In non-intent mode, trigger immediate extraction here
-      if (intentOnlyExtractionEnabled) {
-        const intent = detectCharterIntent(trimmed);
-        if (intent) {
-          const latestVoice = Array.isArray(voiceTranscriptsRef.current)
-            ? voiceTranscriptsRef.current
-            : [];
+      try {
+        if (shouldAttemptRemote) {
+          let remoteHandled = false;
+          const runId = createTempId();
+          chatActions.startAssistant(runId);
           try {
-            // attemptIntentExtraction already calls triggerExtraction() - this IS the immediate sync
+            const response = await sendGuidedBackendMessage(trimmed, {
+              source: source === "voice" ? "voice" : "chat",
+              isFinal: true,
+            });
+            remoteHandled = response?.handled !== false;
+          } catch (error) {
+            if (error instanceof CharterClientError) {
+              emitGuidedFallbackTelemetry("message", error, {
+                source: source === "voice" ? "voice" : "chat",
+              });
+            } else {
+              throw error;
+            }
+          } finally {
+            chatActions.endAssistant(runId, "");
+            chatActions.setMessages((prev) =>
+              prev.filter((message) => message.runId !== runId),
+            );
+            messagesRef.current = chatStoreApi.getState().messages;
+          }
+
+          if (remoteHandled) {
+            return { status: "guided" };
+          }
+        }
+
+        if (orchestrator && !shouldBypassGuided) {
+          const handledByOrchestrator = orchestrator.handleUserMessage(trimmed);
+          if (handledByOrchestrator) {
+            return { status: "guided" };
+          }
+        }
+
+        if (intentOnlyExtractionEnabled) {
+          const intent = detectCharterIntent(trimmed);
+          if (intent) {
+            const latestVoice = Array.isArray(voiceTranscriptsRef.current)
+              ? voiceTranscriptsRef.current
+              : [];
             await attemptIntentExtraction({
               intent,
               reason: source === "voice" ? "voice-intent" : "composer-intent",
               messages: nextHistory,
               voice: latestVoice,
             });
-          } finally {
-            chatActions.unlockField("composer");
+            return { status: "intent" };
           }
-          return { status: "intent" };
+        } else {
+          scheduleChatPreviewSync({
+            reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
+          });
         }
-        // No intent detected in intent-only mode: fall back to post-LLM sync
-      } else {
-        // Intent-only mode is OFF: trigger immediate sync for all messages
+
+        const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
+        if (handled) {
+          return { status: "command" };
+        }
+
+        const runId = createTempId();
+        chatActions.startAssistant(runId);
+        let reply = "";
+        try {
+          const latestAttachments = Array.isArray(attachmentsRef.current)
+            ? attachmentsRef.current
+            : [];
+          const guidedSystemPrompt =
+            orchestrator && !shouldBypassGuided && orchestrator.isActive()
+              ? CHARTER_GUIDED_SYSTEM_PROMPT
+              : undefined;
+          reply = await callLLM(trimmed, nextHistory, latestAttachments, {
+            systemPrompt: guidedSystemPrompt,
+          });
+        } catch (e) {
+          reply = "LLM error (demo): " + (e?.message || "unknown");
+        }
+        chatActions.endAssistant(runId, reply || "");
         scheduleChatPreviewSync({
-          reason: source === "voice" ? "voice-input-immediate" : "user-input-immediate",
+          reason: source === "voice" ? "voice-chat-completion" : "chat-completion",
         });
-      }
 
-      const handled = await handleCommandFromText(trimmed, { userMessageAppended: true });
-      if (handled) {
-        chatActions.unlockField("composer");
-        return { status: "command" };
-      }
-
-      const runId = createTempId();
-      chatActions.startAssistant(runId);
-      let reply = "";
-      try {
-        const latestAttachments = Array.isArray(attachmentsRef.current)
-          ? attachmentsRef.current
-          : [];
-        const guidedSystemPrompt =
-          orchestrator && !shouldBypassGuided && orchestrator.isActive()
-            ? CHARTER_GUIDED_SYSTEM_PROMPT
-            : undefined;
-        reply = await callLLM(trimmed, nextHistory, latestAttachments, {
-          systemPrompt: guidedSystemPrompt,
-        });
-      } catch (e) {
-        reply = "LLM error (demo): " + (e?.message || "unknown");
+        return { status: "responded" };
       } finally {
         chatActions.unlockField("composer");
       }
-      chatActions.endAssistant(runId, reply || "");
-      scheduleChatPreviewSync({
-        reason: source === "voice" ? "voice-chat-completion" : "chat-completion",
-      });
-
-      return { status: "responded" };
     },
     [
       attemptIntentExtraction,
+      emitGuidedFallbackTelemetry,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
       scheduleChatPreviewSync,
-    ]
+      sendGuidedBackendMessage,
+    ],
   );
 
-  const handleStartGuidedCharter = useCallback(() => {
+  const handleStartGuidedCharter = useCallback(async () => {
     if (!isGuidedChatEnabled) {
       return;
     }
+
     const orchestrator = guidedOrchestratorRef.current;
-    orchestrator?.start();
-  }, [isGuidedChatEnabled]);
+
+    if (!REMOTE_GUIDED_BACKEND_ENABLED) {
+      orchestrator?.start();
+      return;
+    }
+
+    const correlationId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : createTempId();
+
+    if (guidedStateRef.current?.status === "complete") {
+      emitGuidedCompletionTelemetry(guidedStateRef.current, { reason: "restart" });
+    }
+
+    try {
+      resetGuidedRemoteSession();
+      processedGuidedEventIdsRef.current = new Set();
+      hasPostedInitialPromptRef.current = false;
+      setGuidedState(createInitialGuidedState());
+
+      const startResponse = await startCharterSession(correlationId);
+
+      setGuidedConversationId(startResponse.conversationId);
+      guidedConversationIdRef.current = startResponse.conversationId;
+      const slotList = Array.isArray(startResponse.slots) ? startResponse.slots : [];
+      setGuidedSlotMetadata(slotList);
+      setGuidedVoiceEnabled(Boolean(startResponse.hasVoiceSupport));
+      guidedVoiceEnabledRef.current = Boolean(startResponse.hasVoiceSupport);
+      setGuidedAutoExtractionDisabled(true);
+
+      if (startResponse.hasVoiceSupport) {
+        voiceActions.setStatus("listening");
+      }
+
+      const events = Array.isArray(startResponse.events) ? startResponse.events : [];
+      const prompt =
+        typeof startResponse.prompt === "string" ? startResponse.prompt.trim() : "";
+
+      sendTelemetryEvent("charter_guided_start", {
+        conversationId: startResponse.conversationId,
+        metadata: {
+          correlationId,
+          slotCount: slotList.length,
+          voiceEnabled: Boolean(startResponse.hasVoiceSupport),
+          idempotent: Boolean(startResponse.idempotent),
+          initialEventCount: events.length,
+          hasInitialPrompt: Boolean(prompt),
+        },
+      });
+
+      const result = processGuidedEvents(events, { reason: "guided-session-start" });
+
+      if (prompt && !(result?.appendedAssistant)) {
+        appendAssistantMessage(prompt);
+        if (!hasPostedInitialPromptRef.current) {
+          hasPostedInitialPromptRef.current = true;
+          const initialPromptTimestamp = Date.now();
+          setGuidedInitialPromptAt(initialPromptTimestamp);
+          guidedInitialPromptAtRef.current = initialPromptTimestamp;
+        }
+      }
+    } catch (error) {
+      emitGuidedFallbackTelemetry("start", error, { correlationId });
+      resetGuidedRemoteSession();
+      if (error instanceof CharterClientError) {
+        orchestrator?.start();
+        return;
+      }
+      console.error("Failed to start guided charter session", error);
+      orchestrator?.start();
+    }
+  }, [
+    appendAssistantMessage,
+    emitGuidedCompletionTelemetry,
+    emitGuidedFallbackTelemetry,
+    isGuidedChatEnabled,
+    processGuidedEvents,
+    resetGuidedRemoteSession,
+    setGuidedState,
+  ]);
 
   const handleGuidedCommandChip = useCallback(
     async (command) => {
@@ -2734,10 +3452,9 @@ const resolveDocTypeForManualSync = useCallback(
       }
 
       const previousDraft = chatStoreApi.getState().composerDraft;
-      chatActions.setComposerDraft(trimmed);
 
       try {
-        await submitChatTurn(trimmed, { source: "composer" });
+        await submitChatTurn(trimmed, { source: "chat" });
       } finally {
         if (previousDraft) {
           chatActions.setComposerDraft(previousDraft);
@@ -2787,6 +3504,20 @@ const resolveDocTypeForManualSync = useCallback(
     },
     [submitChatTurn]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.Cypress) {
+      return undefined;
+    }
+
+    window.__simulateGuidedVoiceFinal = async (text, options = {}) => {
+      await handleVoiceTranscriptMessage(text, options);
+    };
+
+    return () => {
+      delete window.__simulateGuidedVoiceFinal;
+    };
+  }, [handleVoiceTranscriptMessage]);
 
   const handleSend = async () => {
     const text = composerDraft.trim();

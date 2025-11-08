@@ -190,6 +190,26 @@ function computeUserTextLength(messages) {
   }, 0);
 }
 
+function sanitizeUserMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map((entry) => {
+      const role = typeof entry?.role === "string" ? entry.role.trim() : "user";
+      if (role !== "user") {
+        return null;
+      }
+      const text = extractMessageText(entry);
+      if (!text) {
+        return null;
+      }
+      return { role: "user", content: text, text };
+    })
+    .filter(Boolean);
+}
+
 function hasVoiceText(voiceEvents) {
   if (!Array.isArray(voiceEvents)) {
     return false;
@@ -294,7 +314,7 @@ export default async function handler(req, res) {
 
     const attachments = Array.isArray(body.attachments) ? body.attachments : [];
     const voice = Array.isArray(body.voice) ? body.voice : [];
-    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const messages = sanitizeUserMessages(body.messages);
     const seed = typeof body.seed === "number" ? body.seed : undefined;
     const intentRaw = body?.intent;
     const intentSourceRaw = body?.intentSource;

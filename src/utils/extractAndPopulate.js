@@ -1,4 +1,5 @@
 import { docApi } from "../lib/docApi.js";
+import { FLAGS } from "../config/flags.ts";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 
 const DEFAULT_PARSE_FALLBACK_MESSAGE = "I couldn’t parse the last turn—keeping your entries.";
@@ -11,7 +12,11 @@ export function sanitizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
     .map((entry) => {
-      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const role = typeof entry?.role === "string" ? entry.role.trim() : "user";
+      if (role !== "user") {
+        return null;
+      }
+
       const text =
         typeof entry?.text === "string"
           ? entry.text
@@ -20,7 +25,7 @@ export function sanitizeMessages(messages) {
           : "";
       const trimmed = text.trim();
       if (!trimmed) return null;
-      return { role, content: trimmed, text: trimmed };
+      return { role: "user", content: trimmed, text: trimmed };
     })
     .filter(Boolean);
 }
@@ -265,9 +270,17 @@ export async function extractAndPopulate({
 
   const normalizedDocType = payload.docType;
 
+  const docApiOptions = { fetchImpl, signal };
+  if (
+    FLAGS.CHARTER_GUIDED_BACKEND_ENABLED &&
+    normalizedDocType === "charter"
+  ) {
+    docApiOptions.bases = ["/api/charter", "/api/documents", "/api/doc"];
+  }
+
   let data;
   try {
-    data = await docApi("extract", payload, { fetchImpl, signal });
+    data = await docApi("extract", payload, docApiOptions);
   } catch (error) {
     const status = error?.status;
     const errorPayload = error?.payload;

@@ -52,6 +52,7 @@ Environment flags keep the router predictable across dev, preview, and productio
 | --- | --- | --- |
 | `INTENT_ONLY_EXTRACTION` | Enforce explicit user intent before routing extraction. | `true` |
 | `CHAT_STREAMING` | Enables the `/api/chat/stream` Edge handler. | `false` |
+| `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions (when user starts charter or sends create/update intent). Set to `false` to always show the preview panel. | `true` |
 | `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_
 
 ## API

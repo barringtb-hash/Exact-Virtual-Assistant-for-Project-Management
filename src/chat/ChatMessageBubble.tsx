@@ -29,7 +29,7 @@ export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
   return (
     <div className={`eva-chat-message eva-chat-message--${role}`}>
       <div className="eva-chat-message-bubble">
-        <div className="eva-chat-message-content">
+        <div className="eva-chat-message-content max-w-[70ch]">
           {content}
           {isAssistant && pending ? <TypingIndicator label={typingIndicatorLabel} /> : null}
         </div>

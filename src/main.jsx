@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import { AppBoundary } from './AppErrorBoundary'
+import { DocSessionProvider } from './state/docSession'
 import { isVoiceE2EModeActive } from './utils/e2eMode.js'
 import './index.css'
 
@@ -23,9 +24,11 @@ if (typeof document !== 'undefined' && document.body) {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AppBoundary>
-      <App />
-    </AppBoundary>
+    <DocSessionProvider>
+      <AppBoundary>
+        <App />
+      </AppBoundary>
+    </DocSessionProvider>
   </React.StrictMode>
 )
 

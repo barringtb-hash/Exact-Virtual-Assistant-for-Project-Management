@@ -85,4 +85,5 @@ export const FLAGS = {
     false,
   ),
   CYPRESS_SAFE_MODE: readBooleanFlag("VITE_CYPRESS_SAFE_MODE", false),
+  PREVIEW_CONDITIONAL_VISIBILITY: readBooleanFlag("VITE_PREVIEW_CONDITIONAL_VISIBILITY", true),
 } as const;

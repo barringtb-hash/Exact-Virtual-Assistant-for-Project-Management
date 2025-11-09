@@ -536,19 +536,6 @@ export default async function handler(req, res) {
       }
     }
 
-    const hasContext =
-      hasAttachmentContext(attachments) ||
-      hasVoiceText(voice) ||
-      computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH;
-
-    if (config.type === "charter" && !hasContext) {
-      return res.status(422).json({
-        error:
-          "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
-        code: "insufficient-context",
-      });
-    }
-
     const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
       ? body.guidedRequests
       : Array.isArray(body?.requests)
@@ -560,6 +547,38 @@ export default async function handler(req, res) {
       Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
     const isGuidedCharterRequest =
       config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload);
+
+    const hasGuidedContext = Array.isArray(guidedRequestsRaw)
+      ? guidedRequestsRaw.some((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return false;
+          }
+
+          const entryAttachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+          const entryVoice = Array.isArray(entry.voice) ? entry.voice : [];
+          const entryMessages = sanitizeUserMessages(entry.messages);
+
+          return (
+            hasAttachmentContext(entryAttachments) ||
+            hasVoiceText(entryVoice) ||
+            computeUserTextLength(entryMessages) >= MIN_TEXT_CONTEXT_LENGTH
+          );
+        })
+      : false;
+
+    const hasContext =
+      hasAttachmentContext(attachments) ||
+      hasVoiceText(voice) ||
+      computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH ||
+      hasGuidedContext;
+
+    if (config.type === "charter" && !hasContext) {
+      return res.status(422).json({
+        error:
+          "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
+        code: "insufficient-context",
+      });
+    }
 
     let payload;
     let statusCode = 200;

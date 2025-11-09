@@ -8,10 +8,14 @@ import {
   type GuidedState,
 } from "../../src/features/charter/guidedState";
 import { CHARTER_FIELDS, type CharterField, type CharterFieldId } from "../../src/features/charter/schema";
-import { guidedStateToCharterDTO, type CharterDTO } from "../../src/features/charter/persist";
-import { validateField } from "../../src/features/charter/validate";
+import { guidedStateToCharterDTO, type CharterDTO, type CharterDTOValue } from "../../src/features/charter/persist";
 import { SYSTEM_PROMPT } from "../../src/features/charter/prompts";
 import { getTitleCandidate } from "../../src/features/charter/titlePreprocessor";
+import {
+  extractFieldsFromUtterance,
+  type CharterExtractionRequest,
+  type ExtractionIssue,
+} from "./extractFieldsFromUtterance";
 
 type StateEmitter = (state: GuidedState) => void;
 type AssistantEmitter = (message: string) => void;
@@ -26,6 +30,9 @@ interface SessionContext {
   state: GuidedState;
   completionNotified: boolean;
   pendingMessages: string[];
+  pendingToolFields: Partial<Record<CharterFieldId, CharterDTOValue>>;
+  pendingToolArguments: unknown;
+  pendingToolWarnings: ExtractionIssue[];
 }
 
 export class SessionNotFoundError extends Error {
@@ -49,6 +56,9 @@ export interface InteractionResult {
   assistantMessages: string[];
   state: GuidedState;
   idempotent?: boolean;
+  pendingToolFields: Partial<Record<CharterFieldId, CharterDTOValue>>;
+  pendingToolArguments: unknown;
+  pendingToolWarnings: ExtractionIssue[];
 }
 
 const sessions = new Map<string, SessionContext>();
@@ -101,6 +111,51 @@ function extractCommand(raw: string): Command | null {
     return { type: "edit", target: target || undefined };
   }
 
+  return null;
+}
+
+const APPROVAL_RESPONSES = new Set([
+  "yes",
+  "y",
+  "yeah",
+  "yep",
+  "sure",
+  "correct",
+  "that's correct",
+  "thats correct",
+  "sounds good",
+  "looks good",
+  "ok",
+  "okay",
+  "confirm",
+  "save",
+]);
+
+const REJECTION_RESPONSES = new Set([
+  "no",
+  "n",
+  "nope",
+  "nah",
+  "don't",
+  "dont",
+  "reject",
+  "not correct",
+  "that's wrong",
+  "thats wrong",
+  "change it",
+]);
+
+function interpretConfirmation(raw: string): "approve" | "reject" | null {
+  const normalized = normalizeWhitespace(raw).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (APPROVAL_RESPONSES.has(normalized)) {
+    return "approve";
+  }
+  if (REJECTION_RESPONSES.has(normalized)) {
+    return "reject";
+  }
   return null;
 }
 
@@ -222,7 +277,16 @@ function createSessionContext(): SessionContext {
     state: createInitialGuidedState(),
     completionNotified: false,
     pendingMessages: [],
+    pendingToolFields: {},
+    pendingToolArguments: null,
+    pendingToolWarnings: [],
   };
+}
+
+function clearPendingToolData(session: SessionContext) {
+  session.pendingToolFields = {};
+  session.pendingToolArguments = null;
+  session.pendingToolWarnings = [];
 }
 
 function getExistingSession(conversationId: string): SessionContext | null {
@@ -480,11 +544,11 @@ function handleCommandInternal(
   }
 }
 
-function handleAnswer(
+async function handleAnswer(
   session: SessionContext,
   options: InteractionOptions | undefined,
   raw: string,
-): boolean {
+): Promise<boolean> {
   const field = getCurrentField(session.state);
   if (!field) {
     return false;
@@ -500,38 +564,160 @@ function handleAnswer(
     return true;
   }
 
+  if (session.state.awaitingConfirmation) {
+    const decision = interpretConfirmation(normalizedInput);
+    const pendingFieldId = session.state.pendingFieldId;
+    const pendingDefinition =
+      pendingFieldId ? session.state.fields[pendingFieldId]?.definition ?? null : null;
+
+    if (decision === "approve" && pendingFieldId) {
+      dispatch(session, { type: "CONFIRM_PENDING" }, options);
+      clearPendingToolData(session);
+      const name = pendingDefinition?.reviewLabel ?? pendingDefinition?.label ?? field.label;
+      sendAssistantMessage(session, options, `Saved ${name}.`);
+      promptCurrentFieldInternal(session, options);
+      return true;
+    }
+
+    if (decision === "reject" && pendingFieldId) {
+      dispatch(session, { type: "REJECT_PENDING" }, options);
+      clearPendingToolData(session);
+      const name = pendingDefinition?.reviewLabel ?? pendingDefinition?.label ?? field.label;
+      sendAssistantMessage(
+        session,
+        options,
+        `No problem—let’s adjust ${name}. Share the right details or type "skip" to move on.`,
+      );
+      promptCurrentFieldInternal(session, options);
+      return true;
+    }
+
+    if (pendingFieldId) {
+      dispatch(session, { type: "REJECT_PENDING" }, options);
+      clearPendingToolData(session);
+    } else {
+      clearPendingToolData(session);
+    }
+  }
+
   const candidate = field.id === "project_name" ? getTitleCandidate(raw) : "";
   const capturedValue = candidate || normalizedInput;
 
   dispatch(session, { type: "CAPTURE", fieldId: field.id, value: capturedValue }, options);
 
-  const validation = validateField(field, capturedValue);
-  if (!validation.valid) {
-    dispatch(session, {
-      type: "VALIDATE",
-      fieldId: field.id,
-      valid: false,
-      issues: validation.message ? [validation.message] : [],
-      value: capturedValue,
-    }, options);
-    const errorMessage = validation.message
-      ? `${validation.message} Try again or type "skip" to move on.`
-      : `That doesn’t look right for ${field.label}. Please try again or type "skip".`;
-    sendAssistantMessage(session, options, errorMessage);
+  const fieldState = getCurrentFieldState(session.state);
+  const prompt = formatFieldPrompt(
+    field,
+    fieldState?.confirmedValue ?? fieldState?.value ?? null,
+  );
+
+  const request: CharterExtractionRequest = {
+    requestedFieldIds: [field.id],
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "assistant", content: prompt },
+      { role: "user", content: raw },
+    ],
+    seed: guidedStateToCharterDTO(session.state),
+  };
+
+  let result: Awaited<ReturnType<typeof extractFieldsFromUtterance>>;
+  try {
+    result = await extractFieldsFromUtterance(request);
+  } catch (error) {
+    dispatch(session, { type: "REJECT", fieldId: field.id, issues: [] }, options);
+    clearPendingToolData(session);
+    const name = field.reviewLabel ?? field.label;
+    const fallback =
+      error instanceof Error && error.message
+        ? ` ${error.message}`
+        : "";
+    sendAssistantMessage(
+      session,
+      options,
+      `I couldn’t validate ${name} because the extractor was unavailable.${fallback} Try again or type "skip".`,
+    );
     return true;
   }
 
-  dispatch(session, {
-    type: "VALIDATE",
-    fieldId: field.id,
-    valid: true,
-    value: capturedValue,
-    normalizedValue: capturedValue,
-  }, options);
+  if (!result.ok) {
+    const errorMessage = result.error?.message ?? `I couldn’t validate ${field.label}.`;
+    const name = field.reviewLabel ?? field.label;
+    const issues = [errorMessage];
+    dispatch(session, { type: "REJECT", fieldId: field.id, issues }, options);
+    clearPendingToolData(session);
+    const suffix =
+      result.error.code === "validation_failed" || result.error.code === "missing_required"
+        ? "Try again or type \"skip\" to move on."
+        : "Let’s try again or you can type \"skip\".";
+    sendAssistantMessage(session, options, `${errorMessage} ${suffix}`);
+    return true;
+  }
+
+  const fieldValue = result.fields[field.id];
+  if (fieldValue == null) {
+    const name = field.reviewLabel ?? field.label;
+    dispatch(session, { type: "REJECT", fieldId: field.id, issues: [] }, options);
+    clearPendingToolData(session);
+    sendAssistantMessage(
+      session,
+      options,
+      `I couldn’t find details for ${name}. Share an update or type "skip" to move on.`,
+    );
+    return true;
+  }
+
+  const normalizedValue = cloneState(fieldValue) as FieldValue;
+  const summary = formatFieldValue(normalizedValue);
+  if (!summary) {
+    const name = field.reviewLabel ?? field.label;
+    dispatch(session, { type: "REJECT", fieldId: field.id, issues: [] }, options);
+    clearPendingToolData(session);
+    sendAssistantMessage(
+      session,
+      options,
+      `I wasn’t able to capture ${name}. Try again or type "skip" to move on.`,
+    );
+    return true;
+  }
+
+  clearPendingToolData(session);
+  session.pendingToolFields = cloneState(result.fields);
+  session.pendingToolArguments =
+    result.rawToolArguments && typeof result.rawToolArguments === "object"
+      ? cloneState(result.rawToolArguments)
+      : result.rawToolArguments;
+  session.pendingToolWarnings = result.warnings.map((issue) => ({ ...issue }));
+
+  const warningMessages = result.warnings.map((issue) => issue.message).filter(Boolean);
+
+  dispatch(
+    session,
+    {
+      type: "PROPOSE",
+      fieldId: field.id,
+      value: normalizedValue,
+      warnings: warningMessages,
+      awaitingConfirmation: true,
+    },
+    options,
+  );
+
   const name = field.reviewLabel ?? field.label;
-  sendAssistantMessage(session, options, `Saved ${name}.`);
-  dispatch(session, { type: "CONFIRM", fieldId: field.id }, options);
-  promptCurrentFieldInternal(session, options);
+  sendAssistantMessage(
+    session,
+    options,
+    `Here’s what I captured for ${name}: ${summary}. Reply "yes" to save it, or share an update.`,
+  );
+
+  if (warningMessages.length > 0) {
+    sendAssistantMessage(
+      session,
+      options,
+      `Heads up: ${warningMessages.join(" ")}`,
+    );
+  }
+
   return true;
 }
 
@@ -543,11 +729,21 @@ function finalizeInteraction(
   const messages = session.pendingMessages.slice();
   session.pendingMessages.length = 0;
   const stateSnapshot = cloneState(session.state);
+  const pendingToolFields = cloneState(session.pendingToolFields);
+  const pendingToolWarnings = session.pendingToolWarnings.map((issue) => ({ ...issue }));
+  const pendingToolArguments =
+    session.pendingToolArguments && typeof session.pendingToolArguments === "object"
+      ? cloneState(session.pendingToolArguments)
+      : session.pendingToolArguments;
+  clearPendingToolData(session);
   return {
     handled,
     assistantMessages: messages,
     state: stateSnapshot,
     idempotent,
+    pendingToolFields,
+    pendingToolArguments,
+    pendingToolWarnings,
   };
 }
 
@@ -557,6 +753,12 @@ function cloneInteractionResult(result: InteractionResult): InteractionResult {
     assistantMessages: result.assistantMessages.slice(),
     state: cloneState(result.state),
     idempotent: result.idempotent,
+    pendingToolFields: cloneState(result.pendingToolFields),
+    pendingToolArguments:
+      result.pendingToolArguments && typeof result.pendingToolArguments === "object"
+        ? cloneState(result.pendingToolArguments)
+        : result.pendingToolArguments,
+    pendingToolWarnings: result.pendingToolWarnings.map((issue) => ({ ...issue })),
   };
 }
 
@@ -580,11 +782,11 @@ function ensureSession(
   return existing;
 }
 
-function withIdempotency(
+async function withIdempotency(
   options: InteractionOptions,
-  compute: (session: SessionContext) => InteractionResult,
+  compute: (session: SessionContext) => InteractionResult | Promise<InteractionResult>,
   helperOptions: WithIdempotencyOptions = {},
-): InteractionResult {
+): Promise<InteractionResult> {
   const correlationId = options.correlationId?.trim();
   if (correlationId) {
     const now = Date.now();
@@ -596,7 +798,7 @@ function withIdempotency(
       return { ...snapshot, idempotent: true };
     }
     const session = ensureSession(options.conversationId, helperOptions);
-    const result = compute(session);
+    const result = await compute(session);
     idempotencyMap.set(cacheKey, {
       expiresAt: now + IDEMPOTENCY_TTL_MS,
       result: cloneInteractionResult(result),
@@ -604,10 +806,10 @@ function withIdempotency(
     return result;
   }
   const session = ensureSession(options.conversationId, helperOptions);
-  return compute(session);
+  return await compute(session);
 }
 
-export function startSession(options: InteractionOptions): InteractionResult {
+export function startSession(options: InteractionOptions): Promise<InteractionResult> {
   return withIdempotency(
     options,
     (session) => {
@@ -636,8 +838,8 @@ export function startSession(options: InteractionOptions): InteractionResult {
 export function handleCommand(
   options: InteractionOptions,
   command: string | Command,
-): InteractionResult {
-  return withIdempotency(options, (session) => {
+): Promise<InteractionResult> {
+  return withIdempotency(options, async (session) => {
     const resolvedCommand = typeof command === "string" ? extractCommand(command) : command;
     if (!resolvedCommand) {
       return finalizeInteraction(session, false);
@@ -650,8 +852,8 @@ export function handleCommand(
 export function handleUserMessage(
   options: InteractionOptions,
   message: string,
-): InteractionResult {
-  return withIdempotency(options, (session) => {
+): Promise<InteractionResult> {
+  return withIdempotency(options, async (session) => {
     if (session.state.status === "idle") {
       return finalizeInteraction(session, false);
     }
@@ -666,13 +868,13 @@ export function handleUserMessage(
       return finalizeInteraction(session, false);
     }
 
-    const handled = handleAnswer(session, options, message);
+    const handled = await handleAnswer(session, options, message);
     return finalizeInteraction(session, handled);
   });
 }
 
-export function promptCurrentField(options: InteractionOptions): InteractionResult {
-  return withIdempotency(options, (session) => {
+export function promptCurrentField(options: InteractionOptions): Promise<InteractionResult> {
+  return withIdempotency(options, async (session) => {
     promptCurrentFieldInternal(session, options);
     return finalizeInteraction(session, true);
   });
@@ -687,6 +889,7 @@ export function resetSession(conversationId: string) {
   session.completionNotified = false;
   setState(session, createInitialGuidedState(), undefined);
   session.pendingMessages.length = 0;
+  clearPendingToolData(session);
 }
 
 export function toCharterDTO(state: GuidedState | null | undefined): CharterDTO {

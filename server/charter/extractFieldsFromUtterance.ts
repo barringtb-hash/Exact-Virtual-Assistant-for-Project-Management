@@ -678,18 +678,37 @@ export function normalizeExtractedFields(
 }
 
 function extractToolArguments(response: any): unknown {
+  const getToolCallDetails = (call: any) => {
+    if (!call) return null;
+
+    if (call.type === "function_call") {
+      return { name: call.name, arguments: call.arguments };
+    }
+
+    if (call.type === "function" && call.function) {
+      return {
+        name: call.function?.name,
+        arguments: call.function?.arguments,
+      };
+    }
+
+    return null;
+  };
+
   const output = Array.isArray(response?.output) ? response.output : [];
   for (const item of output) {
-    if (item?.type === "function_call" && item?.name === TOOL_NAME) {
-      return item.arguments;
+    const call = getToolCallDetails(item);
+    if (call?.name === TOOL_NAME) {
+      return call.arguments;
     }
   }
 
   const toolCalls = Array.isArray(response?.output?.[0]?.tool_calls)
     ? response.output[0].tool_calls
     : [];
-  for (const call of toolCalls) {
-    if (call?.type === "function_call" && call?.name === TOOL_NAME) {
+  for (const callEntry of toolCalls) {
+    const call = getToolCallDetails(callEntry);
+    if (call?.name === TOOL_NAME) {
       return call.arguments;
     }
   }

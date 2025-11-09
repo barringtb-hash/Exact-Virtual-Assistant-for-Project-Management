@@ -20,7 +20,7 @@
 - **Goal**: Ensure that when the voice agent commits to an action, it actually completes it.
 - **Task**: Improve the agent’s backend logic to verify task completion and ensure it executes promised steps.
 
-## 6. Conditional Visibility of the Preview Panel
+## 6. Conditional Visibility of the Preview Panel (Completed)
 - **Goal**: Only show the preview panel when document creation is active. If the PM is just chatting and not creating a document, they should only see the chat interface.
 - **Task**: Add logic to toggle the preview panel’s visibility based on whether the user has indicated they want to create a document.
 

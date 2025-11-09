@@ -25,6 +25,7 @@ import {
   isIntentOnlyExtractionEnabled,
 } from "../config/featureFlags.js";
 import { FLAGS } from "./config/flags.ts";
+import { useDocSession } from "./state/docSession";
 import {
   useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
@@ -828,6 +829,7 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+  const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
   const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
 
@@ -1333,6 +1335,18 @@ export default function ExactVirtualAssistantPM() {
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
   const hasPreviewDocType = Boolean(previewDocType);
+  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive;
+
+  // Stage 7: Preview focus state - when preview should dominate layout
+  const isPreviewFocus = useMemo(
+    () => Boolean(shouldShowPreview && FLAGS.PREVIEW_FOCUS_ENABLED),
+    [shouldShowPreview]
+  );
+
+  // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
+  const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
+  const chatIsOverlay = isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned;
+
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
   const schemaLoading =
@@ -2323,6 +2337,7 @@ export default function ExactVirtualAssistantPM() {
 
       if (sessionCompleted) {
         emitGuidedCompletionTelemetry(nextState, { reason: reason || "guided-slot-update" });
+        endDocSession('submitted');
         resetGuidedRemoteSession();
       }
 
@@ -2331,6 +2346,7 @@ export default function ExactVirtualAssistantPM() {
     [
       appendAssistantMessage,
       emitGuidedCompletionTelemetry,
+      endDocSession,
       resetGuidedRemoteSession,
       scheduleChatPreviewSync,
     ],
@@ -2373,6 +2389,7 @@ export default function ExactVirtualAssistantPM() {
         }
 
         if (event.type === "close") {
+          endDocSession('cancelled');
           resetGuidedRemoteSession();
           return;
         }
@@ -2420,9 +2437,10 @@ export default function ExactVirtualAssistantPM() {
 
   useEffect(() => {
     return () => {
+      endDocSession('cleared');
       resetGuidedRemoteSession();
     };
-  }, [resetGuidedRemoteSession]);
+  }, [endDocSession, resetGuidedRemoteSession]);
 
   const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
@@ -3417,15 +3435,26 @@ const resolveDocTypeForManualSync = useCallback(
         if (intentOnlyExtractionEnabled) {
           const intent = detectCharterIntent(trimmed);
           if (intent) {
+            let startedIntentSession = false;
+            if (intent === 'create_charter' || intent === 'update_charter') {
+              startDocSession({ docType: 'charter', origin: 'intent' });
+              startedIntentSession = true;
+            }
             const latestVoice = Array.isArray(voiceTranscriptsRef.current)
               ? voiceTranscriptsRef.current
               : [];
-            await attemptIntentExtraction({
-              intent,
-              reason: source === "voice" ? "voice-intent" : "composer-intent",
-              messages: nextHistory,
-              voice: latestVoice,
-            });
+            try {
+              await attemptIntentExtraction({
+                intent,
+                reason: source === "voice" ? "voice-intent" : "composer-intent",
+                messages: nextHistory,
+                voice: latestVoice,
+              });
+            } finally {
+              if (startedIntentSession) {
+                endDocSession('submitted');
+              }
+            }
             return { status: "intent" };
           }
         } else {
@@ -3484,6 +3513,7 @@ const resolveDocTypeForManualSync = useCallback(
     const orchestrator = guidedOrchestratorRef.current;
 
     if (!REMOTE_GUIDED_BACKEND_ENABLED) {
+      startDocSession({ docType: 'charter', origin: 'wizard' });
       orchestrator?.start();
       return;
     }
@@ -3502,6 +3532,7 @@ const resolveDocTypeForManualSync = useCallback(
       processedGuidedEventIdsRef.current = new Set();
       hasPostedInitialPromptRef.current = false;
       setGuidedState(createInitialGuidedState());
+      startDocSession({ docType: 'charter', origin: 'wizard' });
 
       const startResponse = await startCharterSession(correlationId);
 
@@ -3986,13 +4017,35 @@ const resolveDocTypeForManualSync = useCallback(
       <main className="mx-auto max-w-7xl px-3 sm:px-4 py-4 md:py-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
-          <section className="lg:col-span-8">
+          <section
+            className={
+              chatIsOverlay
+                ? "fixed inset-x-0 bottom-0 h-[45vh] md:bottom-4 md:right-4 md:inset-x-auto md:w-[380px] md:h-[56vh] max-h-[70vh] z-50"
+                : (shouldShowPreview ? "lg:col-span-8" : "lg:col-span-12")
+            }
+            data-testid="chat-panel"
+            role={chatIsOverlay ? "complementary" : undefined}
+            aria-label={chatIsOverlay ? "Chat assistant" : undefined}
+          >
             <Panel
               title="Chat Assistant"
               right={
-                <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
-                  <IconPlus className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {isPreviewFocus && (
+                    <button
+                      type="button"
+                      aria-pressed={chatIsOverlay ? "true" : "false"}
+                      aria-label={chatIsOverlay ? "Dock chat" : "Pop out chat"}
+                      onClick={() => setChatOverlayPinned(v => !v)}
+                      className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
+                    >
+                      <span className="text-xs">{chatIsOverlay ? "Dock" : "Pop out"}</span>
+                    </button>
+                  )}
+                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                    <IconPlus className="h-4 w-4" />
+                  </button>
+                </div>
               }
             >
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
@@ -4149,7 +4202,11 @@ const resolveDocTypeForManualSync = useCallback(
           </section>
 
           {/* Right Preview */}
-          <aside className="lg:col-span-4">
+          {shouldShowPreview && (
+          <aside
+            className={chatIsOverlay ? "lg:col-span-12" : "lg:col-span-4"}
+            data-testid="preview-panel"
+          >
             <Panel
               title="Document preview"
               right={
@@ -4324,6 +4381,7 @@ const resolveDocTypeForManualSync = useCallback(
               </div>
             </Panel>
           </aside>
+          )}
         </div>
       </main>
 

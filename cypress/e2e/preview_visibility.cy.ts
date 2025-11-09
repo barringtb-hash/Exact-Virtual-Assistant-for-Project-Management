@@ -4,7 +4,7 @@ describe('Preview visibility', () => {
   });
 
   it('is hidden by default on initial load', () => {
-    cy.get('[data-testid="chat-root"]', { timeout: 10000 }).should('be.visible');
+    cy.get('[data-testid="chat-panel"]', { timeout: 10000 }).should('be.visible');
     cy.get('[data-testid="preview-panel"]').should('not.exist');
   });
 

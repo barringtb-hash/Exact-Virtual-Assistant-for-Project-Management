@@ -3298,18 +3298,26 @@ const resolveDocTypeForManualSync = useCallback(
         if (intentOnlyExtractionEnabled) {
           const intent = detectCharterIntent(trimmed);
           if (intent) {
+            let startedIntentSession = false;
             if (intent === 'create_charter' || intent === 'update_charter') {
               startDocSession({ docType: 'charter', origin: 'intent' });
+              startedIntentSession = true;
             }
             const latestVoice = Array.isArray(voiceTranscriptsRef.current)
               ? voiceTranscriptsRef.current
               : [];
-            await attemptIntentExtraction({
-              intent,
-              reason: source === "voice" ? "voice-intent" : "composer-intent",
-              messages: nextHistory,
-              voice: latestVoice,
-            });
+            try {
+              await attemptIntentExtraction({
+                intent,
+                reason: source === "voice" ? "voice-intent" : "composer-intent",
+                messages: nextHistory,
+                voice: latestVoice,
+              });
+            } finally {
+              if (startedIntentSession) {
+                endDocSession('submitted');
+              }
+            }
             return { status: "intent" };
           }
         } else {
@@ -3842,7 +3850,10 @@ const resolveDocTypeForManualSync = useCallback(
       <main className="mx-auto max-w-7xl px-3 sm:px-4 py-4 md:py-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
-          <section className={shouldShowPreview ? "lg:col-span-8" : "lg:col-span-12"}>
+          <section
+            className={shouldShowPreview ? "lg:col-span-8" : "lg:col-span-12"}
+            data-testid="chat-panel"
+          >
             <Panel
               title="Chat Assistant"
               right={

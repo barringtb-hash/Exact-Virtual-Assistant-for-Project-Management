@@ -601,6 +601,21 @@ function handleBack(): boolean {
     const candidate = field.id === "project_name" ? getTitleCandidate(raw) : "";
     const capturedValue = candidate || normalizedInput;
 
+    const shouldIgnoreExtraction = () => {
+      const latestState = state;
+      if (latestState.status !== "capturing") {
+        return true;
+      }
+      if (latestState.currentFieldId !== field.id) {
+        return true;
+      }
+      const latestFieldState = latestState.fields[field.id];
+      if (!latestFieldState) {
+        return true;
+      }
+      return latestFieldState.value !== capturedValue;
+    };
+
     dispatch({ type: "CAPTURE", fieldId: field.id, value: capturedValue });
 
     const fieldState = getCurrentFieldState(state);
@@ -650,6 +665,9 @@ function handleBack(): boolean {
       try {
         result = await runExtraction(request);
       } catch (error) {
+        if (shouldIgnoreExtraction()) {
+          return;
+        }
         const name = field.reviewLabel ?? field.label;
         dispatch({ type: "REJECT", fieldId: field.id, issues: [] });
         const fallback = error instanceof Error && error.message ? ` ${error.message}` : "";
@@ -657,6 +675,10 @@ function handleBack(): boolean {
           `I couldn’t validate ${name} because the extractor was unavailable.${fallback} Try again or type "skip".`,
         );
         clearPendingToolData();
+        return;
+      }
+
+      if (shouldIgnoreExtraction()) {
         return;
       }
 
@@ -677,6 +699,9 @@ function handleBack(): boolean {
       }
 
       const fieldValue = result.fields[field.id];
+      if (shouldIgnoreExtraction()) {
+        return;
+      }
       if (fieldValue == null) {
         const name = field.reviewLabel ?? field.label;
         dispatch({ type: "REJECT", fieldId: field.id, issues: [] });
@@ -689,6 +714,9 @@ function handleBack(): boolean {
 
       const normalizedValue = cloneValue(fieldValue) as FieldValue;
       const summary = formatFieldValue(normalizedValue);
+      if (shouldIgnoreExtraction()) {
+        return;
+      }
       if (!summary) {
         const name = field.reviewLabel ?? field.label;
         dispatch({ type: "REJECT", fieldId: field.id, issues: [] });

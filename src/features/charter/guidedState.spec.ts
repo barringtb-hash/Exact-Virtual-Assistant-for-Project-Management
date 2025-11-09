@@ -78,6 +78,10 @@ describe("guidedReducer", () => {
       order: ORDER,
       fields: expectedFields,
       waiting: { assistant: true, user: false, validation: false },
+      pendingFieldId: null,
+      pendingValue: null,
+      pendingWarnings: [],
+      awaitingConfirmation: false,
     };
 
     expect(state).toEqual(expectedState);
@@ -137,6 +141,10 @@ describe("guidedReducer", () => {
       order: ORDER,
       fields: expectedFields,
       waiting: { assistant: false, user: true, validation: false },
+      pendingFieldId: null,
+      pendingValue: null,
+      pendingWarnings: [],
+      awaitingConfirmation: false,
     };
 
     expect(state).toEqual(expectedState);
@@ -182,6 +190,10 @@ describe("guidedReducer", () => {
       order: ORDER,
       fields: expectedFields,
       waiting: { assistant: true, user: false, validation: false },
+      pendingFieldId: null,
+      pendingValue: null,
+      pendingWarnings: [],
+      awaitingConfirmation: false,
     };
 
     expect(state).toEqual(expectedState);
@@ -240,6 +252,10 @@ describe("guidedReducer", () => {
       order: ORDER,
       fields: expectedFields,
       waiting: { assistant: true, user: false, validation: false },
+      pendingFieldId: null,
+      pendingValue: null,
+      pendingWarnings: [],
+      awaitingConfirmation: false,
     };
 
     expect(state).toEqual(expectedState);
@@ -298,6 +314,10 @@ describe("guidedReducer", () => {
       order: ORDER,
       fields: expectedFields,
       waiting: { assistant: false, user: true, validation: false },
+      pendingFieldId: null,
+      pendingValue: null,
+      pendingWarnings: [],
+      awaitingConfirmation: false,
     };
 
     expect(state).toEqual(expectedState);

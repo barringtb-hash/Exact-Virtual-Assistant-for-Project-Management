@@ -1136,10 +1136,6 @@ export default function ExactVirtualAssistantPM() {
             }
             const normalized = {
               text,
-            } as {
-              id?: string;
-              text: string;
-              timestamp?: number;
             };
             if (entry?.id) {
               normalized.id = entry.id;
@@ -1163,7 +1159,7 @@ export default function ExactVirtualAssistantPM() {
         ? request.requestedFieldIds
         : [],
       messages: Array.isArray(request?.messages) ? request.messages : [],
-    } as Record<string, unknown>;
+    };
 
     if (request?.seed !== undefined) {
       payload.seed = request.seed;

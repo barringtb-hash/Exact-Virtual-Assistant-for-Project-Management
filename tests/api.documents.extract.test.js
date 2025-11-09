@@ -29,6 +29,217 @@ async function withIntentFlag(value, run) {
   }
 }
 
+test("/api/documents/extract routes guided charter requests through the extraction tool", async () => {
+  const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+
+  const toolCalls = [];
+  const previousOverrides = globalThis.__charterExtractionOverrides__;
+  globalThis.__charterExtractionOverrides__ = {
+    extractFieldsFromUtterance: async (request) => {
+      toolCalls.push(request);
+      return {
+        ok: true,
+        fields: { project_title: "Phoenix Initiative" },
+        warnings: [
+          {
+            code: "validation_failed",
+            message: "Scope might need clarification.",
+            level: "warning",
+            fieldId: "project_scope",
+          },
+        ],
+        rawToolArguments: {},
+      };
+    },
+  };
+
+  await withIntentFlag("true", async () => {
+    await withStubbedReadFile(
+      fs,
+      async () => {
+        throw new Error("prompt assets should not load for guided extraction");
+      },
+      async () => {
+        await extractHandler(
+          {
+            method: "POST",
+            query: { docType: "charter" },
+            body: {
+              guided: true,
+              docType: "charter",
+              requestedFieldIds: [
+                "project_title",
+                "project_scope",
+                "project_title",
+              ],
+              attachments: [
+                {
+                  name: "  Summary  ",
+                  text: "  Project overview for stakeholders.  ",
+                  mimeType: " text/plain ",
+                },
+                { text: "" },
+              ],
+              voice: [
+                {
+                  text: "  spoken context about launch  ",
+                  timestamp: 1_700_000_000_000,
+                  id: " voice-1 ",
+                },
+              ],
+              messages: [
+                { role: "assistant", content: "Previous summary." },
+                {
+                  role: "user",
+                  text: "Project title is Phoenix Initiative with scope defined.",
+                },
+              ],
+              seed: { existing: { value: "keep" } },
+              intent: "create_charter",
+              docTypeDetection: { type: "charter", confidence: 0.91 },
+            },
+          },
+          res
+        );
+      }
+    );
+  });
+
+  if (previousOverrides === undefined) {
+    delete globalThis.__charterExtractionOverrides__;
+  } else {
+    globalThis.__charterExtractionOverrides__ = previousOverrides;
+  }
+  globalThis.__analyticsHook__ = originalHook;
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    status: "ok",
+    fields: { project_title: "Phoenix Initiative" },
+    warnings: [
+      {
+        code: "validation_failed",
+        message: "Scope might need clarification.",
+        level: "warning",
+        fieldId: "project_scope",
+      },
+    ],
+  });
+
+  assert.equal(toolCalls.length, 1);
+  const toolPayload = toolCalls[0];
+  assert.deepEqual(toolPayload.requestedFieldIds, [
+    "project_title",
+    "project_scope",
+  ]);
+  assert.deepEqual(toolPayload.messages, [
+    { role: "assistant", content: "Previous summary." },
+    {
+      role: "user",
+      content: "Project title is Phoenix Initiative with scope defined.",
+    },
+  ]);
+  assert.deepEqual(toolPayload.attachments, [
+    {
+      name: "Summary",
+      text: "Project overview for stakeholders.",
+      mimeType: "text/plain",
+    },
+  ]);
+  assert.deepEqual(toolPayload.voice, [
+    {
+      id: "voice-1",
+      text: "spoken context about launch",
+      timestamp: 1_700_000_000_000,
+    },
+  ]);
+  assert.deepEqual(toolPayload.seed, { existing: { value: "keep" } });
+
+  const expectedHash = computeDocumentHash(res.body);
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
+  assert(auditEvent, "expected audit event for guided extraction");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.finalType, "charter");
+});
+
+test("/api/documents/extract surfaces charter tool errors for guided requests", async () => {
+  const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+
+  const previousOverrides = globalThis.__charterExtractionOverrides__;
+  globalThis.__charterExtractionOverrides__ = {
+    extractFieldsFromUtterance: async () => ({
+      ok: false,
+      error: {
+        code: "missing_required",
+        message: "The project title is required.",
+        fields: ["project_title"],
+      },
+      warnings: [],
+      fields: {},
+      rawToolArguments: null,
+    }),
+  };
+
+  await withIntentFlag("true", async () => {
+    await withStubbedReadFile(
+      fs,
+      async () => {
+        throw new Error("prompt assets should not load for guided extraction");
+      },
+      async () => {
+        await extractHandler(
+          {
+            method: "POST",
+            query: { docType: "charter" },
+            body: {
+              guided: true,
+              docType: "charter",
+              requestedFieldIds: ["project_title"],
+              messages: [
+                {
+                  role: "user",
+                  text: "Need to confirm the charter title and scope for Phoenix.",
+                },
+              ],
+              intent: "create_charter",
+            },
+          },
+          res
+        );
+      }
+    );
+  });
+
+  if (previousOverrides === undefined) {
+    delete globalThis.__charterExtractionOverrides__;
+  } else {
+    globalThis.__charterExtractionOverrides__ = previousOverrides;
+  }
+  globalThis.__analyticsHook__ = originalHook;
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body?.status, "error");
+  assert.equal(res.body?.error?.code, "missing_required");
+  assert.deepEqual(res.body?.fields, {});
+  assert(!("warnings" in (res.body || {})), "warnings should be omitted when empty");
+
+  const expectedHash = computeDocumentHash(res.body);
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
+  assert(auditEvent, "expected audit event for guided error");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.finalType, "charter");
+});
+
 test("/api/documents/extract returns charter payload and records audit metadata", async () => {
   const promptCalls = [];
   const res = createMockResponse();

@@ -4,9 +4,9 @@ import {
   type CharterField,
   type CharterFieldChild,
   type CharterFieldId,
-} from "../../src/features/charter/schema";
-import { type CharterDTOValue } from "../../src/features/charter/persist";
-import { validateField } from "../../src/features/charter/validate";
+} from "../../src/features/charter/schema.ts";
+import { type CharterDTOValue } from "../../src/features/charter/persist.ts";
+import { validateField } from "../../src/features/charter/validate.ts";
 import {
   normalizeObjectEntries,
   normalizeStringList,

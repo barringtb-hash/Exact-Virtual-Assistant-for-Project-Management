@@ -226,7 +226,10 @@ function manifestItemRequiresSchema(item) {
 const noop = () => {};
 
 function FieldMetaTags({ source, updatedAt }) {
-  if (!source && !updatedAt) return null;
+  // Hide timestamps if the readability flag is enabled
+  const shouldShowTimestamp = !FLAGS.READABILITY_HIDE_FIELD_TIMESTAMPS;
+
+  if (!source && (!shouldShowTimestamp || !updatedAt)) return null;
 
   const normalizedSource = (() => {
     if (typeof source !== "string") return "";
@@ -260,7 +263,7 @@ function FieldMetaTags({ source, updatedAt }) {
           {normalizedSource}
         </span>
       ) : null}
-      {relative ? (
+      {shouldShowTimestamp && relative ? (
         <span className="inline-flex items-center rounded-full bg-slate-200/40 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-700/40 dark:text-slate-300">
           {relative}
         </span>
@@ -282,6 +285,10 @@ function FieldHeader({ label, locked, description, meta, highlighted = false }) 
   const source = meta?.source;
   const updatedAt = meta?.updatedAt;
 
+  const labelClass = FLAGS.READABILITY_V1
+    ? "text-sm font-medium text-gray-700 dark:text-gray-200"
+    : "font-medium text-slate-600 dark:text-slate-200";
+
   return (
     <div
       className={`mb-1 text-xs text-slate-500 transition-colors dark:text-slate-400 ${
@@ -289,7 +296,7 @@ function FieldHeader({ label, locked, description, meta, highlighted = false }) 
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-slate-600 dark:text-slate-200">{label}</span>
+        <span className={labelClass}>{label}</span>
         <div className="flex items-center gap-2">
           {description ? <span className="text-[11px] text-slate-400 dark:text-slate-500">{description}</span> : null}
           <LockBadge locked={locked} />
@@ -316,8 +323,9 @@ function ScalarInput({
   highlighted = false,
   dataTestId,
 }) {
-  const baseClass =
-    "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
+  const baseClass = FLAGS.READABILITY_V1
+    ? "w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-800 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+    : "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
   const highlightClasses = highlighted
     ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
     : "";
@@ -368,6 +376,9 @@ function StringArrayEditor({
 }) {
   const safeItems = Array.isArray(items) ? items : [];
   const highlightPath = typeof isHighlighted === "function" ? isHighlighted(path) : false;
+  const baseInputClass = FLAGS.READABILITY_V1
+    ? "flex-1 rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-800 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+    : "flex-1 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
   const highlightInputClasses = (highlighted) =>
     highlighted
       ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
@@ -402,7 +413,7 @@ function StringArrayEditor({
                   onLock(itemPath);
                   onLock(path);
                 }}
-                className={`flex-1 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
+                className={`${baseInputClass}${highlightInputClasses(
                   itemHighlighted
                 )}`}
               />
@@ -457,6 +468,9 @@ function ObjectArrayEditor({
   isHighlighted = () => false,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
+  const baseInputClass = FLAGS.READABILITY_V1
+    ? "w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-800 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+    : "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
   const highlightInputClasses = (highlighted) =>
     highlighted
       ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
@@ -517,7 +531,7 @@ function ObjectArrayEditor({
                           onLock(fieldPath);
                           onLock(basePath);
                         }}
-                        className={`w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
+                        className={`${baseInputClass}${highlightInputClasses(
                           fieldHighlighted
                         )}`}
                       />
@@ -1083,19 +1097,29 @@ export default function PreviewEditable({
         const heading =
           section.title ??
           (sectionIndex === 0 ? displayDocLabel : null);
+
+        const sectionContentClass = FLAGS.READABILITY_V1
+          ? "space-y-4"
+          : "space-y-3";
+        const sectionWrapperClass = FLAGS.READABILITY_V1
+          ? "rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/40"
+          : "";
+
         return (
-          <section key={key} className="space-y-3">
-            {heading ? (
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
-                {heading}
-              </h3>
-            ) : null}
-            {section.description ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {section.description}
-              </p>
-            ) : null}
-            {children}
+          <section key={key} className={sectionWrapperClass}>
+            <div className={sectionContentClass}>
+              {heading ? (
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+                  {heading}
+                </h3>
+              ) : null}
+              {section.description ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {section.description}
+                </p>
+              ) : null}
+              {children}
+            </div>
           </section>
         );
       })
@@ -1105,7 +1129,8 @@ export default function PreviewEditable({
       return null;
     }
 
-    return <div className="space-y-6">{sectionElements}</div>;
+    const containerGap = FLAGS.READABILITY_V1 ? "space-y-4" : "space-y-6";
+    return <div className={containerGap}>{sectionElements}</div>;
   };
 
   const renderStructuredPreviewUnavailable = (headline) => (

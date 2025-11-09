@@ -3,6 +3,7 @@ import AssistantFeedbackTemplate, {
   useAssistantFeedbackSections,
 } from "./components/AssistantFeedbackTemplate";
 import Composer from "./components/Composer";
+import CompactComposer from "./components/CompactComposer";
 import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
@@ -493,6 +494,16 @@ const IconAlert = (props) => (
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
     <path d="M12 9v4" />
     <path d="M12 17h.01" />
+  </svg>
+);
+const IconMinimize = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+  </svg>
+);
+const IconExpand = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
   </svg>
 );
 
@@ -1300,6 +1311,7 @@ export default function ExactVirtualAssistantPM() {
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [manualExtractionTrigger, setManualExtractionTrigger] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [isChatDocked, setIsChatDocked] = useState(false);
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -3547,6 +3559,14 @@ const resolveDocTypeForManualSync = useCallback(
     await submitChatTurn(text, { source: "composer" });
   };
 
+  const handleCompactComposerSubmit = async (text) => {
+    if (!text.trim()) return;
+    if (isAssistantThinking || isAssistantStreaming) return;
+    // Auto-expand chat when a message is sent from compact composer
+    setIsChatDocked(false);
+    await submitChatTurn(text.trim(), { source: "compact-composer" });
+  };
+
   const processPickedFiles = useCallback(
     async (list) => {
       if (!list || !list.length) return;
@@ -3856,12 +3876,25 @@ const resolveDocTypeForManualSync = useCallback(
           >
             <Panel
               title="Chat Assistant"
+              docked={isChatDocked}
+              expanded={!isChatDocked}
               right={
-                <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
-                  <IconPlus className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsChatDocked(!isChatDocked)}
+                    className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
+                    aria-label={isChatDocked ? "Expand chat" : "Minimize chat"}
+                    data-testid="chat-dock-toggle"
+                  >
+                    {isChatDocked ? <IconExpand className="h-4 w-4" /> : <IconMinimize className="h-4 w-4" />}
+                  </button>
+                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                    <IconPlus className="h-4 w-4" />
+                  </button>
+                </div>
               }
             >
+              {!isChatDocked && (
               <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {visibleMessages.map((m) => (
@@ -4012,12 +4045,18 @@ const resolveDocTypeForManualSync = useCallback(
                   )}
                 </div>
               </div>
+              )}
+              {isChatDocked && (
+                <div className="text-sm text-gray-500 dark:text-gray-400 py-2">
+                  Chat minimized. Use the compact composer below to send messages.
+                </div>
+              )}
             </Panel>
           </section>
 
           {/* Right Preview */}
           {shouldShowPreview && (
-          <aside className="lg:col-span-4">
+          <aside className={`lg:col-span-4 transition-colors ${!isChatDocked ? 'bg-gray-50/50 dark:bg-gray-900/20 rounded-2xl' : ''}`}>
             <Panel
               title="Document preview"
               right={
@@ -4196,6 +4235,17 @@ const resolveDocTypeForManualSync = useCallback(
         </div>
       </main>
 
+      {/* Compact Composer - shown when chat is docked */}
+      {isChatDocked && (
+        <CompactComposer
+          onSubmit={handleCompactComposerSubmit}
+          onMicStart={!realtimeEnabled ? startRecording : undefined}
+          onMicStop={!realtimeEnabled ? stopRecording : undefined}
+          isRecording={listening}
+          disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
+        />
+      )}
+
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Phase 1 • Minimal viable UI • No data is saved</footer>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
@@ -4271,9 +4321,16 @@ function ToastStack({ toasts, onDismiss }) {
   );
 }
 
-function Panel({ title, icon, right, children }) {
+function Panel({ title, icon, right, children, docked = false, expanded = false }) {
+  // Use solid styles when docked, translucent when normal
+  const containerClasses = docked
+    ? "rounded-2xl border border-gray-300 bg-white shadow-xl p-3 md:p-4 dark:border-gray-600 dark:bg-gray-800 z-20"
+    : expanded
+    ? "rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40 outline outline-2 outline-indigo-200 dark:outline-indigo-700/40"
+    : "rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40";
+
   return (
-    <div className="rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40">
+    <div className={containerClasses} aria-expanded={expanded}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
@@ -4336,12 +4393,12 @@ function ChatBubble({ role, text, hideEmptySections }) {
     Array.isArray(sections) &&
     (hasStructuredContent || hideEmptySections === false);
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
+    <div className={`eva-chat-message flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
       <div
-        className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
+        className={`max-w-[85%] rounded-2xl px-3 py-2 text-base leading-6 shadow-sm border ${
           isUser
-            ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-            : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
+            ? 'bg-gray-900 text-white border-gray-900 dark:bg-indigo-500 dark:border-indigo-400'
+            : 'bg-gray-100 border-gray-300 text-gray-700 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
         }`}
       >
         {isUser || !showStructured ? (

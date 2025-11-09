@@ -70,6 +70,10 @@ ol.assistant-feedback-list {
   outline-offset: 2px;
 }
 
+.eva-chat-message {
+  margin-bottom: 1rem;
+}
+
 .eva-chat-message-error {
   margin-top: 0.5rem;
   display: flex;

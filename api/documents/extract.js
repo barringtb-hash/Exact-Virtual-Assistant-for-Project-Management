@@ -655,7 +655,9 @@ export default async function handler(req, res) {
         auditStatus = "confirmed";
       } else {
         const confirmationError = guidedConfirmation.error || null;
-        const errorStatus = mapExtractionErrorToStatus(confirmationError?.code);
+        const errorStatus = confirmationError?.code
+          ? mapExtractionErrorToStatus(confirmationError.code)
+          : 409;
         statusCode = errorStatus >= 400 ? errorStatus : 409;
         payload = {
           status: "error",

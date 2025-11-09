@@ -829,6 +829,7 @@ export default function ExactVirtualAssistantPM() {
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
   const [guidedState, setGuidedState] = useState(null);
+  const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Cypress) {
@@ -848,6 +849,7 @@ export default function ExactVirtualAssistantPM() {
   const processedGuidedEventIdsRef = useRef(new Set());
   const hasPostedInitialPromptRef = useRef(false);
   const guidedStateRef = useRef(null);
+  const guidedPendingRef = useRef(null);
   const guidedSlotMapRef = useRef(new Map());
   const guidedVoiceEnabledRef = useRef(false);
   const guidedConversationIdRef = useRef(null);
@@ -856,6 +858,9 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     guidedStateRef.current = guidedState;
   }, [guidedState]);
+  useEffect(() => {
+    guidedPendingRef.current = guidedPendingProposal;
+  }, [guidedPendingProposal]);
   useEffect(() => {
     guidedConversationIdRef.current = guidedConversationId;
   }, [guidedConversationId]);
@@ -1104,6 +1109,99 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
+
+  const resolveGuidedExtractionContext = useCallback(() => {
+    const attachmentEntries = Array.isArray(attachmentsRef.current)
+      ? attachmentsRef.current
+          .map((item) => {
+            const text = typeof item?.text === "string" ? item.text.trim() : "";
+            if (!text) {
+              return null;
+            }
+            return {
+              name: typeof item?.name === "string" ? item.name : undefined,
+              mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
+              text,
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    const voiceEntries = Array.isArray(voiceTranscriptsRef.current)
+      ? voiceTranscriptsRef.current
+          .map((entry) => {
+            const text = typeof entry?.text === "string" ? entry.text.trim() : "";
+            if (!text) {
+              return null;
+            }
+            const normalized = {
+              text,
+            } as {
+              id?: string;
+              text: string;
+              timestamp?: number;
+            };
+            if (entry?.id) {
+              normalized.id = entry.id;
+            }
+            if (typeof entry?.timestamp === "number" && !Number.isNaN(entry.timestamp)) {
+              normalized.timestamp = entry.timestamp;
+            }
+            return normalized;
+          })
+          .filter(Boolean)
+      : [];
+
+    return { attachments: attachmentEntries, voice: voiceEntries };
+  }, []);
+
+  const runGuidedExtraction = useCallback(async (request) => {
+    const payload = {
+      guided: true,
+      docType: "charter",
+      requestedFieldIds: Array.isArray(request?.requestedFieldIds)
+        ? request.requestedFieldIds
+        : [],
+      messages: Array.isArray(request?.messages) ? request.messages : [],
+    } as Record<string, unknown>;
+
+    if (request?.seed !== undefined) {
+      payload.seed = request.seed;
+    }
+    if (Array.isArray(request?.attachments) && request.attachments.length > 0) {
+      payload.attachments = request.attachments;
+    }
+    if (Array.isArray(request?.voice) && request.voice.length > 0) {
+      payload.voice = request.voice;
+    }
+
+    const response = await docApi("extract", payload);
+    if (!response || typeof response !== "object") {
+      throw new Error("Invalid extractor response");
+    }
+
+    const warnings = Array.isArray(response.warnings) ? response.warnings : [];
+    if (response.status === "ok") {
+      return {
+        ok: true,
+        fields: response.fields || {},
+        warnings,
+        rawToolArguments: null,
+      };
+    }
+
+    if (response.status === "error") {
+      return {
+        ok: false,
+        error: response.error || null,
+        warnings,
+        fields: response.fields || {},
+        rawToolArguments: null,
+      };
+    }
+
+    throw new Error(`Unsupported extractor status: ${response.status}`);
+  }, []);
   const initialDraftValue = initialDraftRef.current;
   useEffect(() => {
     if (chatHydratedRef.current) {
@@ -1820,6 +1918,9 @@ export default function ExactVirtualAssistantPM() {
         postAssistantMessage: appendAssistantMessage,
         onStateChange: setGuidedState,
         onActiveChange: setGuidedAutoExtractionDisabled,
+        onPendingChange: setGuidedPendingProposal,
+        extractFieldsFromUtterance: runGuidedExtraction,
+        getExtractionContext: resolveGuidedExtractionContext,
       });
     }
 
@@ -1839,7 +1940,13 @@ export default function ExactVirtualAssistantPM() {
 
     setGuidedState(orchestrator.getState());
     setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
-  }, [appendAssistantMessage, guidedConversationId, isGuidedChatEnabled]);
+  }, [
+    appendAssistantMessage,
+    guidedConversationId,
+    isGuidedChatEnabled,
+    resolveGuidedExtractionContext,
+    runGuidedExtraction,
+  ]);
 
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {

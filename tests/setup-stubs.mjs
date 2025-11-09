@@ -1,27 +1,7 @@
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stubRoot = path.join(__dirname, "_stubs", "packages");
-const nodeModulesRoot = path.join(process.cwd(), "node_modules");
-
-const stubPackages = [
-  "pizzip",
-  "docxtemplater",
-  "pdfmake",
-  "ajv",
-  "ajv-formats",
-  "openai",
-];
-
-await fs.mkdir(nodeModulesRoot, { recursive: true });
-
-for (const pkg of stubPackages) {
-  const parts = pkg.split("/");
-  const source = path.join(stubRoot, ...parts);
-  const target = path.join(nodeModulesRoot, ...parts);
-
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.cp(source, target, { recursive: true, force: true });
-}
+// Test bootstrap placeholder.
+// We intentionally do not mutate node_modules here.
+// Stubs are injected via the custom ESM loader (tests/jsx-loader.mjs).
+// If you must manipulate files, always guard with exists and catch errors.
+// Example pattern:
+// import { access } from 'node:fs/promises';
+// try { await access(somePath) /* ok */ } catch { /* not present: skip */ }

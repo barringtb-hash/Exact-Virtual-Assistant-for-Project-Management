@@ -2,8 +2,8 @@ import React, { useState } from "react";
 
 interface CompactComposerProps {
   onSubmit: (text: string) => void;
-  onMicStart: () => void;
-  onMicStop: () => void;
+  onMicStart?: () => void;
+  onMicStop?: () => void;
   isRecording?: boolean;
   disabled?: boolean;
 }
@@ -42,12 +42,16 @@ export default function CompactComposer({
 
   const handleMicClick = () => {
     if (disabled) return;
+    // Defensive check: only call handlers if they exist
     if (isRecording) {
-      onMicStop();
+      onMicStop?.();
     } else {
-      onMicStart();
+      onMicStart?.();
     }
   };
+
+  // Determine if mic button should be available
+  const micAvailable = onMicStart !== undefined && onMicStop !== undefined;
 
   return (
     <div className="fixed right-6 bottom-6 z-30 flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2 shadow-lg dark:border-gray-600 dark:bg-gray-800">
@@ -62,21 +66,23 @@ export default function CompactComposer({
         aria-label="Send message to EVA"
         data-testid="compact-composer-input"
       />
-      <button
-        type="button"
-        onClick={handleMicClick}
-        disabled={disabled}
-        aria-pressed={isRecording}
-        aria-label={isRecording ? "Stop recording" : "Start voice recording"}
-        className={`p-2 rounded-full transition-colors ${
-          isRecording
-            ? "bg-red-500 text-white hover:bg-red-600"
-            : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
-        data-testid="compact-composer-mic"
-      >
-        <IconMic className="h-4 w-4" />
-      </button>
+      {micAvailable && (
+        <button
+          type="button"
+          onClick={handleMicClick}
+          disabled={disabled}
+          aria-pressed={isRecording}
+          aria-label={isRecording ? "Stop recording" : "Start voice recording"}
+          className={`p-2 rounded-full transition-colors ${
+            isRecording
+              ? "bg-red-500 text-white hover:bg-red-600"
+              : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          data-testid="compact-composer-mic"
+        >
+          <IconMic className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

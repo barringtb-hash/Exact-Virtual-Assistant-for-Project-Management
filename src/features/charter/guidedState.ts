@@ -551,6 +551,7 @@ export function guidedReducer(
         next.status = "confirming";
         next.waiting = { assistant: false, user: true, validation: false };
       } else {
+        next.status = "asking";
         next.waiting = { assistant: true, user: false, validation: false };
       }
       return next;

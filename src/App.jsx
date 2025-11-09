@@ -24,6 +24,7 @@ import {
   isIntentOnlyExtractionEnabled,
 } from "../config/featureFlags.js";
 import { FLAGS } from "./config/flags.ts";
+import { useDocSession } from "./state/docSession";
 import {
   useDraftStore as useLegacyDraftStore,
   recordDraftMetadata,
@@ -818,6 +819,7 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+  const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
 
   useEffect(() => {
@@ -1229,6 +1231,7 @@ export default function ExactVirtualAssistantPM() {
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
   const hasPreviewDocType = Boolean(previewDocType);
+  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive;
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
   const schemaLoading =
@@ -2125,6 +2128,7 @@ export default function ExactVirtualAssistantPM() {
 
       if (sessionCompleted) {
         emitGuidedCompletionTelemetry(nextState, { reason: reason || "guided-slot-update" });
+        endDocSession('submitted');
         resetGuidedRemoteSession();
       }
 
@@ -2133,6 +2137,7 @@ export default function ExactVirtualAssistantPM() {
     [
       appendAssistantMessage,
       emitGuidedCompletionTelemetry,
+      endDocSession,
       resetGuidedRemoteSession,
       scheduleChatPreviewSync,
     ],
@@ -2175,6 +2180,7 @@ export default function ExactVirtualAssistantPM() {
         }
 
         if (event.type === "close") {
+          endDocSession('cancelled');
           resetGuidedRemoteSession();
           return;
         }
@@ -2222,9 +2228,10 @@ export default function ExactVirtualAssistantPM() {
 
   useEffect(() => {
     return () => {
+      endDocSession('cleared');
       resetGuidedRemoteSession();
     };
-  }, [resetGuidedRemoteSession]);
+  }, [endDocSession, resetGuidedRemoteSession]);
 
   const appendUserMessageToChat = useCallback((text) => {
     const safeText = typeof text === "string" ? text.trim() : "";
@@ -3291,6 +3298,9 @@ const resolveDocTypeForManualSync = useCallback(
         if (intentOnlyExtractionEnabled) {
           const intent = detectCharterIntent(trimmed);
           if (intent) {
+            if (intent === 'create_charter' || intent === 'update_charter') {
+              startDocSession({ docType: 'charter', origin: 'intent' });
+            }
             const latestVoice = Array.isArray(voiceTranscriptsRef.current)
               ? voiceTranscriptsRef.current
               : [];
@@ -3358,6 +3368,7 @@ const resolveDocTypeForManualSync = useCallback(
     const orchestrator = guidedOrchestratorRef.current;
 
     if (!REMOTE_GUIDED_BACKEND_ENABLED) {
+      startDocSession({ docType: 'charter', origin: 'wizard' });
       orchestrator?.start();
       return;
     }
@@ -3376,6 +3387,7 @@ const resolveDocTypeForManualSync = useCallback(
       processedGuidedEventIdsRef.current = new Set();
       hasPostedInitialPromptRef.current = false;
       setGuidedState(createInitialGuidedState());
+      startDocSession({ docType: 'charter', origin: 'wizard' });
 
       const startResponse = await startCharterSession(correlationId);
 
@@ -3830,7 +3842,7 @@ const resolveDocTypeForManualSync = useCallback(
       <main className="mx-auto max-w-7xl px-3 sm:px-4 py-4 md:py-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
-          <section className="lg:col-span-8">
+          <section className={shouldShowPreview ? "lg:col-span-8" : "lg:col-span-12"}>
             <Panel
               title="Chat Assistant"
               right={
@@ -3993,6 +4005,7 @@ const resolveDocTypeForManualSync = useCallback(
           </section>
 
           {/* Right Preview */}
+          {shouldShowPreview && (
           <aside className="lg:col-span-4">
             <Panel
               title="Document preview"
@@ -4168,6 +4181,7 @@ const resolveDocTypeForManualSync = useCallback(
               </div>
             </Panel>
           </aside>
+          )}
         </div>
       </main>
 

@@ -282,20 +282,33 @@ function FieldHeader({ label, locked, description, meta, highlighted = false }) 
   const source = meta?.source;
   const updatedAt = meta?.updatedAt;
 
-  return (
-    <div
-      className={`mb-1 text-xs text-slate-500 transition-colors dark:text-slate-400 ${
+  // Conditionally apply readability v1 styles
+  const containerClasses = FLAGS.READABILITY_V1
+    ? `mb-2 text-sm text-gray-600 transition-colors dark:text-gray-300 ${
         highlighted ? "rounded-lg bg-sky-50/80 px-2 py-1 dark:bg-sky-900/30" : ""
-      }`}
-    >
+      }`
+    : `mb-1 text-xs text-slate-500 transition-colors dark:text-slate-400 ${
+        highlighted ? "rounded-lg bg-sky-50/80 px-2 py-1 dark:bg-sky-900/30" : ""
+      }`;
+
+  const labelClasses = FLAGS.READABILITY_V1
+    ? "font-medium text-gray-700 dark:text-gray-200"
+    : "font-medium text-slate-600 dark:text-slate-200";
+
+  const descriptionClasses = FLAGS.READABILITY_V1
+    ? "text-xs text-gray-500 dark:text-gray-400"
+    : "text-[11px] text-slate-400 dark:text-slate-500";
+
+  return (
+    <div className={containerClasses}>
       <div className="flex items-center justify-between">
-        <span className="font-medium text-slate-600 dark:text-slate-200">{label}</span>
+        <span className={labelClasses}>{label}</span>
         <div className="flex items-center gap-2">
-          {description ? <span className="text-[11px] text-slate-400 dark:text-slate-500">{description}</span> : null}
+          {description ? <span className={descriptionClasses}>{description}</span> : null}
           <LockBadge locked={locked} />
         </div>
       </div>
-      <FieldMetaTags source={source} updatedAt={updatedAt} />
+      {FLAGS.READABILITY_HIDE_FIELD_TIMESTAMPS ? null : <FieldMetaTags source={source} updatedAt={updatedAt} />}
     </div>
   );
 }
@@ -316,8 +329,9 @@ function ScalarInput({
   highlighted = false,
   dataTestId,
 }) {
-  const baseClass =
-    "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
+  const baseClass = FLAGS.READABILITY_V1
+    ? "w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+    : "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
   const highlightClasses = highlighted
     ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
     : "";
@@ -382,7 +396,7 @@ function StringArrayEditor({
         description={description}
         highlighted={highlightPath}
       />
-      <div className="space-y-2">
+      <div className={FLAGS.READABILITY_V1 ? "space-y-3" : "space-y-2"}>
         {safeItems.map((item, index) => {
           const itemPath = `${path}.${index}`;
           const currentMeta = itemMeta?.[itemPath];
@@ -402,9 +416,10 @@ function StringArrayEditor({
                   onLock(itemPath);
                   onLock(path);
                 }}
-                className={`flex-1 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
-                  itemHighlighted
-                )}`}
+                className={`flex-1 ${FLAGS.READABILITY_V1
+                  ? "rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+                  : "rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
+                }${highlightInputClasses(itemHighlighted)}`}
               />
               <button
                 type="button"
@@ -414,7 +429,10 @@ function StringArrayEditor({
                   onLock(path);
                 }}
                 disabled={disabled}
-                className="rounded-xl border border-white/60 px-2 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                className={FLAGS.READABILITY_V1
+                  ? "rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  : "rounded-xl border border-white/60 px-2 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                }
               >
                 Remove
               </button>
@@ -432,7 +450,10 @@ function StringArrayEditor({
             onLock(path);
           }}
           disabled={disabled}
-          className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
+          className={FLAGS.READABILITY_V1
+            ? "rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            : "rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
+          }
         >
           {addLabel}
         </button>
@@ -481,13 +502,15 @@ function ObjectArrayEditor({
           return (
             <div
               key={basePath}
-              className={`rounded-xl border p-3 transition-colors ${
+              className={`${FLAGS.READABILITY_V1 ? "rounded-lg" : "rounded-xl"} border p-3 transition-colors ${
                 baseHighlighted
                   ? "border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.25)] dark:border-sky-500/70 dark:bg-sky-900/40"
-                  : "border-white/70 bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/50"
+                  : FLAGS.READABILITY_V1
+                    ? "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/50"
+                    : "border-white/70 bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/50"
               }`}
             >
-              <div className="space-y-2">
+              <div className={FLAGS.READABILITY_V1 ? "space-y-3" : "space-y-2"}>
                 {fields.map((field) => {
                   const fieldPath = `${basePath}.${field.key}`;
                   const currentMeta = fieldMeta?.[fieldPath];
@@ -517,9 +540,10 @@ function ObjectArrayEditor({
                           onLock(fieldPath);
                           onLock(basePath);
                         }}
-                        className={`w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500${highlightInputClasses(
-                          fieldHighlighted
-                        )}`}
+                        className={`w-full ${FLAGS.READABILITY_V1
+                          ? "rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
+                          : "rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
+                        }${highlightInputClasses(fieldHighlighted)}`}
                       />
                     </label>
                   );
@@ -540,7 +564,10 @@ function ObjectArrayEditor({
                     onLock(path);
                   }}
                   disabled={disabled}
-                  className="rounded-xl border border-white/60 px-3 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                  className={FLAGS.READABILITY_V1
+                    ? "rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                    : "rounded-xl border border-white/60 px-3 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                  }
                 >
                   Remove
                 </button>
@@ -560,7 +587,10 @@ function ObjectArrayEditor({
           onLock(path);
         }}
         disabled={disabled}
-        className="mt-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
+        className={FLAGS.READABILITY_V1
+          ? "mt-2 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          : "mt-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
+        }
       >
         {addLabel}
       </button>
@@ -1024,7 +1054,7 @@ export default function PreviewEditable({
         return (
           <div
             key={keyPrefix || `row-${columnCount}`}
-            className={`grid grid-cols-1 gap-3 ${responsiveClass}`}
+            className={`grid grid-cols-1 ${FLAGS.READABILITY_V1 ? "gap-4" : "gap-3"} ${responsiveClass}`}
           >
             {columnElements}
           </div>
@@ -1083,15 +1113,27 @@ export default function PreviewEditable({
         const heading =
           section.title ??
           (sectionIndex === 0 ? displayDocLabel : null);
+        const sectionClasses = FLAGS.READABILITY_V1
+          ? "space-y-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/40"
+          : "space-y-3";
+
+        const headingClasses = FLAGS.READABILITY_V1
+          ? "text-sm font-semibold text-gray-700 dark:text-gray-100"
+          : "text-sm font-semibold text-slate-700 dark:text-slate-100";
+
+        const descriptionClasses = FLAGS.READABILITY_V1
+          ? "text-xs text-gray-500 dark:text-gray-400"
+          : "text-xs text-slate-500 dark:text-slate-400";
+
         return (
-          <section key={key} className="space-y-3">
+          <section key={key} className={sectionClasses}>
             {heading ? (
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+              <h3 className={headingClasses}>
                 {heading}
               </h3>
             ) : null}
             {section.description ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className={descriptionClasses}>
                 {section.description}
               </p>
             ) : null}

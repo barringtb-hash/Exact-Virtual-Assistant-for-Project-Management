@@ -45,14 +45,7 @@ test("/api/documents/extract routes guided charter requests through the extracti
       return {
         ok: true,
         fields: { project_title: "Phoenix Initiative" },
-        warnings: [
-          {
-            code: "validation_failed",
-            message: "Scope might need clarification.",
-            level: "warning",
-            fieldId: "project_scope",
-          },
-        ],
+        warnings: [],
         rawToolArguments: {},
       };
     },
@@ -121,14 +114,7 @@ test("/api/documents/extract routes guided charter requests through the extracti
   assert.deepEqual(res.body, {
     status: "ok",
     fields: { project_title: "Phoenix Initiative" },
-    warnings: [
-      {
-        code: "validation_failed",
-        message: "Scope might need clarification.",
-        level: "warning",
-        fieldId: "project_scope",
-      },
-    ],
+    warnings: [],
   });
 
   assert.equal(toolCalls.length, 1);
@@ -165,6 +151,184 @@ test("/api/documents/extract routes guided charter requests through the extracti
   assert(auditEvent, "expected audit event for guided extraction");
   assert.equal(auditEvent.payload.fileHash, expectedHash);
   assert.equal(auditEvent.payload.finalType, "charter");
+});
+
+test("/api/documents/extract returns pending charter payload when warnings require confirmation", async () => {
+  const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+
+  const toolCalls = [];
+  const previousOverrides = globalThis.__charterExtractionOverrides__;
+  globalThis.__charterExtractionOverrides__ = {
+    extractFieldsFromUtterance: async (request) => {
+      toolCalls.push(request);
+      return {
+        ok: true,
+        fields: {
+          milestones: [
+            { phase: "Planning", deliverable: "Kickoff", date: "2024-02-01" },
+            { phase: "Execution" },
+          ],
+        },
+        warnings: [
+          {
+            code: "validation_failed",
+            message: "Target Date: Enter a valid date in YYYY-MM-DD format.",
+            fieldId: "milestones",
+            details: { child: "date", value: "bad-date" },
+            level: "warning",
+          },
+        ],
+        rawToolArguments: {
+          milestones: [
+            { phase: "Planning", deliverable: "Kickoff", date: "2024-02-01" },
+            { phase: "Execution", deliverable: "", date: "bad-date" },
+          ],
+        },
+      };
+    },
+  };
+
+  await withIntentFlag("true", async () => {
+    await extractHandler(
+      {
+        method: "POST",
+        query: { docType: "charter" },
+        body: {
+          guided: true,
+          docType: "charter",
+          requestedFieldIds: ["milestones"],
+          messages: [
+            {
+              role: "user",
+              text: "Capture milestones including planning kickoff and execution without a finalized date.",
+            },
+          ],
+          intent: "create_charter",
+        },
+      },
+      res
+    );
+  });
+
+  if (previousOverrides === undefined) {
+    delete globalThis.__charterExtractionOverrides__;
+  } else {
+    globalThis.__charterExtractionOverrides__ = previousOverrides;
+  }
+  globalThis.__analyticsHook__ = originalHook;
+
+  assert.equal(res.statusCode, 202);
+  assert.equal(res.body?.status, "pending");
+  assert.deepEqual(res.body?.pending, {
+    fields: {
+      milestones: [
+        { phase: "Planning", deliverable: "Kickoff", date: "2024-02-01" },
+        { phase: "Execution" },
+      ],
+    },
+    warnings: [
+      {
+        code: "validation_failed",
+        message: "Target Date: Enter a valid date in YYYY-MM-DD format.",
+        fieldId: "milestones",
+        details: { child: "date", value: "bad-date" },
+        level: "warning",
+      },
+    ],
+    arguments: {
+      milestones: [
+        { phase: "Planning", deliverable: "Kickoff", date: "2024-02-01" },
+        { phase: "Execution", deliverable: "", date: "bad-date" },
+      ],
+    },
+  });
+  assert(!("fields" in (res.body || {})), "pending responses should omit confirmed fields");
+
+  assert.equal(toolCalls.length, 1);
+  const toolPayload = toolCalls[0];
+  assert.deepEqual(toolPayload.requestedFieldIds, ["milestones"]);
+
+  const expectedHash = computeDocumentHash(res.body);
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
+  assert(auditEvent, "expected audit event for pending extraction");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.finalType, "charter");
+  assert.equal(auditEvent.payload.status, "pending");
+});
+
+test("/api/documents/extract surfaces charter confirmation rejection without mutating drafts", async () => {
+  const res = createMockResponse();
+  const analyticsEvents = [];
+  const originalHook = globalThis.__analyticsHook__;
+  globalThis.__analyticsHook__ = (event, payload) => {
+    analyticsEvents.push({ event, payload });
+  };
+
+  await withIntentFlag("true", async () => {
+    await extractHandler(
+      {
+        method: "POST",
+        query: { docType: "charter" },
+        body: {
+          guided: true,
+          docType: "charter",
+          guidedConfirmation: {
+            decision: "reject",
+            fields: {
+              milestones: [
+                { phase: "Planning", deliverable: "Kickoff", date: "2024-02-01" },
+                { phase: "Execution" },
+              ],
+            },
+            warnings: [
+              {
+                code: "validation_failed",
+                message: "Target Date: Enter a valid date in YYYY-MM-DD format.",
+                fieldId: "milestones",
+                details: { child: "date", value: "bad-date" },
+                level: "warning",
+              },
+            ],
+            error: {
+              code: "validation_failed",
+              message: "Milestones still require a valid execution date before saving.",
+            },
+          },
+          intent: "create_charter",
+        },
+      },
+      res
+    );
+  });
+
+  globalThis.__analyticsHook__ = originalHook;
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body?.status, "error");
+  assert.equal(res.body?.error?.code, "validation_failed");
+  assert.equal(res.body?.error?.message, "Milestones still require a valid execution date before saving.");
+  assert.deepEqual(res.body?.fields, {});
+  assert.deepEqual(res.body?.warnings, [
+    {
+      code: "validation_failed",
+      message: "Target Date: Enter a valid date in YYYY-MM-DD format.",
+      fieldId: "milestones",
+      details: { child: "date", value: "bad-date" },
+      level: "warning",
+    },
+  ]);
+
+  const expectedHash = computeDocumentHash(res.body);
+  const auditEvent = analyticsEvents.find((entry) => entry.event === "documents.extract");
+  assert(auditEvent, "expected audit event for confirmation rejection");
+  assert.equal(auditEvent.payload.fileHash, expectedHash);
+  assert.equal(auditEvent.payload.finalType, "charter");
+  assert.equal(auditEvent.payload.status, "validation_failed");
 });
 
 test("/api/documents/extract surfaces charter tool errors for guided requests", async () => {

@@ -23,6 +23,10 @@ const charterExtractionModule = {
   extractFieldsFromUtterances,
 };
 
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 async function readFirstAvailableFile(paths = []) {
   for (const filePath of paths) {
     if (!filePath) {
@@ -142,6 +146,57 @@ function normalizeIntent(value) {
   }
 
   return null;
+}
+
+function sanitizeExtractionIssues(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return [];
+  }
+
+  return issues
+    .map((issue) => {
+      if (!isPlainObject(issue)) {
+        return null;
+      }
+      const normalized = { ...issue };
+      if (typeof normalized.level !== "string") {
+        normalized.level = "warning";
+      }
+      return normalized;
+    })
+    .filter(Boolean);
+}
+
+function sanitizeGuidedConfirmation(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const decisionRaw = typeof value.decision === "string" ? value.decision.trim().toLowerCase() : "";
+  let decision = null;
+  if (decisionRaw === "approve" || decisionRaw === "confirm" || decisionRaw === "accepted") {
+    decision = "approve";
+  } else if (decisionRaw === "reject" || decisionRaw === "deny" || decisionRaw === "rejected") {
+    decision = "reject";
+  }
+
+  if (!decision) {
+    return null;
+  }
+
+  const fields = isPlainObject(value.fields) ? value.fields : {};
+  const warnings = sanitizeExtractionIssues(value.warnings);
+  const argumentsValue =
+    value.arguments !== undefined && value.arguments !== null ? value.arguments : null;
+  const error = isPlainObject(value.error) ? { ...value.error } : null;
+
+  return {
+    decision,
+    fields,
+    warnings,
+    arguments: argumentsValue,
+    error,
+  };
 }
 
 function extractMessageText(entry) {
@@ -541,12 +596,13 @@ export default async function handler(req, res) {
       : Array.isArray(body?.requests)
       ? body.requests
       : null;
+    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
 
     const guidedFlagEnabled = isGuidedEnabled(body?.guided);
     const hasGuidedRequestPayload =
       Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
     const isGuidedCharterRequest =
-      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload);
+      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
 
     const hasGuidedContext = Array.isArray(guidedRequestsRaw)
       ? guidedRequestsRaw.some((entry) => {
@@ -572,7 +628,9 @@ export default async function handler(req, res) {
       computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH ||
       hasGuidedContext;
 
-    if (config.type === "charter" && !hasContext) {
+    const shouldEnforceContext = config.type === "charter" && !guidedConfirmation;
+
+    if (shouldEnforceContext && !hasContext) {
       return res.status(422).json({
         error:
           "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
@@ -582,8 +640,40 @@ export default async function handler(req, res) {
 
     let payload;
     let statusCode = 200;
+    let auditStatus = null;
 
-    if (isGuidedCharterRequest) {
+    if (isGuidedCharterRequest && guidedConfirmation) {
+      if (guidedConfirmation.decision === "approve") {
+        payload = {
+          status: "ok",
+          fields: guidedConfirmation.fields,
+          ...(guidedConfirmation.warnings.length > 0
+            ? { warnings: guidedConfirmation.warnings }
+            : {}),
+        };
+        statusCode = 200;
+        auditStatus = "confirmed";
+      } else {
+        const confirmationError = guidedConfirmation.error || null;
+        const errorStatus = confirmationError?.code
+          ? mapExtractionErrorToStatus(confirmationError.code)
+          : 409;
+        statusCode = errorStatus >= 400 ? errorStatus : 409;
+        payload = {
+          status: "error",
+          error:
+            confirmationError || {
+              code: "confirmation_rejected",
+              message: "Pending extraction proposal was rejected.",
+            },
+          fields: {},
+          ...(guidedConfirmation.warnings.length > 0
+            ? { warnings: guidedConfirmation.warnings }
+            : {}),
+        };
+        auditStatus = confirmationError?.code || "rejected";
+      }
+    } else if (isGuidedCharterRequest) {
       const charterExtraction = resolveCharterExtraction();
       const baseRequest = {
         messages: toolMessages,
@@ -639,6 +729,7 @@ export default async function handler(req, res) {
             fields: {},
           };
           statusCode = 400;
+          auditStatus = "error";
         } else {
           const results = await charterExtraction.extractFieldsFromUtterances(
             requests
@@ -646,12 +737,24 @@ export default async function handler(req, res) {
           let highestStatus = 200;
           const mappedResults = results.map((result) => {
             if (result.ok) {
+              const resultWarnings = sanitizeExtractionIssues(result.warnings);
+              if (resultWarnings.length > 0) {
+                highestStatus = Math.max(highestStatus, 202);
+                return {
+                  status: "pending",
+                  pending: {
+                    fields: result.fields || {},
+                    warnings: resultWarnings,
+                    ...(result.rawToolArguments !== undefined
+                      ? { arguments: result.rawToolArguments }
+                      : {}),
+                  },
+                };
+              }
               return {
                 status: "ok",
                 fields: result.fields || {},
-                ...(Array.isArray(result.warnings) && result.warnings.length > 0
-                  ? { warnings: result.warnings }
-                  : {}),
+                ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
               };
             }
 
@@ -663,37 +766,54 @@ export default async function handler(req, res) {
               status: "error",
               error: result.error,
               fields: result.fields || {},
-              ...(Array.isArray(result.warnings) && result.warnings.length > 0
-                ? { warnings: result.warnings }
+              ...(sanitizeExtractionIssues(result.warnings).length > 0
+                ? { warnings: sanitizeExtractionIssues(result.warnings) }
                 : {}),
             };
           });
 
           payload = { status: "batch", results: mappedResults };
           statusCode = highestStatus;
+          auditStatus = "batch";
         }
       } else {
         const result = await charterExtraction.extractFieldsFromUtterance(
           baseRequest
         );
         if (result.ok) {
-          payload = {
-            status: "ok",
-            fields: result.fields || {},
-            ...(Array.isArray(result.warnings) && result.warnings.length > 0
-              ? { warnings: result.warnings }
-              : {}),
-          };
+          const resultWarnings = sanitizeExtractionIssues(result.warnings);
+          if (resultWarnings.length > 0) {
+            payload = {
+              status: "pending",
+              pending: {
+                fields: result.fields || {},
+                warnings: resultWarnings,
+                ...(result.rawToolArguments !== undefined
+                  ? { arguments: result.rawToolArguments }
+                  : {}),
+              },
+            };
+            statusCode = 202;
+            auditStatus = "pending";
+          } else {
+            payload = {
+              status: "ok",
+              fields: result.fields || {},
+              ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
+            };
+            auditStatus = "ok";
+          }
         } else {
           statusCode = mapExtractionErrorToStatus(result.error?.code);
           payload = {
             status: "error",
             error: result.error,
             fields: result.fields || {},
-            ...(Array.isArray(result.warnings) && result.warnings.length > 0
-              ? { warnings: result.warnings }
+            ...(sanitizeExtractionIssues(result.warnings).length > 0
+              ? { warnings: sanitizeExtractionIssues(result.warnings) }
               : {}),
           };
+          auditStatus = result.error?.code || "error";
         }
       }
     } else {
@@ -731,6 +851,7 @@ export default async function handler(req, res) {
       } catch {
         payload = { result: replyContent };
       }
+      auditStatus = payload?.status || "ok";
     }
 
     res.status(statusCode).json(payload);
@@ -740,6 +861,7 @@ export default async function handler(req, res) {
       detection,
       finalType: config.type,
       templateVersion: config.templateVersion,
+      status: auditStatus ?? (typeof payload?.status === "string" ? payload.status : null),
     };
 
     if (intentOnlyExtractionEnabled) {

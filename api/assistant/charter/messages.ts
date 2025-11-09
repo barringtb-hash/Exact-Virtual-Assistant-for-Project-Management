@@ -48,7 +48,7 @@ function sendError(res: ApiResponse, error: unknown) {
   res.status(500).json({ ok: false, error: "internal_error" });
 }
 
-export default function handler(req: ApiRequest, res: ApiResponse) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     res.status(405).json({ ok: false, error: "method_not_allowed" });
@@ -59,7 +59,7 @@ export default function handler(req: ApiRequest, res: ApiResponse) {
     const body = parseBody(req);
     const conversationId = sanitizeConversationId(body?.conversation_id);
 
-    const result = sendInteraction({
+    const result = await sendInteraction({
       conversationId,
       correlationId: typeof body?.correlation_id === "string" ? body.correlation_id : null,
       message: typeof body?.message === "string" ? body.message : null,
@@ -71,6 +71,9 @@ export default function handler(req: ApiRequest, res: ApiResponse) {
       handled: result.handled,
       idempotent: result.idempotent,
       events: result.events,
+      pending_tool_fields: result.pending_tool_fields,
+      pending_tool_arguments: result.pending_tool_arguments,
+      pending_tool_warnings: result.pending_tool_warnings,
     });
   } catch (error) {
     sendError(res, error);

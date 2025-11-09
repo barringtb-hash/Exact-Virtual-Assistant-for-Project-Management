@@ -10,9 +10,22 @@ import {
 } from "../../lib/doc/audit.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
+import {
+  extractFieldsFromUtterance,
+  extractFieldsFromUtterances,
+} from "../../server/charter/extractFieldsFromUtterance.ts";
 
 const ATTACHMENT_CHAR_LIMIT = 20_000;
 const MIN_TEXT_CONTEXT_LENGTH = 25;
+const VALID_TOOL_ROLES = new Set(["user", "assistant", "system", "developer"]);
+const charterExtractionModule = {
+  extractFieldsFromUtterance,
+  extractFieldsFromUtterances,
+};
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 async function readFirstAvailableFile(paths = []) {
   for (const filePath of paths) {
@@ -135,6 +148,57 @@ function normalizeIntent(value) {
   return null;
 }
 
+function sanitizeExtractionIssues(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return [];
+  }
+
+  return issues
+    .map((issue) => {
+      if (!isPlainObject(issue)) {
+        return null;
+      }
+      const normalized = { ...issue };
+      if (typeof normalized.level !== "string") {
+        normalized.level = "warning";
+      }
+      return normalized;
+    })
+    .filter(Boolean);
+}
+
+function sanitizeGuidedConfirmation(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const decisionRaw = typeof value.decision === "string" ? value.decision.trim().toLowerCase() : "";
+  let decision = null;
+  if (decisionRaw === "approve" || decisionRaw === "confirm" || decisionRaw === "accepted") {
+    decision = "approve";
+  } else if (decisionRaw === "reject" || decisionRaw === "deny" || decisionRaw === "rejected") {
+    decision = "reject";
+  }
+
+  if (!decision) {
+    return null;
+  }
+
+  const fields = isPlainObject(value.fields) ? value.fields : {};
+  const warnings = sanitizeExtractionIssues(value.warnings);
+  const argumentsValue =
+    value.arguments !== undefined && value.arguments !== null ? value.arguments : null;
+  const error = isPlainObject(value.error) ? { ...value.error } : null;
+
+  return {
+    decision,
+    fields,
+    warnings,
+    arguments: argumentsValue,
+    error,
+  };
+}
+
 function extractMessageText(entry) {
   if (!entry || typeof entry !== "object") {
     return "";
@@ -172,6 +236,181 @@ function getLastUserMessageText(messages) {
   }
 
   return "";
+}
+
+function sanitizeCharterMessagesForTool(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const text = extractMessageText(entry);
+      if (!text) {
+        return null;
+      }
+
+      const roleCandidate =
+        typeof entry.role === "string" && entry.role.trim()
+          ? entry.role.trim().toLowerCase()
+          : "user";
+      const role = VALID_TOOL_ROLES.has(roleCandidate) ? roleCandidate : "user";
+
+      return { role, content: text };
+    })
+    .filter(Boolean);
+}
+
+function sanitizeCharterAttachmentsForTool(attachments) {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+
+  return attachments
+    .map((attachment) => {
+      if (!attachment || typeof attachment !== "object") {
+        return null;
+      }
+
+      const text = typeof attachment.text === "string" ? attachment.text.trim() : "";
+      if (!text) {
+        return null;
+      }
+
+      const entry = { text };
+
+      if (typeof attachment.name === "string" && attachment.name.trim()) {
+        entry.name = attachment.name.trim();
+      }
+
+      if (typeof attachment.mimeType === "string" && attachment.mimeType.trim()) {
+        entry.mimeType = attachment.mimeType.trim();
+      }
+
+      return entry;
+    })
+    .filter(Boolean);
+}
+
+function sanitizeCharterVoiceForTool(voiceEvents) {
+  if (!Array.isArray(voiceEvents)) {
+    return [];
+  }
+
+  return voiceEvents
+    .map((event) => {
+      if (!event || typeof event !== "object") {
+        return null;
+      }
+
+      const text = typeof event.text === "string" ? event.text.trim() : "";
+      if (!text) {
+        return null;
+      }
+
+      const entry = { text };
+
+      if (typeof event.id === "string" && event.id.trim()) {
+        entry.id = event.id.trim();
+      }
+
+      const timestampCandidate = event.timestamp;
+      if (typeof timestampCandidate === "number" && Number.isFinite(timestampCandidate)) {
+        entry.timestamp = timestampCandidate;
+      }
+
+      return entry;
+    })
+    .filter(Boolean);
+}
+
+function sanitizeRequestedFieldIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function sanitizeCharterSeed(seed) {
+  if (seed === null) {
+    return null;
+  }
+
+  if (!seed || typeof seed !== "object" || Array.isArray(seed)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(seed));
+  } catch {
+    return undefined;
+  }
+}
+
+function mapExtractionErrorToStatus(code) {
+  switch (code) {
+    case "no_fields_requested":
+      return 400;
+    case "missing_required":
+    case "validation_failed":
+      return 409;
+    case "configuration":
+      return 500;
+    case "openai_error":
+    case "invalid_tool_payload":
+    case "missing_tool_call":
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+function isGuidedEnabled(value) {
+  if (value === true) {
+    return true;
+  }
+  if (value === 1) {
+    return true;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    return trimmed === "true" || trimmed === "1" || trimmed === "yes";
+  }
+  return false;
+}
+
+function resolveCharterExtraction() {
+  const overrides = globalThis?.__charterExtractionOverrides__;
+  if (overrides && typeof overrides === "object") {
+    const single =
+      typeof overrides.extractFieldsFromUtterance === "function"
+        ? overrides.extractFieldsFromUtterance
+        : charterExtractionModule.extractFieldsFromUtterance;
+    const batch =
+      typeof overrides.extractFieldsFromUtterances === "function"
+        ? overrides.extractFieldsFromUtterances
+        : charterExtractionModule.extractFieldsFromUtterances;
+    return { extractFieldsFromUtterance: single, extractFieldsFromUtterances: batch };
+  }
+  return charterExtractionModule;
 }
 
 function computeUserTextLength(messages) {
@@ -315,6 +554,13 @@ export default async function handler(req, res) {
     const attachments = Array.isArray(body.attachments) ? body.attachments : [];
     const voice = Array.isArray(body.voice) ? body.voice : [];
     const messages = sanitizeUserMessages(body.messages);
+    const toolMessages = sanitizeCharterMessagesForTool(body.messages);
+    const toolAttachments = sanitizeCharterAttachmentsForTool(body.attachments);
+    const toolVoice = sanitizeCharterVoiceForTool(body.voice);
+    const sanitizedRequestedFieldIds = sanitizeRequestedFieldIds(
+      body?.requestedFieldIds
+    );
+    const seedValue = sanitizeCharterSeed(body.seed);
     const seed = typeof body.seed === "number" ? body.seed : undefined;
     const intentRaw = body?.intent;
     const intentSourceRaw = body?.intentSource;
@@ -345,12 +591,46 @@ export default async function handler(req, res) {
       }
     }
 
+    const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
+      ? body.guidedRequests
+      : Array.isArray(body?.requests)
+      ? body.requests
+      : null;
+    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
+
+    const guidedFlagEnabled = isGuidedEnabled(body?.guided);
+    const hasGuidedRequestPayload =
+      Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
+    const isGuidedCharterRequest =
+      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
+
+    const hasGuidedContext = Array.isArray(guidedRequestsRaw)
+      ? guidedRequestsRaw.some((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return false;
+          }
+
+          const entryAttachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+          const entryVoice = Array.isArray(entry.voice) ? entry.voice : [];
+          const entryMessages = sanitizeUserMessages(entry.messages);
+
+          return (
+            hasAttachmentContext(entryAttachments) ||
+            hasVoiceText(entryVoice) ||
+            computeUserTextLength(entryMessages) >= MIN_TEXT_CONTEXT_LENGTH
+          );
+        })
+      : false;
+
     const hasContext =
       hasAttachmentContext(attachments) ||
       hasVoiceText(voice) ||
-      computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH;
+      computeUserTextLength(messages) >= MIN_TEXT_CONTEXT_LENGTH ||
+      hasGuidedContext;
 
-    if (config.type === "charter" && !hasContext) {
+    const shouldEnforceContext = config.type === "charter" && !guidedConfirmation;
+
+    if (shouldEnforceContext && !hasContext) {
       return res.status(422).json({
         error:
           "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
@@ -358,50 +638,230 @@ export default async function handler(req, res) {
       });
     }
 
-    const extractPrompt = await loadExtractPrompt(docType, config);
-    const docTypeMetadata = await loadExtractMetadata(config);
-
-    const systemSections = [
-      formatDocTypeMetadata(docTypeMetadata),
-      formatAttachments(attachments),
-      formatVoice(voice),
-      extractPrompt,
-    ]
-      .map((section) => (section || "").trim())
-      .filter(Boolean);
-
-    const openaiMessages = buildOpenAIMessages(systemSections, messages);
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.3,
-      messages: openaiMessages,
-      response_format: { type: "json_object" },
-      ...(typeof seed === "number" ? { seed } : {}),
-    });
-
-    const replyContent = completion.choices?.[0]?.message?.content || "";
     let payload;
-    try {
-      const parsed = JSON.parse(replyContent);
-      if (parsed && typeof parsed === "object") {
-        payload = parsed;
-        res.status(200).json(parsed);
+    let statusCode = 200;
+    let auditStatus = null;
+
+    if (isGuidedCharterRequest && guidedConfirmation) {
+      if (guidedConfirmation.decision === "approve") {
+        payload = {
+          status: "ok",
+          fields: guidedConfirmation.fields,
+          ...(guidedConfirmation.warnings.length > 0
+            ? { warnings: guidedConfirmation.warnings }
+            : {}),
+        };
+        statusCode = 200;
+        auditStatus = "confirmed";
       } else {
-        payload = { result: replyContent };
-        res.status(200).json(payload);
+        const confirmationError = guidedConfirmation.error || null;
+        const errorStatus = confirmationError?.code
+          ? mapExtractionErrorToStatus(confirmationError.code)
+          : 409;
+        statusCode = errorStatus >= 400 ? errorStatus : 409;
+        payload = {
+          status: "error",
+          error:
+            confirmationError || {
+              code: "confirmation_rejected",
+              message: "Pending extraction proposal was rejected.",
+            },
+          fields: {},
+          ...(guidedConfirmation.warnings.length > 0
+            ? { warnings: guidedConfirmation.warnings }
+            : {}),
+        };
+        auditStatus = confirmationError?.code || "rejected";
       }
-    } catch {
-      payload = { result: replyContent };
-      res.status(200).json(payload);
+    } else if (isGuidedCharterRequest) {
+      const charterExtraction = resolveCharterExtraction();
+      const baseRequest = {
+        messages: toolMessages,
+        attachments: toolAttachments,
+        voice: toolVoice,
+        requestedFieldIds: sanitizedRequestedFieldIds,
+        ...(seedValue !== undefined ? { seed: seedValue } : {}),
+      };
+
+      if (Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0) {
+        const requests = guidedRequestsRaw
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") {
+              return null;
+            }
+            const requestFieldIds = sanitizeRequestedFieldIds(
+              entry.requestedFieldIds
+            );
+            if (requestFieldIds.length === 0) {
+              return null;
+            }
+            const requestSeed =
+              entry.seed !== undefined
+                ? sanitizeCharterSeed(entry.seed)
+                : seedValue;
+            const requestMessages = Array.isArray(entry.messages)
+              ? sanitizeCharterMessagesForTool(entry.messages)
+              : toolMessages;
+            const requestAttachments = Array.isArray(entry.attachments)
+              ? sanitizeCharterAttachmentsForTool(entry.attachments)
+              : toolAttachments;
+            const requestVoice = Array.isArray(entry.voice)
+              ? sanitizeCharterVoiceForTool(entry.voice)
+              : toolVoice;
+
+            return {
+              messages: requestMessages,
+              attachments: requestAttachments,
+              voice: requestVoice,
+              requestedFieldIds: requestFieldIds,
+              ...(requestSeed !== undefined ? { seed: requestSeed } : {}),
+            };
+          })
+          .filter(Boolean);
+
+        if (requests.length === 0) {
+          payload = {
+            status: "error",
+            error: {
+              code: "no_fields_requested",
+              message: "No valid charter field ids were requested for extraction.",
+            },
+            fields: {},
+          };
+          statusCode = 400;
+          auditStatus = "error";
+        } else {
+          const results = await charterExtraction.extractFieldsFromUtterances(
+            requests
+          );
+          let highestStatus = 200;
+          const mappedResults = results.map((result) => {
+            if (result.ok) {
+              const resultWarnings = sanitizeExtractionIssues(result.warnings);
+              if (resultWarnings.length > 0) {
+                highestStatus = Math.max(highestStatus, 202);
+                return {
+                  status: "pending",
+                  pending: {
+                    fields: result.fields || {},
+                    warnings: resultWarnings,
+                    ...(result.rawToolArguments !== undefined
+                      ? { arguments: result.rawToolArguments }
+                      : {}),
+                  },
+                };
+              }
+              return {
+                status: "ok",
+                fields: result.fields || {},
+                ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
+              };
+            }
+
+            const errorStatus = mapExtractionErrorToStatus(result.error?.code);
+            if (errorStatus > highestStatus) {
+              highestStatus = errorStatus;
+            }
+            return {
+              status: "error",
+              error: result.error,
+              fields: result.fields || {},
+              ...(sanitizeExtractionIssues(result.warnings).length > 0
+                ? { warnings: sanitizeExtractionIssues(result.warnings) }
+                : {}),
+            };
+          });
+
+          payload = { status: "batch", results: mappedResults };
+          statusCode = highestStatus;
+          auditStatus = "batch";
+        }
+      } else {
+        const result = await charterExtraction.extractFieldsFromUtterance(
+          baseRequest
+        );
+        if (result.ok) {
+          const resultWarnings = sanitizeExtractionIssues(result.warnings);
+          if (resultWarnings.length > 0) {
+            payload = {
+              status: "pending",
+              pending: {
+                fields: result.fields || {},
+                warnings: resultWarnings,
+                ...(result.rawToolArguments !== undefined
+                  ? { arguments: result.rawToolArguments }
+                  : {}),
+              },
+            };
+            statusCode = 202;
+            auditStatus = "pending";
+          } else {
+            payload = {
+              status: "ok",
+              fields: result.fields || {},
+              ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
+            };
+            auditStatus = "ok";
+          }
+        } else {
+          statusCode = mapExtractionErrorToStatus(result.error?.code);
+          payload = {
+            status: "error",
+            error: result.error,
+            fields: result.fields || {},
+            ...(sanitizeExtractionIssues(result.warnings).length > 0
+              ? { warnings: sanitizeExtractionIssues(result.warnings) }
+              : {}),
+          };
+          auditStatus = result.error?.code || "error";
+        }
+      }
+    } else {
+      const extractPrompt = await loadExtractPrompt(docType, config);
+      const docTypeMetadata = await loadExtractMetadata(config);
+
+      const systemSections = [
+        formatDocTypeMetadata(docTypeMetadata),
+        formatAttachments(attachments),
+        formatVoice(voice),
+        extractPrompt,
+      ]
+        .map((section) => (section || "").trim())
+        .filter(Boolean);
+
+      const openaiMessages = buildOpenAIMessages(systemSections, messages);
+      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      const completion = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.3,
+        messages: openaiMessages,
+        response_format: { type: "json_object" },
+        ...(typeof seed === "number" ? { seed } : {}),
+      });
+
+      const replyContent = completion.choices?.[0]?.message?.content || "";
+      try {
+        const parsed = JSON.parse(replyContent);
+        if (parsed && typeof parsed === "object") {
+          payload = parsed;
+        } else {
+          payload = { result: replyContent };
+        }
+      } catch {
+        payload = { result: replyContent };
+      }
+      auditStatus = payload?.status || "ok";
     }
+
+    res.status(statusCode).json(payload);
 
     const auditOptions = {
       hashSource: payload,
       detection,
       finalType: config.type,
       templateVersion: config.templateVersion,
+      status: auditStatus ?? (typeof payload?.status === "string" ? payload.status : null),
     };
 
     if (intentOnlyExtractionEnabled) {

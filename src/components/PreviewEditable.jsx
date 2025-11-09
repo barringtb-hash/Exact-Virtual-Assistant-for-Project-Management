@@ -225,8 +225,8 @@ function manifestItemRequiresSchema(item) {
 
 const noop = () => {};
 
-function FieldMetaTags({ source, updatedAt }) {
-  if (!source && !updatedAt) return null;
+function FieldMetaTags({ source, updatedAt, pending }) {
+  if (!source && !updatedAt && !pending) return null;
 
   const normalizedSource = (() => {
     if (typeof source !== "string") return "";
@@ -242,7 +242,11 @@ function FieldMetaTags({ source, updatedAt }) {
   // In guided chat, we only show values after they're confirmed through conversation
   const shouldShowAutoChip =
     normalizedSource === "Auto" && (!FLAGS.CHARTER_GUIDED_CHAT_ENABLED || FLAGS.CHARTER_WIZARD_VISIBLE);
-  const shouldShowSource = normalizedSource && (normalizedSource !== "Auto" || shouldShowAutoChip);
+  const isVoiceSource = normalizedSource === "Voice";
+  const shouldShowSource =
+    normalizedSource &&
+    !isVoiceSource &&
+    (normalizedSource !== "Auto" || shouldShowAutoChip);
 
   const relative = typeof updatedAt === "number" ? formatRelativeTime(updatedAt) : "";
 
@@ -253,11 +257,21 @@ function FieldMetaTags({ source, updatedAt }) {
 
   return (
     <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+      {isVoiceSource ? (
+        <span className="inline-flex items-center rounded-full bg-violet-100/80 px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-200">
+          Voice
+        </span>
+      ) : null}
       {shouldShowSource ? (
         <span
           className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${sourceToneClass}`}
         >
           {normalizedSource}
+        </span>
+      ) : null}
+      {pending ? (
+        <span className="inline-flex items-center rounded-full bg-amber-100/80 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+          Pending confirmation
         </span>
       ) : null}
       {relative ? (
@@ -281,6 +295,7 @@ function LockBadge({ locked }) {
 function FieldHeader({ label, locked, description, meta, highlighted = false }) {
   const source = meta?.source;
   const updatedAt = meta?.updatedAt;
+  const pending = Boolean(meta?.pending);
 
   // Conditionally apply readability v1 styles
   const containerClasses = FLAGS.READABILITY_V1

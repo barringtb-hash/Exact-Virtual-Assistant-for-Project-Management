@@ -448,9 +448,9 @@ export interface StartConversationResult {
   idempotent: boolean;
 }
 
-export function startConversation(
+export async function startConversation(
   options: StartConversationOptions = {},
-): StartConversationResult {
+): Promise<StartConversationResult> {
   cleanup();
   const correlationId = sanitizeString(options.correlationId ?? null);
 
@@ -467,7 +467,7 @@ export function startConversation(
   const record = registerSession(conversationId);
   const collector = createEventCollector(record);
 
-  const result = orchestratorStartSession({
+  const result = await orchestratorStartSession({
     conversationId,
     correlationId: correlationId ?? undefined,
     emitAssistantMessage: (message) => collector.emitAssistant(message, true),
@@ -507,11 +507,14 @@ export interface InteractionResultPayload {
   handled: boolean;
   idempotent: boolean;
   events: CharterEvent[];
+  pending_tool_fields: InteractionResult["pendingToolFields"];
+  pending_tool_arguments: InteractionResult["pendingToolArguments"];
+  pending_tool_warnings: InteractionResult["pendingToolWarnings"];
 }
 
-export function sendInteraction(
+export async function sendInteraction(
   options: InteractionOptions,
-): InteractionResultPayload {
+): Promise<InteractionResultPayload> {
   cleanup();
   const record = getSessionRecord(options.conversationId);
   const correlationId = sanitizeString(options.correlationId ?? null);
@@ -530,23 +533,21 @@ export function sendInteraction(
   let result: InteractionResult;
   try {
     if (command) {
-      result = orchestratorHandleCommand(
+      result = await orchestratorHandleCommand(
         {
           conversationId: record.conversationId,
           correlationId: correlationId ?? undefined,
-          emitAssistantMessage: (payload) =>
-            collector.emitAssistant(payload, true),
+          emitAssistantMessage: (payload) => collector.emitAssistant(payload, true),
           emitState: (state) => collector.emitState(state, true),
         },
         command,
       );
     } else {
-      result = orchestratorHandleUserMessage(
+      result = await orchestratorHandleUserMessage(
         {
           conversationId: record.conversationId,
           correlationId: correlationId ?? undefined,
-          emitAssistantMessage: (payload) =>
-            collector.emitAssistant(payload, true),
+          emitAssistantMessage: (payload) => collector.emitAssistant(payload, true),
           emitState: (state) => collector.emitState(state, true),
         },
         message ?? "",
@@ -567,6 +568,9 @@ export function sendInteraction(
     handled: result.handled,
     idempotent: Boolean(result.idempotent),
     events,
+    pending_tool_fields: result.pendingToolFields,
+    pending_tool_arguments: result.pendingToolArguments,
+    pending_tool_warnings: result.pendingToolWarnings,
   };
 }
 

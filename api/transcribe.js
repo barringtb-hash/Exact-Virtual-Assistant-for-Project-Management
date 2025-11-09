@@ -1,6 +1,7 @@
 // /api/transcribe.js - Vercel Serverless Function (Node runtime)
 import OpenAI from "openai";
-import { toFile } from "openai/uploads";
+import formidable from "formidable";
+import { createReadStream, promises as fsPromises } from "node:fs";
 
 const ALLOWED_MIME_TYPES = new Set([
   "audio/webm",
@@ -11,17 +12,10 @@ const ALLOWED_MIME_TYPES = new Set([
   "audio/wav",
 ]);
 
-const EXT_BY_MIME = {
-  "audio/webm": "webm",
-  "audio/mp3": "mp3",
-  "audio/mpeg": "mp3",
-  "audio/mp4": "mp4",
-  "audio/m4a": "m4a",
-  "audio/wav": "wav",
-};
-
 export const config = {
-  api: { bodyParser: { sizeLimit: "15mb" } },
+  api: {
+    bodyParser: false,
+  },
 };
 
 function mapOpenAIError(err) {
@@ -41,37 +35,68 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { audioBase64, mimeType } = req.body || {};
+    const form = formidable({
+      multiples: false,
+      maxFileSize: 15 * 1024 * 1024,
+      keepExtensions: true,
+    });
 
-    if (typeof audioBase64 !== "string" || audioBase64.trim() === "") {
-      return res.status(400).json({ error: "Invalid audio payload" });
+    const { fields, files } = await new Promise((resolve, reject) => {
+      form.parse(req, (err, parsedFields, parsedFiles) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve({ fields: parsedFields ?? {}, files: parsedFiles ?? {} });
+      });
+    });
+    req.files = files;
+
+    const firstFileEntry =
+      files?.audio || files?.file || (files ? Object.values(files)[0] : undefined);
+    const uploadedFile = Array.isArray(firstFileEntry)
+      ? firstFileEntry[0]
+      : firstFileEntry;
+
+    if (!uploadedFile) {
+      return res.status(400).json({ error: "Missing audio file" });
     }
 
-    const rawMime = typeof mimeType === "string" ? mimeType : "";
-    const baseMime = rawMime.split(";")[0].trim().toLowerCase();
+    const filePath = uploadedFile.filepath || uploadedFile.path;
+    const reportedMime =
+      typeof uploadedFile.mimetype === "string"
+        ? uploadedFile.mimetype
+        : typeof fields?.mimeType === "string"
+          ? fields.mimeType
+          : "";
+    const baseMime = reportedMime.split(";")[0].trim().toLowerCase();
+
     if (!ALLOWED_MIME_TYPES.has(baseMime)) {
-      return res.status(400).json({ error: "Unsupported audio format", mimeType: rawMime });
+      if (filePath) {
+        await fsPromises.unlink(filePath).catch(() => {});
+      }
+      return res.status(400).json({ error: "Unsupported audio format", mimeType: reportedMime });
     }
 
-    let audioBuffer;
-    try {
-      audioBuffer = Buffer.from(audioBase64, "base64");
-    } catch {
-      return res.status(400).json({ error: "Unable to decode audio" });
+    if (!filePath) {
+      return res.status(400).json({ error: "Invalid audio upload" });
     }
-    if (!audioBuffer?.length) {
+
+    const stats = await fsPromises.stat(filePath).catch(() => null);
+    if (!stats || !stats.size) {
+      await fsPromises.unlink(filePath).catch(() => {});
       return res.status(400).json({ error: "Empty audio data" });
     }
-
-    const ext = EXT_BY_MIME[baseMime] || "mp4";
-    const file = await toFile(audioBuffer, `audio.${ext}`, { type: baseMime });
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const PRIMARY_MODEL = (process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe").trim();
     const FALLBACK_MODEL = "whisper-1";
 
     async function transcribeWith(model) {
-      return client.audio.transcriptions.create({ file, model });
+      return client.audio.transcriptions.create({
+        file: createReadStream(filePath),
+        model,
+      });
     }
 
     let result;
@@ -99,5 +124,23 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("/api/transcribe error", error);
     return res.status(500).json({ error: "Failed to transcribe audio" });
+  } finally {
+    // Ensure uploaded temp files are removed to avoid leaking storage
+    try {
+      if (req?.files) {
+        const entries = Object.values(req.files);
+        const fileList = Array.isArray(entries)
+          ? entries.flatMap((entry) => (Array.isArray(entry) ? entry : [entry]))
+          : [];
+        await Promise.all(
+          fileList
+            .map((file) => file?.filepath || file?.path)
+            .filter((filePath) => typeof filePath === "string")
+            .map((filePath) => fsPromises.unlink(filePath).catch(() => {})),
+        );
+      }
+    } catch (cleanupError) {
+      console.warn("Failed to cleanup uploaded audio", cleanupError);
+    }
   }
 }

@@ -8,6 +8,7 @@ import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
 import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { onFileAttached } from "./hooks/useBackgroundExtraction";
+import { useSpeechInput } from "./hooks/useSpeechInput.ts";
 import mergeIntoDraftWithLocks from "./lib/preview/mergeIntoDraftWithLocks.js";
 import {
   handleSyncCommand,
@@ -56,6 +57,7 @@ import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.
 import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
+import { runVoiceFieldExtraction } from "./features/charter/voiceFieldController.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
@@ -362,7 +364,7 @@ function isPathLocked(locks, path) {
 function synchronizeFieldStates(
   draft,
   prevStates = {},
-  { touchedPaths = new Set(), source, timestamp, locks = {} } = {}
+  { touchedPaths = new Set(), source, timestamp, locks = {}, pending } = {}
 ) {
   const nextStates = {};
   const touched = touchedPaths instanceof Set ? touchedPaths : new Set(touchedPaths);
@@ -383,12 +385,20 @@ function synchronizeFieldStates(
       : typeof prevEntry?.updatedAt === "number"
       ? prevEntry.updatedAt
       : baseNow;
+    const nextPending = isTouched
+      ? typeof pending === "boolean"
+        ? pending
+        : false
+      : typeof prevEntry?.pending === "boolean"
+      ? prevEntry.pending
+      : false;
 
     nextStates[path] = {
       value,
       locked,
       source: nextSource,
       updatedAt: nextUpdatedAt,
+      pending: nextPending,
     };
   });
 
@@ -821,6 +831,7 @@ export default function ExactVirtualAssistantPM() {
   const conversationState = useConversationState();
   const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
+  const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Cypress) {
@@ -840,6 +851,7 @@ export default function ExactVirtualAssistantPM() {
   const processedGuidedEventIdsRef = useRef(new Set());
   const hasPostedInitialPromptRef = useRef(false);
   const guidedStateRef = useRef(null);
+  const guidedPendingRef = useRef(null);
   const guidedSlotMapRef = useRef(new Map());
   const guidedVoiceEnabledRef = useRef(false);
   const guidedConversationIdRef = useRef(null);
@@ -848,6 +860,9 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     guidedStateRef.current = guidedState;
   }, [guidedState]);
+  useEffect(() => {
+    guidedPendingRef.current = guidedPendingProposal;
+  }, [guidedPendingProposal]);
   useEffect(() => {
     guidedConversationIdRef.current = guidedConversationId;
   }, [guidedConversationId]);
@@ -1096,6 +1111,95 @@ export default function ExactVirtualAssistantPM() {
   useEffect(() => {
     voiceTranscriptsRef.current = voiceTranscripts;
   }, [voiceTranscripts]);
+
+  const resolveGuidedExtractionContext = useCallback(() => {
+    const attachmentEntries = Array.isArray(attachmentsRef.current)
+      ? attachmentsRef.current
+          .map((item) => {
+            const text = typeof item?.text === "string" ? item.text.trim() : "";
+            if (!text) {
+              return null;
+            }
+            return {
+              name: typeof item?.name === "string" ? item.name : undefined,
+              mimeType: typeof item?.mimeType === "string" ? item.mimeType : undefined,
+              text,
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    const voiceEntries = Array.isArray(voiceTranscriptsRef.current)
+      ? voiceTranscriptsRef.current
+          .map((entry) => {
+            const text = typeof entry?.text === "string" ? entry.text.trim() : "";
+            if (!text) {
+              return null;
+            }
+            const normalized = {
+              text,
+            };
+            if (entry?.id) {
+              normalized.id = entry.id;
+            }
+            if (typeof entry?.timestamp === "number" && !Number.isNaN(entry.timestamp)) {
+              normalized.timestamp = entry.timestamp;
+            }
+            return normalized;
+          })
+          .filter(Boolean)
+      : [];
+
+    return { attachments: attachmentEntries, voice: voiceEntries };
+  }, []);
+
+  const runGuidedExtraction = useCallback(async (request) => {
+    const payload = {
+      guided: true,
+      docType: "charter",
+      requestedFieldIds: Array.isArray(request?.requestedFieldIds)
+        ? request.requestedFieldIds
+        : [],
+      messages: Array.isArray(request?.messages) ? request.messages : [],
+    };
+
+    if (request?.seed !== undefined) {
+      payload.seed = request.seed;
+    }
+    if (Array.isArray(request?.attachments) && request.attachments.length > 0) {
+      payload.attachments = request.attachments;
+    }
+    if (Array.isArray(request?.voice) && request.voice.length > 0) {
+      payload.voice = request.voice;
+    }
+
+    const response = await docApi("extract", payload);
+    if (!response || typeof response !== "object") {
+      throw new Error("Invalid extractor response");
+    }
+
+    const warnings = Array.isArray(response.warnings) ? response.warnings : [];
+    if (response.status === "ok") {
+      return {
+        ok: true,
+        fields: response.fields || {},
+        warnings,
+        rawToolArguments: null,
+      };
+    }
+
+    if (response.status === "error") {
+      return {
+        ok: false,
+        error: response.error || null,
+        warnings,
+        fields: response.fields || {},
+        rawToolArguments: null,
+      };
+    }
+
+    throw new Error(`Unsupported extractor status: ${response.status}`);
+  }, []);
   const initialDraftValue = initialDraftRef.current;
   useEffect(() => {
     if (chatHydratedRef.current) {
@@ -1280,7 +1384,6 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
-  const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -1825,6 +1928,9 @@ export default function ExactVirtualAssistantPM() {
         postAssistantMessage: appendAssistantMessage,
         onStateChange: setGuidedState,
         onActiveChange: setGuidedAutoExtractionDisabled,
+        onPendingChange: setGuidedPendingProposal,
+        extractFieldsFromUtterance: runGuidedExtraction,
+        getExtractionContext: resolveGuidedExtractionContext,
       });
     }
 
@@ -1844,7 +1950,13 @@ export default function ExactVirtualAssistantPM() {
 
     setGuidedState(orchestrator.getState());
     setGuidedAutoExtractionDisabled(orchestrator.isAutoExtractionDisabled());
-  }, [appendAssistantMessage, guidedConversationId, isGuidedChatEnabled]);
+  }, [
+    appendAssistantMessage,
+    guidedConversationId,
+    isGuidedChatEnabled,
+    resolveGuidedExtractionContext,
+    runGuidedExtraction,
+  ]);
 
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {
@@ -1924,6 +2036,92 @@ export default function ExactVirtualAssistantPM() {
       previewDocType,
       setFieldStates,
     ],
+  );
+
+  const applyVoiceExtractionToDraft = useCallback(
+    (fields) => {
+      if (previewDocType !== "charter") {
+        return null;
+      }
+      if (!fields || typeof fields !== "object") {
+        return null;
+      }
+
+      const entries = Object.entries(fields);
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const baseDraft =
+        charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const diff = {};
+
+      for (const [key, value] of entries) {
+        if (typeof key !== "string") {
+          continue;
+        }
+        const currentValue =
+          baseDraft && typeof baseDraft === "object" && key in baseDraft
+            ? baseDraft[key]
+            : undefined;
+        if (!valuesEqual(currentValue, value)) {
+          diff[key] = value;
+        }
+      }
+
+      if (Object.keys(diff).length === 0) {
+        return null;
+      }
+
+      const pointerLocksSnapshot =
+        pointerLocksRef.current instanceof Map ? pointerLocksRef.current : new Map();
+      const { draft: finalDraft, updatedPaths, metadataByPointer, updatedAt } =
+        mergeIntoDraftWithLocks(baseDraft, diff, pointerLocksSnapshot, {
+          source: "Voice",
+          updatedAt: Date.now(),
+        });
+
+      if (!updatedPaths || updatedPaths.size === 0) {
+        return null;
+      }
+
+      charterDraftRef.current = finalDraft;
+      draftActions.setDraft(finalDraft);
+
+      const timestamp =
+        typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
+      const locksSnapshot = locksRef.current || {};
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths: updatedPaths,
+          source: "Voice",
+          timestamp,
+          locks: locksSnapshot,
+          pending: true,
+        }),
+      );
+
+      const annotatedMetadata = new Map();
+      metadataByPointer.forEach((value, pointer) => {
+        const entry = value && typeof value === "object" ? value : {};
+        annotatedMetadata.set(pointer, {
+          ...entry,
+          source: "Voice",
+          updatedAt: timestamp,
+          pending: true,
+        });
+      });
+
+      recordDraftMetadata({
+        paths: annotatedMetadata,
+        source: "Voice",
+        updatedAt: timestamp,
+      });
+
+      return finalDraft;
+    },
+    [createBlankDraft, previewDocType, recordDraftMetadata, setFieldStates],
   );
 
   const flushGuidedAnswers = useCallback(() => {
@@ -3008,105 +3206,7 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  const blobToBase64 = (blob) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result === "string") {
-          resolve(result.split(",")[1] || "");
-        } else {
-          reject(new Error("Unexpected FileReader result"));
-        }
-      };
-      reader.onerror = () => reject(reader.error || new Error("FileReader error"));
-      reader.readAsDataURL(blob);
-    });
-
-  const startRecording = async () => {
-    if (rec) return;
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      dispatch("VOICE_START");
-      const preferredMime =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
-          ? MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : MediaRecorder.isTypeSupported("audio/mp4")
-              ? "audio/mp4"
-              : ""
-          : "";
-      const recorder = preferredMime
-        ? new MediaRecorder(stream, { mimeType: preferredMime })
-        : new MediaRecorder(stream);
-      const chunks = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        try {
-          const blob = new Blob(chunks, { type: recorder.mimeType || preferredMime || "audio/webm" });
-          const audioBase64 = await blobToBase64(blob);
-          const res = await fetch("/api/transcribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audioBase64, mimeType: (blob.type || "").split(";")[0] }),
-          });
-          const data = await res.json().catch(() => ({}));
-          const transcript = data?.transcript ?? data?.text ?? "";
-          const trimmedTranscript = typeof transcript === "string" ? transcript.trim() : "";
-          if (trimmedTranscript) {
-            const handled = await handleCommandFromText(trimmedTranscript);
-            if (!handled) {
-              const currentDraft = chatStoreApi.getState().composerDraft;
-              chatActions.setComposerDraft(
-                currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
-              );
-            }
-          }
-        } catch (error) {
-          console.error("Transcription failed", error);
-        } finally {
-          if (stream) {
-            stream.getTracks().forEach((track) => track.stop());
-          }
-          setRec(null);
-          voiceActions.setStatus("idle");
-          dispatch("VOICE_STOP");
-        }
-      };
-
-      recorder.start();
-      setRec(recorder);
-      voiceActions.setStatus("listening");
-    } catch (error) {
-      console.error("Microphone access denied", error);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      setRec(null);
-      voiceActions.setStatus("idle");
-      dispatch("VOICE_STOP");
-    }
-  };
-
-  const stopRecording = () => {
-    if (!rec) return;
-    try {
-      rec.stop();
-      rec.stream?.getTracks().forEach((track) => track.stop());
-    } catch (error) {
-      console.error("Error stopping recorder", error);
-    } finally {
-      setRec(null);
-      voiceActions.setStatus("idle");
-    }
-  };
+  
   const handleCommandFromText = useCallback(
     async (
       rawText,
@@ -3237,6 +3337,32 @@ const resolveDocTypeForManualSync = useCallback(
       syncDocFromChat,
     ]
   );
+
+  const handleSpeechTranscript = useCallback(
+    async (rawTranscript) => {
+      const trimmedTranscript =
+        typeof rawTranscript === "string" ? rawTranscript.trim() : "";
+      if (!trimmedTranscript) {
+        return;
+      }
+
+      const handled = await handleCommandFromText(trimmedTranscript);
+      if (!handled) {
+        const currentDraft = chatStoreApi.getState().composerDraft;
+        chatActions.setComposerDraft(
+          currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
+        );
+      }
+    },
+    [handleCommandFromText],
+  );
+
+  const { startRecording, stopRecording } = useSpeechInput({
+    onTranscript: handleSpeechTranscript,
+    onError: (error) => {
+      console.error("Transcription failed", error);
+    },
+  });
 
   const submitChatTurn = useCallback(
     async (rawText, { source }) => {
@@ -3528,12 +3654,42 @@ const resolveDocTypeForManualSync = useCallback(
 
       voiceActions.setStatus("transcribing");
       try {
-        await submitChatTurn(trimmed, { source: "voice" });
+        chatActions.pushUser(trimmed);
+        messagesRef.current = chatStoreApi.getState().messages;
+
+        const voiceResult = await runVoiceFieldExtraction({
+          docType: previewDocType,
+          messages: messagesRef.current,
+          attachments: attachmentsRef.current,
+          voice: nextVoice,
+          seed: charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft(),
+        });
+
+        if (voiceResult?.ok && voiceResult.fields) {
+          applyVoiceExtractionToDraft(voiceResult.fields);
+        } else if (voiceResult?.reason === "empty") {
+          pushToast({
+            tone: "info",
+            message: "Voice transcript captured—review and confirm in the preview.",
+          });
+        } else if (voiceResult?.reason && voiceResult.reason !== "skipped") {
+          console.error("Voice field extraction failed", voiceResult);
+          pushToast({
+            tone: "error",
+            message: "Unable to process the voice transcript. Please review and try again.",
+          });
+        }
       } finally {
         voiceActions.setStatus("idle");
       }
     },
-    [submitChatTurn]
+    [
+      applyVoiceExtractionToDraft,
+      createBlankDraft,
+      previewDocType,
+      pushToast,
+      runVoiceFieldExtraction,
+    ]
   );
 
   useEffect(() => {

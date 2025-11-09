@@ -87,12 +87,13 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 
 ## Speech-to-text – `POST /api/transcribe`
 - **Body**
-  ```json
-  {
-    "audioBase64": "<base64 string>",
-    "mimeType": "audio/webm"
-  }
-  ```
+  - `multipart/form-data` payload with an `audio` file field. Optional `mimeType` field can hint the codec if the browser omits it.
+  - Example `curl` snippet:
+    ```bash
+    curl -X POST http://localhost:3000/api/transcribe \
+      -F "audio=@clip.webm" \
+      -F "mimeType=audio/webm"
+    ```
 - **Response**
   ```json
   {

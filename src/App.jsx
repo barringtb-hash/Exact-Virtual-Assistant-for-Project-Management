@@ -8,6 +8,7 @@ import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
 import normalizeCharter from "../lib/charter/normalize.js";
 import useBackgroundExtraction, { onFileAttached } from "./hooks/useBackgroundExtraction";
+import { useSpeechInput } from "./hooks/useSpeechInput.ts";
 import mergeIntoDraftWithLocks from "./lib/preview/mergeIntoDraftWithLocks.js";
 import {
   handleSyncCommand,
@@ -1266,7 +1267,6 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
-  const [rec, setRec] = useState(null);
   const [rtcState, setRtcState] = useState("idle");
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -2990,105 +2990,7 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  const blobToBase64 = (blob) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result === "string") {
-          resolve(result.split(",")[1] || "");
-        } else {
-          reject(new Error("Unexpected FileReader result"));
-        }
-      };
-      reader.onerror = () => reject(reader.error || new Error("FileReader error"));
-      reader.readAsDataURL(blob);
-    });
-
-  const startRecording = async () => {
-    if (rec) return;
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      dispatch("VOICE_START");
-      const preferredMime =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
-          ? MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : MediaRecorder.isTypeSupported("audio/mp4")
-              ? "audio/mp4"
-              : ""
-          : "";
-      const recorder = preferredMime
-        ? new MediaRecorder(stream, { mimeType: preferredMime })
-        : new MediaRecorder(stream);
-      const chunks = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        try {
-          const blob = new Blob(chunks, { type: recorder.mimeType || preferredMime || "audio/webm" });
-          const audioBase64 = await blobToBase64(blob);
-          const res = await fetch("/api/transcribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audioBase64, mimeType: (blob.type || "").split(";")[0] }),
-          });
-          const data = await res.json().catch(() => ({}));
-          const transcript = data?.transcript ?? data?.text ?? "";
-          const trimmedTranscript = typeof transcript === "string" ? transcript.trim() : "";
-          if (trimmedTranscript) {
-            const handled = await handleCommandFromText(trimmedTranscript);
-            if (!handled) {
-              const currentDraft = chatStoreApi.getState().composerDraft;
-              chatActions.setComposerDraft(
-                currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
-              );
-            }
-          }
-        } catch (error) {
-          console.error("Transcription failed", error);
-        } finally {
-          if (stream) {
-            stream.getTracks().forEach((track) => track.stop());
-          }
-          setRec(null);
-          voiceActions.setStatus("idle");
-          dispatch("VOICE_STOP");
-        }
-      };
-
-      recorder.start();
-      setRec(recorder);
-      voiceActions.setStatus("listening");
-    } catch (error) {
-      console.error("Microphone access denied", error);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      setRec(null);
-      voiceActions.setStatus("idle");
-      dispatch("VOICE_STOP");
-    }
-  };
-
-  const stopRecording = () => {
-    if (!rec) return;
-    try {
-      rec.stop();
-      rec.stream?.getTracks().forEach((track) => track.stop());
-    } catch (error) {
-      console.error("Error stopping recorder", error);
-    } finally {
-      setRec(null);
-      voiceActions.setStatus("idle");
-    }
-  };
+  
   const handleCommandFromText = useCallback(
     async (
       rawText,
@@ -3219,6 +3121,32 @@ const resolveDocTypeForManualSync = useCallback(
       syncDocFromChat,
     ]
   );
+
+  const handleSpeechTranscript = useCallback(
+    async (rawTranscript) => {
+      const trimmedTranscript =
+        typeof rawTranscript === "string" ? rawTranscript.trim() : "";
+      if (!trimmedTranscript) {
+        return;
+      }
+
+      const handled = await handleCommandFromText(trimmedTranscript);
+      if (!handled) {
+        const currentDraft = chatStoreApi.getState().composerDraft;
+        chatActions.setComposerDraft(
+          currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
+        );
+      }
+    },
+    [handleCommandFromText],
+  );
+
+  const { startRecording, stopRecording } = useSpeechInput({
+    onTranscript: handleSpeechTranscript,
+    onError: (error) => {
+      console.error("Transcription failed", error);
+    },
+  });
 
   const submitChatTurn = useCallback(
     async (rawText, { source }) => {

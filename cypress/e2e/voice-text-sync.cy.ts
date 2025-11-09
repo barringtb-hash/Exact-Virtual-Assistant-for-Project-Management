@@ -4,6 +4,12 @@ const START_URL = '**/guided/charter/start*';
 const MESSAGE_URL = '**/guided/charter/messages';
 
 describe('Guided charter backend voice + text sync', () => {
+  const FORCE_REMOTE = {
+    GUIDED_BACKEND_ON: true,
+    CHARTER_GUIDED_BACKEND_ENABLED: true,
+    SAFE_MODE: false,
+  } as const;
+
   const slotMetadata = [
     {
       slot_id: 'project_name',
@@ -254,14 +260,11 @@ describe('Guided charter backend voice + text sync', () => {
   };
 
   const loadApp = () => {
-    cy.waitForAppReady();
-    cy.window()
-      .its('__E2E_FLAGS__')
-      .should((flags) => {
-        expect(flags, '__E2E_FLAGS__').to.exist;
-        expect(flags.SAFE_MODE, 'SAFE_MODE flag').to.equal(false);
-        expect(flags.GUIDED_BACKEND_ON, 'GUIDED_BACKEND_ON flag').to.equal(true);
-      });
+    // Force remote guided at boot, regardless of CI env
+    cy.waitForAppReady(FORCE_REMOTE);
+
+    // Assert final app-visible flags (source of truth)
+    cy.window().its('__APP_FLAGS__').its('GUIDED_BACKEND_ON').should('eq', true);
     noopEventSource();
     cy.get('[data-testid="btn-start-charter"]').should('be.visible');
   };

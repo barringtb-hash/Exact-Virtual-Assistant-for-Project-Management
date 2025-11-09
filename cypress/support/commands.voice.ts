@@ -3,7 +3,13 @@ const TEST_ID_SELECTOR = (testId: string) => `[data-testid="${testId}"]`;
 declare global {
   namespace Cypress {
     interface Chainable {
-      waitForAppReady(): Chainable<void>;
+      // Optional overrides let a spec force flags at boot time.
+      waitForAppReady(overrides?: Partial<{
+        GUIDED_BACKEND_ON: boolean;
+        CHARTER_GUIDED_BACKEND_ENABLED: boolean;
+        SAFE_MODE: boolean;
+      }>): Chainable<void>;
+      visitWithFlags(path?: string, flags?: Record<string, unknown>): Chainable<void>;
       getByTestId<E extends Node = HTMLElement>(
         testId: string,
         options?: Partial<
@@ -21,38 +27,85 @@ declare global {
   }
 }
 
-Cypress.Commands.add("waitForAppReady", () => {
-  cy.visit("/");
+if (!(Cypress as any).env("__visitWithFlagsAdded__")) {
+  Cypress.Commands.add("visitWithFlags", (path = "/", flags: Record<string, unknown> = {}) => {
+    return cy.visit(path, {
+      onBeforeLoad(win) {
+        (win as any).__E2E_FLAGS__ = { ...(flags || {}) };
 
-  cy.document().its("readyState").should("eq", "complete");
-
-  cy.get("body", { timeout: 20000 }).should(($body) => {
-    if ($body.children().length === 0) {
-      Cypress.log({
-        name: "app DOM",
-        message: $body.html() ?? "<empty body>",
-      });
-
-      throw new Error("App body is empty after load");
-    }
+        if (typeof (flags as any).GUIDED_BACKEND_ON !== "undefined") {
+          try {
+            win.localStorage.setItem(
+              "guidedBackend",
+              String((flags as any).GUIDED_BACKEND_ON),
+            );
+          } catch (error) {
+            Cypress.log({
+              name: "visitWithFlags",
+              message: `Failed to persist guidedBackend flag: ${String(error)}`,
+            });
+          }
+        }
+      },
+    });
   });
 
-  cy.getByTestId("app-ready", { timeout: 20000 }).should(($beacon) => {
-    if ($beacon.length === 0) {
-      const body = Cypress.$("body");
-      Cypress.log({
-        name: "app DOM",
-        message: body.html() ?? "<empty body>",
-      });
+  Cypress.env("__visitWithFlagsAdded__", true);
+}
 
-      throw new Error("App readiness beacon not found");
-    }
-  });
+Cypress.Commands.add(
+  "waitForAppReady",
+  (overrides?: Partial<{
+    GUIDED_BACKEND_ON: boolean;
+    CHARTER_GUIDED_BACKEND_ENABLED: boolean;
+    SAFE_MODE: boolean;
+  }>) => {
+    const base: Record<string, boolean> = {
+      GUIDED_BACKEND_ON: true,
+      CHARTER_GUIDED_BACKEND_ENABLED: true,
+      SAFE_MODE: false,
+    };
+    const flags = { ...base, ...(overrides || {}) };
 
-  cy.getByTestId("app-header", { timeout: 20000 }).should("exist");
-  cy.getByTestId("composer-root", { timeout: 20000 }).should("exist");
-  cy.getComposerInput().should("exist");
-});
+    cy.visitWithFlags("/", flags);
+
+    cy.document().its("readyState").should("eq", "complete");
+
+    cy.get("body", { timeout: 20000 }).should(($body) => {
+      if ($body.children().length === 0) {
+        Cypress.log({
+          name: "app DOM",
+          message: $body.html() ?? "<empty body>",
+        });
+
+        throw new Error("App body is empty after load");
+      }
+    });
+
+    cy.getByTestId("app-ready", { timeout: 20000 }).should(($beacon) => {
+      if ($beacon.length === 0) {
+        const body = Cypress.$("body");
+        Cypress.log({
+          name: "app DOM",
+          message: body.html() ?? "<empty body>",
+        });
+
+        throw new Error("App readiness beacon not found");
+      }
+    });
+
+    cy.getByTestId("app-header", { timeout: 20000 }).should("exist");
+    cy.getByTestId("composer-root", { timeout: 20000 }).should("exist");
+    cy.getComposerInput().should("exist");
+
+    cy.window().its("__APP_FLAGS__").should("exist");
+    cy
+      .window()
+      .its("__APP_FLAGS__")
+      .its("GUIDED_BACKEND_ON")
+      .should("eq", flags.GUIDED_BACKEND_ON);
+  },
+);
 
 Cypress.Commands.add(
   "getByTestId",

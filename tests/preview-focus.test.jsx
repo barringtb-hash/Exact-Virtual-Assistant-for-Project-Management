@@ -6,12 +6,14 @@ import userEvent from "@testing-library/user-event";
 
 import { installDomEnvironment } from "./helpers/domEnvironment.js";
 
+const importFreshFlags = async () => {
+  const moduleUrl = new URL("../src/config/flags.ts", import.meta.url);
+  moduleUrl.search = `?cacheBust=${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return import(moduleUrl.href);
+};
+
 test("Preview focus - renders preview full width when shouldShowPreview=true and FLAGS.PREVIEW_FOCUS_ENABLED=true", async (t) => {
   const { cleanup: cleanupDom } = installDomEnvironment();
-
-  // Mock the FLAGS module to enable preview focus
-  const flagsModule = await import("../src/config/flags.ts");
-  const originalFlags = { ...flagsModule.FLAGS };
 
   // Override flags for this test
   if (typeof globalThis !== "undefined") {
@@ -34,7 +36,7 @@ test("Preview focus - renders preview full width when shouldShowPreview=true and
   // rendering the entire App component with proper mocks for all dependencies
   // which is complex. For now, we verify the flag structure exists.
 
-  const { FLAGS } = await import("../src/config/flags.ts");
+  const { FLAGS } = await importFreshFlags();
 
   assert.strictEqual(typeof FLAGS.PREVIEW_FOCUS_ENABLED, "boolean", "PREVIEW_FOCUS_ENABLED flag should exist");
   assert.strictEqual(typeof FLAGS.CHAT_OVERLAY_ON_PREVIEW, "boolean", "CHAT_OVERLAY_ON_PREVIEW flag should exist");
@@ -62,7 +64,7 @@ test("Preview focus - chat overlay has fixed positioning when enabled", async (t
   // Note: Testing the actual rendering would require mocking the entire App component
   // and its dependencies. This test verifies the flag configuration.
 
-  const { FLAGS } = await import("../src/config/flags.ts");
+  const { FLAGS } = await importFreshFlags();
 
   assert.strictEqual(FLAGS.PREVIEW_FOCUS_ENABLED, true, "Preview focus should be enabled");
   assert.strictEqual(FLAGS.CHAT_OVERLAY_ON_PREVIEW, true, "Chat overlay should be enabled");
@@ -87,7 +89,7 @@ test("Preview focus - flags can be disabled for rollback", async (t) => {
     }
   });
 
-  const { FLAGS } = await import("../src/config/flags.ts");
+  const { FLAGS } = await importFreshFlags();
 
   assert.strictEqual(FLAGS.PREVIEW_FOCUS_ENABLED, false, "Preview focus should be disabled");
   assert.strictEqual(FLAGS.CHAT_OVERLAY_ON_PREVIEW, false, "Chat overlay should be disabled");

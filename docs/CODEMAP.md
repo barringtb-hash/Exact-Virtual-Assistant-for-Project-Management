@@ -19,6 +19,7 @@
   - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer.
 - `src/components/PreviewEditable.jsx`
   - Editable charter form that drives the preview panel. Field edits immediately update the draft and mark the associated path as locked to prevent overwriting during extraction.
+  - **Readability v1**: Enhanced with larger labels (text-sm), inputs (text-base, 16px), better contrast borders (gray-300), and visual section grouping with borders/padding.
 - `src/hooks/useBackgroundExtraction.js`
   - Exposes a `trigger()` method that runs charter extraction **only** when called. All automatic/debounced watchers have been removed.
   - Handles the network request to `/api/documents/extract`, merges unlocked fields into the draft, and surfaces errors in the UI.
@@ -28,6 +29,8 @@
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
 - `src/index.css`
   - Tailwind base layers plus app-specific utility overrides (scroll containers, font smoothing, etc.).
+  - **Readability v1**: CSS custom properties for consistent theming (--eva-text-*, --eva-surface-*, etc.) and chat bubble styles with 16px base font size.
+  - Chat messages constrained to max-width ~70ch for optimal readability (see `src/chat/ChatMessageBubble.tsx`).
 
 ## Serverless API (`api/`)
 - `api/documents/extract.js`

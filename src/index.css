@@ -5,7 +5,29 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root { height: 100%; }
+:root {
+  /* Text */
+  --eva-text-strong: #1f2937;     /* gray-800 */
+  --eva-text-default: #374151;    /* gray-700 */
+  --eva-text-subtle: #6b7280;     /* gray-500 */
+  --eva-text-placeholder: #9ca3af;/* gray-400 */
+
+  /* Surfaces & borders */
+  --eva-surface: #ffffff;
+  --eva-surface-muted: #f6f7f9;
+  --eva-border-subtle: #e5e7eb;
+
+  /* Accent */
+  --eva-accent: #4f46e5;
+  --eva-accent-strong: #4338ca;
+}
+
+html {
+  font-size: 16px;
+  height: 100%;
+}
+
+body, #root { height: 100%; }
 
 body.eva-e2e-mode *,
 body.eva-e2e-mode *::before,
@@ -97,4 +119,38 @@ ol.assistant-feedback-list {
 .eva-chat-message-retry:focus-visible {
   background-color: rgba(220, 38, 38, 0.08);
   outline: none;
+}
+
+/* Readability upgrade v1: Chat styles */
+.eva-chat-message {
+  margin-bottom: 1rem;
+}
+
+.eva-chat-message .eva-chat-message-bubble {
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;     /* 16px */
+  line-height: 1.6;
+}
+
+.eva-chat-message--assistant .eva-chat-message-bubble {
+  background-color: #f3f4f6;  /* gray-100 */
+  border: 1px solid #d1d5db;  /* gray-300 */
+  color: #374151;             /* gray-700 */
+}
+
+.eva-chat-message--user .eva-chat-message-bubble {
+  background-color: #111827;  /* gray-900 */
+  color: white;
+  border: 1px solid #111827;
+}
+
+.eva-chat-typing {
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.eva-chat-typing-dot {
+  width: 0.35rem;
+  height: 0.35rem;
 }

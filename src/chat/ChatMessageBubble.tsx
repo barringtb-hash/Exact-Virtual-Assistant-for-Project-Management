@@ -1,6 +1,7 @@
 import React from "react";
 
 import type { ChatMessage } from "./ChatContext.js";
+import { FLAGS } from "../config/flags.ts";
 
 export interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -29,7 +30,7 @@ export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
   return (
     <div className={`eva-chat-message eva-chat-message--${role}`}>
       <div className="eva-chat-message-bubble">
-        <div className="eva-chat-message-content">
+        <div className={`eva-chat-message-content${FLAGS.READABILITY_V1 ? ' max-w-[70ch]' : ''}`}>
           {content}
           {isAssistant && pending ? <TypingIndicator label={typingIndicatorLabel} /> : null}
         </div>

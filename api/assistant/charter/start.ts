@@ -53,7 +53,7 @@ function sendError(res: ApiResponse, error: unknown) {
   res.status(500).json({ ok: false, error: "internal_error" });
 }
 
-export default function handler(req: ApiRequest, res: ApiResponse) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     res.status(405).json({ ok: false, error: "method_not_allowed" });
@@ -64,7 +64,7 @@ export default function handler(req: ApiRequest, res: ApiResponse) {
     const body = parseBody(req);
     const correlationId = sanitizeCorrelationId(body?.correlation_id);
 
-    const result = startConversation({ correlationId });
+    const result = await startConversation({ correlationId });
     const slots = getSlotDescriptors();
 
     res.status(200).json({

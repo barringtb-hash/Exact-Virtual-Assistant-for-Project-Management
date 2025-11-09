@@ -206,46 +206,7 @@ describe('Guided charter backend voice + text sync', () => {
         return;
       }
 
-      if (source === 'voice') {
-        expect(message).to.eq('Voice sponsor update');
-        req.reply({
-          body: buildResponse([
-            {
-              event_id: 'evt-voice-sponsor',
-              type: 'assistant_prompt',
-              message: 'Saved Sponsor.',
-            },
-            {
-              event_id: 'evt-voice-slot',
-              type: 'slot_update',
-              status: 'collecting',
-              current_slot_id: 'project_lead',
-              slots: [
-                {
-                  slot_id: 'project_name',
-                  status: 'confirmed',
-                  value: 'North Star Initiative',
-                  confirmed_value: 'North Star Initiative',
-                },
-                {
-                  slot_id: 'sponsor',
-                  status: 'confirmed',
-                  value: 'Voice sponsor update',
-                  confirmed_value: 'Voice sponsor update',
-                  last_updated_at: new Date().toISOString(),
-                },
-                { slot_id: 'project_lead', status: 'awaiting_input' },
-              ],
-            },
-            {
-              event_id: 'evt-voice-prompt',
-              type: 'assistant_prompt',
-              message: 'Project Lead (required). Who is leading the project day to day?',
-            },
-          ]),
-        });
-        return;
-      }
+      expect(source, 'message source').to.not.eq('voice');
 
       req.reply({
         body: buildResponse([]),
@@ -317,8 +278,28 @@ describe('Guided charter backend voice + text sync', () => {
 
     cy.assertMicPressed(true);
 
+    cy.intercept('POST', '**/api/**/extract', (req) => {
+      const voiceEvents = req.body?.voice;
+      if (Array.isArray(voiceEvents) && voiceEvents.length > 0) {
+        req.alias = 'voiceExtract';
+        const latest = voiceEvents[voiceEvents.length - 1]?.text;
+        expect(latest, 'voice payload').to.eq('Voice sponsor update');
+        req.reply({
+          body: {
+            ok: true,
+            draft: { sponsor: 'Voice sponsor update' },
+          },
+        });
+        return;
+      }
+
+      req.continue();
+    });
+
     cy.submitComposer('North Star Initiative');
     cy.wait('@charterMessage', { timeout: 20000 });
+
+    cy.get('[data-testid="assistant-message"]').its('length').as('assistantCountBefore');
 
     cy.window().then(async (win) => {
       const testWindow = win as Window & {
@@ -331,11 +312,14 @@ describe('Guided charter backend voice + text sync', () => {
       await testWindow.__simulateGuidedVoiceFinal?.('Voice sponsor update');
     });
 
-    cy.wait('@charterMessage', { timeout: 20000 }).then((interception) => {
-      expect(interception.request?.body?.source).to.eq('voice');
+    cy.wait('@voiceExtract', { timeout: 20000 });
+
+    cy.get('@assistantCountBefore').then((countBefore) => {
+      const before = Number(countBefore);
+      cy.get('[data-testid="assistant-message"]').should('have.length', before);
     });
 
-    cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('not.exist');
     cy.getByTestId('preview-field-sponsor').should('have.value', 'Voice sponsor update');
     cy.assertMicPressed(false);
   });

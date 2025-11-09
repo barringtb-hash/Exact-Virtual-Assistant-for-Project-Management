@@ -11,6 +11,25 @@ const projectRoot = process.cwd();
 const templatesDir = path.join(projectRoot, "templates");
 const originalReadFile = fs.readFile.bind(fs);
 
+function ensureOpenAIResponseQueue() {
+  if (!process.__OPENAI_MOCK_RESPONSES) {
+    process.__OPENAI_MOCK_RESPONSES = [];
+  }
+  return process.__OPENAI_MOCK_RESPONSES;
+}
+
+async function withOpenAIResponse(handler, run) {
+  const queue = ensureOpenAIResponseQueue();
+  const previous = queue.slice();
+  queue.push(handler);
+  try {
+    await run();
+  } finally {
+    queue.length = 0;
+    queue.push(...previous);
+  }
+}
+
 async function withIntentFlag(value, run) {
   const original = process.env.INTENT_ONLY_EXTRACTION;
   try {
@@ -418,57 +437,74 @@ test("/api/documents/extract returns charter payload and records audit metadata"
     infoLogs.push(args);
   };
 
-  await withIntentFlag("true", async () => {
-    await withStubbedReadFile(
-      fs,
-      async (filePath, encoding) => {
-        if (encoding !== "utf8") {
-          return originalReadFile(filePath, encoding);
-        }
-        promptCalls.push(filePath);
-        if (filePath.endsWith(path.join("charter", "extract_prompt.txt"))) {
-          const error = new Error("not found");
-          error.code = "ENOENT";
-          throw error;
-        }
-        if (filePath.endsWith("extract_prompt.charter.txt")) {
-          const error = new Error("not found");
-          error.code = "ENOENT";
-          throw error;
-        }
-        if (filePath.endsWith("extract_prompt.txt")) {
-          return "Charter fallback prompt";
-        }
-        if (filePath.endsWith(path.join("charter", "metadata.json"))) {
-          return JSON.stringify({ label: "Charter" });
-        }
-        return originalReadFile(filePath, encoding);
-      },
-      async () => {
-        await extractHandler(
-          {
-            method: "POST",
-            query: { docType: "charter" },
-            body: {
-              docType: "charter",
-              attachments: [],
-              messages: [
-                {
-                  role: "user",
-                  text: "Please create a comprehensive project charter for the Phoenix initiative including goals and scope.",
-                },
-              ],
-              docTypeDetection: { type: "charter", confidence: 0.92 },
-              intent: "create_charter",
-              intentSource: "user-provided",
-              intentReason: "User triggered extraction",
-            },
+  const openAIResponse = {
+    status: "ok",
+    fields: { project_title: "Phoenix Initiative" },
+    warnings: [],
+  };
+
+  await withOpenAIResponse(
+    async () => ({
+      choices: [
+        {
+          message: { content: JSON.stringify(openAIResponse) },
+        },
+      ],
+    }),
+    async () => {
+      await withIntentFlag("true", async () => {
+        await withStubbedReadFile(
+          fs,
+          async (filePath, encoding) => {
+            if (encoding !== "utf8") {
+              return originalReadFile(filePath, encoding);
+            }
+            promptCalls.push(filePath);
+            if (filePath.endsWith(path.join("charter", "extract_prompt.txt"))) {
+              const error = new Error("not found");
+              error.code = "ENOENT";
+              throw error;
+            }
+            if (filePath.endsWith("extract_prompt.charter.txt")) {
+              const error = new Error("not found");
+              error.code = "ENOENT";
+              throw error;
+            }
+            if (filePath.endsWith("extract_prompt.txt")) {
+              return "Charter fallback prompt";
+            }
+            if (filePath.endsWith(path.join("charter", "metadata.json"))) {
+              return JSON.stringify({ label: "Charter" });
+            }
+            return originalReadFile(filePath, encoding);
           },
-          res
+          async () => {
+            await extractHandler(
+              {
+                method: "POST",
+                query: { docType: "charter" },
+                body: {
+                  docType: "charter",
+                  attachments: [],
+                  messages: [
+                    {
+                      role: "user",
+                      text: "Please create a comprehensive project charter for the Phoenix initiative including goals and scope.",
+                    },
+                  ],
+                  docTypeDetection: { type: "charter", confidence: 0.92 },
+                  intent: "create_charter",
+                  intentSource: "user-provided",
+                  intentReason: "User triggered extraction",
+                },
+              },
+              res
+            );
+          }
         );
-      }
-    );
-  });
+      });
+    }
+  );
 
   console.info = originalInfo;
   globalThis.__analyticsHook__ = originalHook;
@@ -498,20 +534,37 @@ test("/api/documents/extract returns charter payload and records audit metadata"
 test("/api/documents/extract prefers ddp assets when requested", async () => {
   const readCalls = [];
   const res = createMockResponse();
-  await withStubbedReadFile(
-    fs,
-    async (filePath, encoding) => {
-      readCalls.push(filePath);
-      return originalReadFile(filePath, encoding);
-    },
-    async () => {
-      await extractHandler(
+  const openAIResponse = {
+    status: "ok",
+    fields: { project_name: "Phoenix" },
+    warnings: [],
+  };
+
+  await withOpenAIResponse(
+    async () => ({
+      choices: [
         {
-          method: "POST",
-          query: { docType: "ddp" },
-          body: { docType: "ddp", attachments: [], messages: [] },
+          message: { content: JSON.stringify(openAIResponse) },
         },
-        res
+      ],
+    }),
+    async () => {
+      await withStubbedReadFile(
+        fs,
+        async (filePath, encoding) => {
+          readCalls.push(filePath);
+          return originalReadFile(filePath, encoding);
+        },
+        async () => {
+          await extractHandler(
+            {
+              method: "POST",
+              query: { docType: "ddp" },
+              body: { docType: "ddp", attachments: [], messages: [] },
+            },
+            res
+          );
+        }
       );
     }
   );
@@ -531,25 +584,42 @@ test("/api/documents/extract derives intent from the last user message", async (
     analyticsEvents.push({ event, payload });
   };
 
-  await withIntentFlag("true", async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "charter" },
-        body: {
-          docType: "charter",
-          attachments: [],
-          messages: [
-            {
-              role: "user",
-              text: "Can you draft a new project charter for the Apollo marketing launch with milestones?",
-            },
-          ],
+  const openAIResponse = {
+    status: "ok",
+    fields: { project_title: "Apollo Marketing Launch" },
+    warnings: [],
+  };
+
+  await withOpenAIResponse(
+    async () => ({
+      choices: [
+        {
+          message: { content: JSON.stringify(openAIResponse) },
         },
-      },
-      res
-    );
-  });
+      ],
+    }),
+    async () => {
+      await withIntentFlag("true", async () => {
+        await extractHandler(
+          {
+            method: "POST",
+            query: { docType: "charter" },
+            body: {
+              docType: "charter",
+              attachments: [],
+              messages: [
+                {
+                  role: "user",
+                  text: "Can you draft a new project charter for the Apollo marketing launch with milestones?",
+                },
+              ],
+            },
+          },
+          res
+        );
+      });
+    }
+  );
 
   globalThis.__analyticsHook__ = originalHook;
 
@@ -665,26 +735,42 @@ test("/api/documents/extract enforces context guard even in legacy mode", async 
 
 test("/api/documents/extract allows legacy flow without intent when disabled", async () => {
   const res = createMockResponse();
+  const openAIResponse = {
+    status: "ok",
+    fields: { project_title: "Horizon Initiative" },
+    warnings: [],
+  };
 
-  await withIntentFlag("false", async () => {
-    await extractHandler(
-      {
-        method: "POST",
-        query: { docType: "charter" },
-        body: {
-          docType: "charter",
-          attachments: [],
-          messages: [
-            {
-              role: "user",
-              text: "Please prepare a detailed project charter for the Horizon initiative by Friday.",
-            },
-          ],
+  await withOpenAIResponse(
+    async () => ({
+      choices: [
+        {
+          message: { content: JSON.stringify(openAIResponse) },
         },
-      },
-      res
-    );
-  });
+      ],
+    }),
+    async () => {
+      await withIntentFlag("false", async () => {
+        await extractHandler(
+          {
+            method: "POST",
+            query: { docType: "charter" },
+            body: {
+              docType: "charter",
+              attachments: [],
+              messages: [
+                {
+                  role: "user",
+                  text: "Please prepare a detailed project charter for the Horizon initiative by Friday.",
+                },
+              ],
+            },
+          },
+          res
+        );
+      });
+    }
+  );
 
   assert.equal(res.statusCode, 200);
 });

@@ -65,7 +65,8 @@ const sessions = new Map<string, SessionContext>();
 
 interface IdempotentEntry {
   expiresAt: number;
-  result: InteractionResult;
+  promise: Promise<InteractionResult>;
+  result?: InteractionResult;
 }
 
 const idempotencyMap = new Map<string, IdempotentEntry>();
@@ -794,16 +795,33 @@ async function withIdempotency(
     const cacheKey = getIdempotencyKey(options.conversationId, correlationId);
     const cached = idempotencyMap.get(cacheKey);
     if (cached && cached.expiresAt > now) {
-      const snapshot = cloneInteractionResult(cached.result);
-      return { ...snapshot, idempotent: true };
+      return cached.promise.then((result) => {
+        const baseResult = cached.result ?? result;
+        const snapshot = cloneInteractionResult(baseResult);
+        return { ...snapshot, idempotent: true };
+      });
     }
     const session = ensureSession(options.conversationId, helperOptions);
-    const result = await compute(session);
-    idempotencyMap.set(cacheKey, {
+    const computePromise = (async () => {
+      const result = await compute(session);
+      return cloneInteractionResult(result);
+    })();
+    const entry: IdempotentEntry = {
       expiresAt: now + IDEMPOTENCY_TTL_MS,
-      result: cloneInteractionResult(result),
-    });
-    return result;
+      promise: computePromise,
+    };
+    computePromise
+      .then((snapshot) => {
+        entry.result = snapshot;
+        entry.expiresAt = Date.now() + IDEMPOTENCY_TTL_MS;
+      })
+      .catch(() => {
+        if (idempotencyMap.get(cacheKey) === entry) {
+          idempotencyMap.delete(cacheKey);
+        }
+      });
+    idempotencyMap.set(cacheKey, entry);
+    return await computePromise;
   }
   const session = ensureSession(options.conversationId, helperOptions);
   return await compute(session);

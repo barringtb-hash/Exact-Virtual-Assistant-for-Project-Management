@@ -56,6 +56,7 @@ import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.
 import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
+import { runVoiceFieldExtraction } from "./features/charter/voiceFieldController.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
@@ -362,7 +363,7 @@ function isPathLocked(locks, path) {
 function synchronizeFieldStates(
   draft,
   prevStates = {},
-  { touchedPaths = new Set(), source, timestamp, locks = {} } = {}
+  { touchedPaths = new Set(), source, timestamp, locks = {}, pending } = {}
 ) {
   const nextStates = {};
   const touched = touchedPaths instanceof Set ? touchedPaths : new Set(touchedPaths);
@@ -383,12 +384,20 @@ function synchronizeFieldStates(
       : typeof prevEntry?.updatedAt === "number"
       ? prevEntry.updatedAt
       : baseNow;
+    const nextPending = isTouched
+      ? typeof pending === "boolean"
+        ? pending
+        : false
+      : typeof prevEntry?.pending === "boolean"
+      ? prevEntry.pending
+      : false;
 
     nextStates[path] = {
       value,
       locked,
       source: nextSource,
       updatedAt: nextUpdatedAt,
+      pending: nextPending,
     };
   });
 
@@ -1912,6 +1921,92 @@ export default function ExactVirtualAssistantPM() {
     ],
   );
 
+  const applyVoiceExtractionToDraft = useCallback(
+    (fields) => {
+      if (previewDocType !== "charter") {
+        return null;
+      }
+      if (!fields || typeof fields !== "object") {
+        return null;
+      }
+
+      const entries = Object.entries(fields);
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const baseDraft =
+        charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const diff = {};
+
+      for (const [key, value] of entries) {
+        if (typeof key !== "string") {
+          continue;
+        }
+        const currentValue =
+          baseDraft && typeof baseDraft === "object" && key in baseDraft
+            ? baseDraft[key]
+            : undefined;
+        if (!valuesEqual(currentValue, value)) {
+          diff[key] = value;
+        }
+      }
+
+      if (Object.keys(diff).length === 0) {
+        return null;
+      }
+
+      const pointerLocksSnapshot =
+        pointerLocksRef.current instanceof Map ? pointerLocksRef.current : new Map();
+      const { draft: finalDraft, updatedPaths, metadataByPointer, updatedAt } =
+        mergeIntoDraftWithLocks(baseDraft, diff, pointerLocksSnapshot, {
+          source: "Voice",
+          updatedAt: Date.now(),
+        });
+
+      if (!updatedPaths || updatedPaths.size === 0) {
+        return null;
+      }
+
+      charterDraftRef.current = finalDraft;
+      draftActions.setDraft(finalDraft);
+
+      const timestamp =
+        typeof updatedAt === "number" && !Number.isNaN(updatedAt) ? updatedAt : Date.now();
+      const locksSnapshot = locksRef.current || {};
+
+      setFieldStates((prevStates) =>
+        synchronizeFieldStates(finalDraft, prevStates, {
+          touchedPaths: updatedPaths,
+          source: "Voice",
+          timestamp,
+          locks: locksSnapshot,
+          pending: true,
+        }),
+      );
+
+      const annotatedMetadata = new Map();
+      metadataByPointer.forEach((value, pointer) => {
+        const entry = value && typeof value === "object" ? value : {};
+        annotatedMetadata.set(pointer, {
+          ...entry,
+          source: "Voice",
+          updatedAt: timestamp,
+          pending: true,
+        });
+      });
+
+      recordDraftMetadata({
+        paths: annotatedMetadata,
+        source: "Voice",
+        updatedAt: timestamp,
+      });
+
+      return finalDraft;
+    },
+    [createBlankDraft, previewDocType, recordDraftMetadata, setFieldStates],
+  );
+
   const flushGuidedAnswers = useCallback(() => {
     if (!guidedState) {
       return null;
@@ -3425,12 +3520,42 @@ const resolveDocTypeForManualSync = useCallback(
 
       voiceActions.setStatus("transcribing");
       try {
-        await submitChatTurn(trimmed, { source: "voice" });
+        chatActions.pushUser(trimmed);
+        messagesRef.current = chatStoreApi.getState().messages;
+
+        const voiceResult = await runVoiceFieldExtraction({
+          docType: previewDocType,
+          messages: messagesRef.current,
+          attachments: attachmentsRef.current,
+          voice: nextVoice,
+          seed: charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft(),
+        });
+
+        if (voiceResult?.ok && voiceResult.fields) {
+          applyVoiceExtractionToDraft(voiceResult.fields);
+        } else if (voiceResult?.reason === "empty") {
+          pushToast({
+            tone: "info",
+            message: "Voice transcript captured—review and confirm in the preview.",
+          });
+        } else if (voiceResult?.reason && voiceResult.reason !== "skipped") {
+          console.error("Voice field extraction failed", voiceResult);
+          pushToast({
+            tone: "error",
+            message: "Unable to process the voice transcript. Please review and try again.",
+          });
+        }
       } finally {
         voiceActions.setStatus("idle");
       }
     },
-    [submitChatTurn]
+    [
+      applyVoiceExtractionToDraft,
+      createBlankDraft,
+      previewDocType,
+      pushToast,
+      runVoiceFieldExtraction,
+    ]
   );
 
   useEffect(() => {

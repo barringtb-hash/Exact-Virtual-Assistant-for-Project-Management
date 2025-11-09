@@ -108,10 +108,16 @@ export function recordDraftMetadata({ paths, source = "AI", updatedAt } = {}) {
         typeof entry.updatedAt === "number" && !Number.isNaN(entry.updatedAt)
           ? entry.updatedAt
           : timestamp;
-      metadataByPath.set(pointer, {
+      const pending = typeof entry.pending === "boolean" ? entry.pending : undefined;
+      const metadataEntry = {
+        ...entry,
         source: entrySource,
         updatedAt: entryUpdatedAt,
-      });
+      };
+      if (typeof pending === "boolean") {
+        metadataEntry.pending = pending;
+      }
+      metadataByPath.set(pointer, metadataEntry);
       highlightedPaths.add(pointer);
       applied = true;
     });
@@ -121,6 +127,7 @@ export function recordDraftMetadata({ paths, source = "AI", updatedAt } = {}) {
       metadataByPath.set(pointer, {
         source,
         updatedAt: timestamp,
+        pending: false,
       });
       highlightedPaths.add(pointer);
       applied = true;

@@ -86,6 +86,8 @@ export const FLAGS = {
   ),
   CYPRESS_SAFE_MODE: readBooleanFlag("VITE_CYPRESS_SAFE_MODE", false),
   PREVIEW_CONDITIONAL_VISIBILITY: readBooleanFlag("VITE_PREVIEW_CONDITIONAL_VISIBILITY", true),
+  // Ensure preview panes can automatically focus interactive elements for better accessibility.
   PREVIEW_FOCUS_ENABLED: readBooleanFlag("VITE_PREVIEW_FOCUS_ENABLED", true),
+  // Display the chat assistant overlay within preview experiences by default.
   CHAT_OVERLAY_ON_PREVIEW: readBooleanFlag("VITE_CHAT_OVERLAY_ON_PREVIEW", true),
 } as const;

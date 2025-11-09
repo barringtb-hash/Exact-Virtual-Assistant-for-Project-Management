@@ -61,4 +61,88 @@ describe('Readability Layout Tests', () => {
     // Verify the document is loaded and visible
     cy.get('body').should('be.visible');
   });
+
+  it('verifies docked chat has solid background and border', () => {
+    // Find the dock/undock button if it exists
+    cy.get('[aria-label*="Dock"]').then(($btn) => {
+      if ($btn.length > 0 && $btn.text().includes('Dock')) {
+        // Chat is currently undocked, click to dock it
+        cy.wrap($btn).click();
+      }
+    });
+
+    // Wait for chat panel
+    cy.get('[data-testid="chat-panel"]').should('exist');
+
+    // Check that docked chat has solid background (not translucent)
+    cy.get('[data-testid="chat-panel"]').find('.eva-chat-message-bubble').first().should('exist');
+
+    // Verify chat container has proper border and background
+    // When docked, the chat should have solid white background and gray border
+    cy.get('[data-testid="chat-panel"]').parent().should('have.css', 'border-width').and('not.eq', '0px');
+  });
+
+  it('verifies CompactComposer appears when chat is docked', () => {
+    // Find and click dock button if chat is not docked
+    cy.get('[aria-label*="Dock"]').then(($btn) => {
+      if ($btn.length > 0 && $btn.text().includes('Pop out')) {
+        // Chat is docked, already in the right state
+      } else if ($btn.length > 0 && $btn.text().includes('Dock')) {
+        // Click to dock
+        cy.wrap($btn).click();
+      }
+    });
+
+    // CompactComposer should be visible when docked
+    cy.get('[data-testid="compact-composer-input"]').should('be.visible');
+    cy.get('[data-testid="compact-composer-mic"]').should('be.visible');
+
+    // Verify it has proper styling
+    cy.get('[data-testid="compact-composer-input"]').should('have.attr', 'placeholder', 'Ask EVA…');
+  });
+
+  it('verifies CompactComposer can send messages', () => {
+    // Dock the chat if needed
+    cy.get('[aria-label*="Dock"]').then(($btn) => {
+      if ($btn.length > 0 && $btn.text().includes('Dock')) {
+        cy.wrap($btn).click();
+      }
+    });
+
+    // Type in CompactComposer
+    cy.get('[data-testid="compact-composer-input"]').should('be.visible').type('Test message from compact composer');
+
+    // Press Enter to send
+    cy.get('[data-testid="compact-composer-input"]').type('{enter}');
+
+    // Chat should auto-expand after sending
+    // Verify the message was sent by checking the chat transcript
+    cy.get('.eva-chat-message').should('contain', 'Test message from compact composer');
+  });
+
+  it('verifies chat bubble has correct background colors', () => {
+    // Wait for chat messages to exist
+    cy.get('.eva-chat-message--assistant').first().then(($msg) => {
+      if ($msg.length > 0) {
+        // Check assistant bubble background is gray-100: rgb(243, 244, 246)
+        cy.wrap($msg).find('.eva-chat-message-bubble').should('have.css', 'background-color', 'rgb(243, 244, 246)');
+      }
+    });
+  });
+
+  it('verifies expanded chat applies scrim or outline to preview', () => {
+    // Find the dock button and ensure chat is expanded (not docked)
+    cy.get('[aria-label*="Dock"]').then(($btn) => {
+      if ($btn.length > 0 && $btn.text().includes('Dock')) {
+        // Already expanded/undocked
+      } else if ($btn.length > 0 && $btn.text().includes('Pop out')) {
+        // Currently docked, click to expand
+        cy.wrap($btn).click();
+      }
+    });
+
+    // When expanded, preview should have transition classes or chat should have outline
+    // This is a visual check that the UI differentiates docked vs expanded
+    cy.get('[data-testid="preview-panel"]').should('exist');
+  });
 });

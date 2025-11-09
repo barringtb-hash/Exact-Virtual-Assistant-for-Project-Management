@@ -3,6 +3,7 @@ import AssistantFeedbackTemplate, {
   useAssistantFeedbackSections,
 } from "./components/AssistantFeedbackTemplate";
 import Composer from "./components/Composer";
+import CompactComposer from "./components/CompactComposer";
 import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
@@ -3873,6 +3874,7 @@ const resolveDocTypeForManualSync = useCallback(
           >
             <Panel
               title="Chat Assistant"
+              solid={chatIsOverlay}
               right={
                 <div className="flex items-center gap-2">
                   {isPreviewFocus && (
@@ -3880,6 +3882,7 @@ const resolveDocTypeForManualSync = useCallback(
                       type="button"
                       aria-pressed={chatIsOverlay ? "true" : "false"}
                       aria-label={chatIsOverlay ? "Dock chat" : "Pop out chat"}
+                      aria-expanded={chatIsOverlay ? "true" : "false"}
                       onClick={() => setChatOverlayPinned(v => !v)}
                       className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
                     >
@@ -3892,7 +3895,11 @@ const resolveDocTypeForManualSync = useCallback(
                 </div>
               }
             >
-              <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
+              <div className={
+                chatIsOverlay
+                  ? "flex flex-col h-[480px] rounded-2xl border border-gray-300 bg-white overflow-hidden dark:border-gray-600 dark:bg-gray-900"
+                  : "flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40"
+              }>
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                   {visibleMessages.map((m) => (
                     <ChatBubble
@@ -4048,7 +4055,10 @@ const resolveDocTypeForManualSync = useCallback(
           {/* Right Preview */}
           {shouldShowPreview && (
           <aside
-            className={chatIsOverlay ? "lg:col-span-12" : "lg:col-span-4"}
+            className={`
+              ${chatIsOverlay ? "lg:col-span-12" : "lg:col-span-4"}
+              ${!chatIsOverlay && isPreviewFocus ? "transition-all duration-200" : ""}
+            `.trim()}
             data-testid="preview-panel"
           >
             <Panel
@@ -4074,7 +4084,11 @@ const resolveDocTypeForManualSync = useCallback(
               }
             >
               <div
-                className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60"
+                className={`rounded-2xl p-4 transition-all ${
+                  !chatIsOverlay && isPreviewFocus
+                    ? "bg-gray-50/80 border border-gray-200/80 dark:bg-slate-900/60 dark:border-slate-700/80"
+                    : "bg-white/70 border border-white/60 dark:bg-slate-900/40 dark:border-slate-700/60"
+                }`}
                 data-doc-type={templateDocType || undefined}
                 data-doc-schema={activeSchemaId || undefined}
                 data-template-version={activeTemplateVersion || undefined}
@@ -4238,6 +4252,23 @@ const resolveDocTypeForManualSync = useCallback(
         onCancel={handleDocTypeCancel}
       />
       {shouldRenderSyncDevtools && <SyncDevtools onReady={handleDevtoolsReady} />}
+
+      {/* Compact Composer for docked/overlay chat */}
+      {chatIsOverlay && isPreviewFocus && (
+        <CompactComposer
+          onSubmit={(text) => {
+            chatActions.setComposerDraft(text);
+            setTimeout(() => {
+              handleSend();
+              setChatOverlayPinned(false); // Auto-expand chat to show the reply
+            }, 0);
+          }}
+          onMicStart={!realtimeEnabled ? startRecording : startRealtime}
+          onMicStop={!realtimeEnabled ? stopRecording : () => stopRealtime?.({ dispatchStop: true })}
+          isRecording={!realtimeEnabled ? listening : rtcState === "live" || rtcState === "connecting"}
+          disabled={isAssistantThinking || isAssistantStreaming || inputLocked}
+        />
+      )}
     </div>
   );
 }
@@ -4304,9 +4335,13 @@ function ToastStack({ toasts, onDismiss }) {
   );
 }
 
-function Panel({ title, icon, right, children }) {
+function Panel({ title, icon, right, children, solid = false }) {
+  const baseClasses = solid
+    ? "rounded-2xl border border-gray-300 bg-white shadow-xl p-3 md:p-4 dark:border-gray-600 dark:bg-gray-800"
+    : "rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40";
+
   return (
-    <div className="rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40">
+    <div className={baseClasses}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}

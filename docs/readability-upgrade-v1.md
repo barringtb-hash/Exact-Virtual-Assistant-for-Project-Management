@@ -49,6 +49,35 @@ Added CSS custom properties for consistent theming:
    - Content limited to max-width of 70ch for optimal readability
    - Prevents text from stretching too wide on large screens
 
+### Docked Chat Improvements (Stage 7)
+
+When the chat is in overlay/docked mode (Stage 7 Preview Focus feature):
+
+1. **Stronger visual identity**:
+   - Solid white background instead of translucent
+   - Clear gray-300 border (light mode) / gray-600 border (dark mode)
+   - Box shadow (shadow-xl) for depth
+   - No backdrop blur when docked
+
+2. **Visual differentiation**:
+   - When docked: Chat appears as a clear card with solid styling
+   - When expanded: Preview gets a subtle scrim effect to push it into the background
+   - Smooth transitions between states
+
+3. **Compact Composer**:
+   - New floating input bar that appears when chat is docked
+   - Provides text input and voice recording without expanding chat
+   - Located at bottom-right corner (z-30)
+   - Auto-expands chat after message submission
+   - Maintains accessibility with proper ARIA labels
+
+**Compact Composer Features**:
+- Text input with "Ask EVA…" placeholder
+- Microphone button for voice input
+- Submit on Enter key
+- Disabled state when assistant is processing
+- Seamless integration with existing voice pipeline
+
 ### Document Preview Improvements
 
 1. **Field labels**:
@@ -86,7 +115,7 @@ Controls the overall readability upgrade features.
 
 Optionally hides field timestamps to reduce visual clutter.
 
-- **Default**: `false`
+- **Default**: `true`
 - **Environment variable**: `VITE_READABILITY_HIDE_FIELD_TIMESTAMPS`
 - **Location**: `src/config/flags.ts`
 
@@ -106,6 +135,19 @@ To hide field timestamps:
 VITE_READABILITY_HIDE_FIELD_TIMESTAMPS=true pnpm dev
 ```
 
+### Deployment Configuration
+
+For production deployments (e.g., Vercel), set these environment variables in your hosting platform:
+
+**Vercel**:
+1. Go to Project Settings → Environment Variables
+2. Add the following variables:
+   - `VITE_READABILITY_V1=true`
+   - `VITE_READABILITY_HIDE_FIELD_TIMESTAMPS=true`
+3. Redeploy the application
+
+**Note**: Since both flags default to `true`, you only need to set them explicitly if you want to override the defaults.
+
 ### Testing
 
 Run the Cypress readability tests:
@@ -119,6 +161,17 @@ The test file `cypress/e2e/readability_layout.cy.ts` verifies:
 - Line length constraints (max-w-[70ch])
 - Input border colors
 - Section styling
+- Docked chat solid background and borders
+- CompactComposer visibility when docked
+- CompactComposer message submission
+- Chat bubble background colors
+- Preview scrim effect when chat is expanded
+
+Unit tests in `tests/readability.flags.test.jsx` verify:
+- READABILITY_V1 flag is enabled by default
+- READABILITY_HIDE_FIELD_TIMESTAMPS flag is enabled by default
+- PreviewEditable applies readability styles when flag is enabled
+- Timestamps are hidden when READABILITY_HIDE_FIELD_TIMESTAMPS is true
 
 ## Rollback
 

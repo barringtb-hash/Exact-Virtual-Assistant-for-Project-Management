@@ -49,6 +49,10 @@ export interface GuidedState {
   order: CharterFieldId[];
   fields: Record<CharterFieldId, GuidedFieldState>;
   waiting: GuidedWaitingState;
+  pendingFieldId: CharterFieldId | null;
+  pendingValue: FieldValue | null;
+  pendingWarnings: string[];
+  awaitingConfirmation: boolean;
 }
 
 export type GuidedEvent =
@@ -69,7 +73,23 @@ export type GuidedEvent =
   | { type: "SKIP"; fieldId?: CharterFieldId; reason?: string | null }
   | { type: "BACK" }
   | { type: "NEXT" }
-  | { type: "COMPLETE" };
+  | { type: "COMPLETE" }
+  | {
+      type: "PROPOSE";
+      fieldId: CharterFieldId;
+      value: FieldValue;
+      warnings?: string[];
+      awaitingConfirmation?: boolean;
+    }
+  | { type: "CONFIRM_PENDING" }
+  | { type: "REJECT_PENDING" };
+
+export interface GuidedPendingPatch {
+  fieldId: CharterFieldId;
+  value: FieldValue | null;
+  warnings: string[];
+  awaitingConfirmation: boolean;
+}
 
 function createFieldState(field: CharterField): GuidedFieldState {
   return {
@@ -107,6 +127,10 @@ export function createInitialGuidedState(): GuidedState {
       user: false,
       validation: false,
     },
+    pendingFieldId: null,
+    pendingValue: null,
+    pendingWarnings: [],
+    awaitingConfirmation: false,
   };
 }
 
@@ -120,6 +144,10 @@ function cloneState(state: GuidedState): GuidedState {
     order: state.order.slice(),
     fields: fields as Record<CharterFieldId, GuidedFieldState>,
     waiting: { ...state.waiting },
+    pendingFieldId: state.pendingFieldId,
+    pendingValue: state.pendingValue,
+    pendingWarnings: state.pendingWarnings.slice(),
+    awaitingConfirmation: state.awaitingConfirmation,
   };
 }
 
@@ -137,7 +165,36 @@ export function getCurrentFieldState(
   if (!state.currentFieldId) {
     return null;
   }
-  return state.fields[state.currentFieldId] ?? null;
+  const fieldState = state.fields[state.currentFieldId] ?? null;
+  if (!fieldState) {
+    return null;
+  }
+  if (state.pendingFieldId === state.currentFieldId) {
+    return {
+      ...fieldState,
+      value: state.pendingValue,
+    };
+  }
+  return fieldState;
+}
+
+export function getPendingPatch(state: GuidedState): GuidedPendingPatch | null {
+  if (!state.pendingFieldId) {
+    return null;
+  }
+  return {
+    fieldId: state.pendingFieldId,
+    value: state.pendingValue,
+    warnings: state.pendingWarnings.slice(),
+    awaitingConfirmation: state.awaitingConfirmation,
+  };
+}
+
+function clearPendingPatch(state: GuidedState) {
+  state.pendingFieldId = null;
+  state.pendingValue = null;
+  state.pendingWarnings = [];
+  state.awaitingConfirmation = false;
 }
 
 function getFieldIndex(state: GuidedState, fieldId: CharterFieldId | null): number {
@@ -229,6 +286,7 @@ export function guidedReducer(
     }
     case "START": {
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       const firstId = next.order[0] ?? null;
       next.startedAt = next.startedAt ?? timestamp;
@@ -270,6 +328,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       next.currentFieldId = targetId;
       next.status = "asking";
@@ -289,6 +348,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       next.currentFieldId = event.fieldId;
       next.status = "capturing";
@@ -309,6 +369,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       const isValid =
         event.valid ?? ((event.issues?.length ?? 0) === 0);
@@ -346,6 +407,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       next.currentFieldId = event.fieldId;
       next.status = "asking";
@@ -368,6 +430,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       const confirmedValue =
         fieldState.value !== undefined
@@ -395,6 +458,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       next.fields[targetId] = {
         ...fieldState,
@@ -418,6 +482,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       const timestamp = new Date().toISOString();
       next.currentFieldId = targetId;
       next.status = "asking";
@@ -437,6 +502,7 @@ export function guidedReducer(
         return state;
       }
       const next = cloneState(state);
+      clearPendingPatch(next);
       advanceToNextField(next, targetId);
       return next;
     }
@@ -451,7 +517,102 @@ export function guidedReducer(
         currentFieldId: null,
         waiting: { assistant: false, user: false, validation: false },
         completedAt: state.completedAt ?? timestamp,
+        pendingFieldId: null,
+        pendingValue: null,
+        pendingWarnings: [],
+        awaitingConfirmation: false,
       };
+    }
+    case "PROPOSE": {
+      const fieldState = state.fields[event.fieldId];
+      if (!fieldState) {
+        return state;
+      }
+      const next = cloneState(state);
+      const timestamp = new Date().toISOString();
+      next.currentFieldId = event.fieldId;
+      next.pendingFieldId = event.fieldId;
+      next.pendingValue = event.value ?? null;
+      next.pendingWarnings = event.warnings ? [...event.warnings] : [];
+      next.awaitingConfirmation = event.awaitingConfirmation ?? true;
+      const nextStatus = next.awaitingConfirmation ? "captured" : "confirmed";
+      next.fields[event.fieldId] = {
+        ...fieldState,
+        status: nextStatus,
+        value: event.value,
+        confirmedValue: next.awaitingConfirmation
+          ? fieldState.confirmedValue
+          : event.value,
+        issues: [],
+        skippedReason: null,
+        lastUpdatedAt: timestamp,
+      };
+      if (next.awaitingConfirmation) {
+        next.status = "confirming";
+        next.waiting = { assistant: false, user: true, validation: false };
+      } else {
+        next.status = "asking";
+        next.waiting = { assistant: true, user: false, validation: false };
+      }
+      return next;
+    }
+    case "CONFIRM_PENDING": {
+      const fieldId = state.pendingFieldId;
+      if (!fieldId) {
+        return state;
+      }
+      const fieldState = state.fields[fieldId];
+      if (!fieldState) {
+        const next = cloneState(state);
+        clearPendingPatch(next);
+        return next;
+      }
+      const next = cloneState(state);
+      const timestamp = new Date().toISOString();
+      const pendingValue = next.pendingValue;
+      clearPendingPatch(next);
+      next.fields[fieldId] = {
+        ...fieldState,
+        status: "confirmed",
+        value: pendingValue,
+        confirmedValue: pendingValue,
+        issues: [],
+        skippedReason: null,
+        lastUpdatedAt: timestamp,
+      };
+      next.waiting = { assistant: true, user: false, validation: false };
+      advanceToNextField(next, fieldId);
+      return next;
+    }
+    case "REJECT_PENDING": {
+      if (!state.pendingFieldId) {
+        if (!state.awaitingConfirmation) {
+          return state;
+        }
+        const next = cloneState(state);
+        clearPendingPatch(next);
+        return next;
+      }
+      const fieldId = state.pendingFieldId;
+      const fieldState = state.fields[fieldId];
+      const next = cloneState(state);
+      const timestamp = new Date().toISOString();
+      clearPendingPatch(next);
+      if (!fieldState) {
+        next.awaitingConfirmation = false;
+        return next;
+      }
+      next.currentFieldId = fieldId;
+      next.status = "asking";
+      next.waiting = { assistant: false, user: true, validation: false };
+      next.fields[fieldId] = {
+        ...fieldState,
+        status: "asking",
+        issues: [],
+        skippedReason: null,
+        lastAskedAt: timestamp,
+      };
+      return next;
     }
     default:
       return state;

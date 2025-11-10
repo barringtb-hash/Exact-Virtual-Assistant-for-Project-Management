@@ -1,7 +1,4 @@
 import "./commands";
-import "./commands.voice";
-import "./mocks.voice";
-
 declare global {
   interface Window {
     __FLAG_OVERRIDES__?: Record<string, unknown>;

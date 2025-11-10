@@ -7,7 +7,8 @@ export default defineConfig({
     // keeps clicks aimed at the center of targets
     scrollBehavior: "center",
     baseUrl,
-    specPattern: "cypress/e2e/**/*.cy.ts",
+    specPattern: "cypress/e2e/**/*.spec.ts",
+    excludeSpecPattern: ["**/_legacy/**", "cypress/e2e/**/*.cy.ts"],
     supportFile: "cypress/support/e2e.ts",
     testIsolation: true,
     video: false,

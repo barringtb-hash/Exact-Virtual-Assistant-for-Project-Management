@@ -25,6 +25,22 @@ if (!process.env.FILES_LINK_SECRET) {
   process.env.FILES_LINK_SECRET = "playwright-secret";
 }
 
+if (!process.env.VITE_CHARTER_GUIDED_CHAT_ENABLED) {
+  process.env.VITE_CHARTER_GUIDED_CHAT_ENABLED = "true";
+}
+if (!process.env.VITE_CHARTER_GUIDED_BACKEND) {
+  process.env.VITE_CHARTER_GUIDED_BACKEND = "on";
+}
+if (!process.env.VITE_CHARTER_WIZARD_VISIBLE) {
+  process.env.VITE_CHARTER_WIZARD_VISIBLE = "false";
+}
+if (!process.env.VITE_AUTO_EXTRACTION_ENABLED) {
+  process.env.VITE_AUTO_EXTRACTION_ENABLED = "false";
+}
+if (!process.env.VITE_CYPRESS_SAFE_MODE) {
+  process.env.VITE_CYPRESS_SAFE_MODE = "true";
+}
+
 const vite = await createViteServer({
   root: projectRoot,
   server: {

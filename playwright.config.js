@@ -25,6 +25,11 @@ const createWebServerProject = ({
       FILES_LINK_SECRET: process.env.FILES_LINK_SECRET || "playwright-secret",
       PLAYWRIGHT_TEST_PORT: String(port),
       VITE_ENABLE_DOC_ROUTER: docRouterEnabled ? "1" : "0",
+      VITE_CHARTER_GUIDED_CHAT_ENABLED: "true",
+      VITE_CHARTER_GUIDED_BACKEND: "on",
+      VITE_CHARTER_WIZARD_VISIBLE: "false",
+      VITE_AUTO_EXTRACTION_ENABLED: "false",
+      VITE_CYPRESS_SAFE_MODE: "true",
     },
   },
 });

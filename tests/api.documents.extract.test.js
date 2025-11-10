@@ -21,12 +21,21 @@ function ensureOpenAIResponseQueue() {
 async function withOpenAIResponse(handler, run) {
   const queue = ensureOpenAIResponseQueue();
   const previous = queue.slice();
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  if (!previousApiKey) {
+    process.env.OPENAI_API_KEY = "test-openai-key";
+  }
   queue.push(handler);
   try {
     await run();
   } finally {
     queue.length = 0;
     queue.push(...previous);
+    if (typeof previousApiKey === "undefined") {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
   }
 }
 
@@ -773,6 +782,46 @@ test("/api/documents/extract allows legacy flow without intent when disabled", a
   );
 
   assert.equal(res.statusCode, 200);
+});
+
+test("/api/documents/extract returns 501 when OpenAI is not configured", async () => {
+  const res = createMockResponse();
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  try {
+    await extractHandler(
+      {
+        method: "POST",
+        query: { docType: "charter" },
+        body: {
+          docType: "charter",
+          intent: "create_charter",
+          attachments: [
+            {
+              text: "Polaris Launch charter draft with schedule, risks, and stakeholders for review.",
+            },
+          ],
+          messages: [
+            {
+              role: "user",
+              text: "Please extract a full charter with vision, scope, and timeline details for the Polaris launch.",
+            },
+          ],
+        },
+      },
+      res
+    );
+  } finally {
+    if (typeof originalApiKey === "undefined") {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey;
+    }
+  }
+
+  assert.equal(res.statusCode, 501);
+  assert.deepEqual(res.body, { error: "OpenAI extraction not configured" });
 });
 
 test("/api/documents/extract rejects unsupported doc types", async () => {

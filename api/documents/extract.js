@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -874,41 +873,48 @@ export default async function handler(req, res) {
         }
       }
     } else {
-      const extractPrompt = await loadExtractPrompt(docType, config);
-      const docTypeMetadata = await loadExtractMetadata(config);
+      if (!process.env.OPENAI_API_KEY) {
+        statusCode = 501;
+        payload = { error: "OpenAI extraction not configured" };
+        auditStatus = "openai_not_configured";
+      } else {
+        const extractPrompt = await loadExtractPrompt(docType, config);
+        const docTypeMetadata = await loadExtractMetadata(config);
 
-      const systemSections = [
-        formatDocTypeMetadata(docTypeMetadata),
-        formatAttachments(attachments),
-        formatVoice(voice),
-        extractPrompt,
-      ]
-        .map((section) => (section || "").trim())
-        .filter(Boolean);
+        const systemSections = [
+          formatDocTypeMetadata(docTypeMetadata),
+          formatAttachments(attachments),
+          formatVoice(voice),
+          extractPrompt,
+        ]
+          .map((section) => (section || "").trim())
+          .filter(Boolean);
 
-      const openaiMessages = buildOpenAIMessages(systemSections, messages);
-      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const openaiMessages = buildOpenAIMessages(systemSections, messages);
+        const { OpenAI } = await import("openai");
+        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-      const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.3,
-        messages: openaiMessages,
-        response_format: { type: "json_object" },
-        ...(typeof seed === "number" ? { seed } : {}),
-      });
+        const completion = await client.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0.3,
+          messages: openaiMessages,
+          response_format: { type: "json_object" },
+          ...(typeof seed === "number" ? { seed } : {}),
+        });
 
-      const replyContent = completion.choices?.[0]?.message?.content || "";
-      try {
-        const parsed = JSON.parse(replyContent);
-        if (parsed && typeof parsed === "object") {
-          payload = parsed;
-        } else {
+        const replyContent = completion.choices?.[0]?.message?.content || "";
+        try {
+          const parsed = JSON.parse(replyContent);
+          if (parsed && typeof parsed === "object") {
+            payload = parsed;
+          } else {
+            payload = { result: replyContent };
+          }
+        } catch {
           payload = { result: replyContent };
         }
-      } catch {
-        payload = { result: replyContent };
+        auditStatus = payload?.status || "ok";
       }
-      auditStatus = payload?.status || "ok";
     }
 
     res.status(statusCode).json(payload);

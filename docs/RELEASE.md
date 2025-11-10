@@ -16,6 +16,9 @@
 
 ## Release Checklist
 - [ ] All CI checks (lint, unit, integration, e2e, docs) pass.
+- [ ] `npm test` succeeds (unit and integration coverage).
+- [ ] `npm run test:e2e` and Playwright smoke coverage (`npx playwright test tests/e2e/smoke`) pass locally.
+- [ ] Production build validated with the smoke suite (for example, `npm run build && npm run preview -- --port 4173` followed by `npx playwright test tests/e2e/smoke`).
 - [ ] Intent-only extraction contract confirmed during manual QA.
 - [ ] Registry manifests updated with version bumps where applicable.
 - [ ] Documentation links resolve (verified via `node scripts/validate-doc-links.mjs`).

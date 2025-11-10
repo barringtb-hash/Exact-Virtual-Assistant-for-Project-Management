@@ -48,9 +48,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const format = getFirstQueryValue(req.query?.format)?.toLowerCase();
-  const token = getFirstQueryValue(req.query?.token);
-  const signature = getFirstQueryValue(req.query?.sig);
+  const format = String(getFirstQueryValue(req.query?.format) ?? "")
+    .trim()
+    .toLowerCase();
+  const token = String(getFirstQueryValue(req.query?.token) ?? "").trim();
+  const signature = String(getFirstQueryValue(req.query?.sig) ?? "").trim();
 
   if (!format || !token || !signature) {
     return res.status(400).json({ error: "Missing required parameters" });
@@ -62,7 +64,26 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Link configuration unavailable" });
   }
 
-  if (!isValidSignature(format, token, signature, secret)) {
+  if (!/^[a-f0-9]{64}$/i.test(signature)) {
+    if (process.env.LOG_SIGNATURE_DEBUG) {
+      console.warn("[documents.download] invalid signature format", {
+        signatureLength: signature.length,
+      });
+    }
+    return res.status(403).json({ error: "Invalid signature" });
+  }
+
+  const signatureValid = isValidSignature(format, token, signature, secret);
+  if (process.env.LOG_SIGNATURE_DEBUG) {
+    console.log("[documents.download] signature check", {
+      format,
+      tokenLength: token.length,
+      signatureLength: signature.length,
+      signatureValid,
+    });
+  }
+
+  if (!signatureValid) {
     return res.status(403).json({ error: "Invalid signature" });
   }
 
@@ -329,8 +350,12 @@ function getFirstQueryValue(value) {
   return value;
 }
 
-function isValidSignature(format, token, signature, secret) {
-  if (typeof signature !== "string") {
+export function isValidSignature(format, token, signature, secret) {
+  if (
+    typeof format !== "string" ||
+    typeof token !== "string" ||
+    typeof signature !== "string"
+  ) {
     return false;
   }
 
@@ -338,6 +363,14 @@ function isValidSignature(format, token, signature, secret) {
     .createHmac("sha256", secret)
     .update(`${format}.${token}`)
     .digest("hex");
+
+  if (signature.length !== expected.length) {
+    return false;
+  }
+
+  if (!/^[a-f0-9]+$/i.test(signature)) {
+    return false;
+  }
 
   let expectedBuffer;
   let providedBuffer;

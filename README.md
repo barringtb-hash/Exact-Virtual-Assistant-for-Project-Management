@@ -53,7 +53,7 @@ Environment flags keep the router predictable across dev, preview, and productio
 | `INTENT_ONLY_EXTRACTION` | Enforce explicit user intent before routing extraction. | `true` |
 | `CHAT_STREAMING` | Enables the `/api/chat/stream` Edge handler. | `false` |
 | `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions (when user starts charter or sends create/update intent). Set to `false` to always show the preview panel. | `true` |
-| `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_
+| `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers; if unset, OpenAI-backed extraction responds with HTTP 501. | _required_ |
 
 ## API
 Document pipelines live behind the router-first API layer:
@@ -84,6 +84,7 @@ Key router touchpoints:
 - **Unit and integration** – Run `npm test` to execute the current suite.
 - **End-to-end** – Use `npm run cy:open` or `npm run cy:run` for Cypress coverage, and `npm run test:e2e` for Playwright scenarios.
 - **Guided charter** – `npm run e2e:guided` runs the guided chat Cypress suite; `npm run e2e:wizard` re-enables the wizard flags for regression checks. 【F:docs/charter-guided-chat.md†L46-L52】
+- **Smoke (Playwright)** – With the dev server running (`npm run dev`), execute `npm run e2e:smoke` (or `npx playwright test tests/e2e/smoke`) to mirror the deploy-blocking smoke coverage that CI exercises. Set `FILES_LINK_SECRET=playwright-secret` (or reuse your existing secret) so download signature checks pass.
 - **Document acceptance** – Follow [`docs/demo/README.md`](docs/demo/README.md) for the charter flow and [`docs/ddp/README.md`](docs/ddp/README.md) for the DDP flow. Both paths should execute exactly one extraction per intent.
 - **Regression coverage** – Ensure attaching files alone never issues a network call to `/api/documents/extract`, and that intent + upload flows call extraction exactly once.
 

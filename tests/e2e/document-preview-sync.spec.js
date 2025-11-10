@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixturesDir = path.resolve(__dirname, "..", "fixtures", "uploads");
 const demoTppPath = path.join(fixturesDir, "demo-tpp.txt");
+const EXTRACT_RE = /\/api\/(charter|documents|doc)\/extract(?:\?|$)/;
 
 test.describe("charter preview background extraction", () => {
   test("does not auto extract when uploading attachments without intent", async ({ page }) => {
@@ -16,10 +17,8 @@ test.describe("charter preview background extraction", () => {
 
     const extractRequests = [];
     page.on("request", (request) => {
-      if (
-        request.url().includes("/api/documents/extract") &&
-        request.method() === "POST"
-      ) {
+      const url = request.url();
+      if (EXTRACT_RE.test(url) && request.method() === "POST") {
         extractRequests.push(request);
       }
     });
@@ -39,7 +38,7 @@ test.describe("charter preview background extraction", () => {
     // Intercept the document-extraction call and return a deterministic response.
     // Without this stub, the API calls the OpenAI client and throws
     // "No OpenAI mock response configured" during tests.
-    await page.route("**/api/documents/extract", async (route) => {
+    await page.route(EXTRACT_RE, async (route) => {
       const responseBody = {
         status: "ok",
         fields: {
@@ -59,10 +58,8 @@ test.describe("charter preview background extraction", () => {
 
     const extractRequests = [];
     page.on("request", (request) => {
-      if (
-        request.url().includes("/api/documents/extract") &&
-        request.method() === "POST"
-      ) {
+      const url = request.url();
+      if (EXTRACT_RE.test(url) && request.method() === "POST") {
         extractRequests.push(request);
       }
     });
@@ -74,11 +71,10 @@ test.describe("charter preview background extraction", () => {
     await composer.fill("Please create a project charter from the attached document.");
     await composer.press("Enter");
 
-    const extractResponse = await page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/documents/extract") &&
-        response.request().method() === "POST"
-    );
+    const extractResponse = await page.waitForResponse((response) => {
+      const url = response.url();
+      return EXTRACT_RE.test(url) && response.request().method() === "POST";
+    });
 
     expect(extractResponse.ok()).toBeTruthy();
     expect(extractRequests.length).toBe(1);
@@ -90,5 +86,7 @@ test.describe("charter preview background extraction", () => {
     await expect(page.getByLabel("Project Lead")).toHaveValue("Alex Example");
     await expect(page.getByLabel("Sponsor")).toHaveValue("Casey Example");
     await expect(page.getByLabel("Start Date")).toHaveValue("2024-03-15");
+
+    await page.unroute(EXTRACT_RE);
   });
 });

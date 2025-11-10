@@ -17,7 +17,8 @@ test.describe("document router enabled flows", () => {
     await mockRouterSequence(page, [{ type: "ddp", confidence: 0.92 }]);
 
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const composer = page.getByPlaceholder("Type here… (paste scope or attach files)");
     await composer.fill("/type charter");
@@ -52,7 +53,8 @@ test.describe("document router enabled flows", () => {
     await mockRouterSequence(page, [{ type: "ddp", confidence: 0.82 }]);
 
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const fileInput = page.locator('input[type="file"]');
     const routerRequest = page.waitForRequest((request) =>
@@ -104,7 +106,8 @@ test.describe("document router enabled flows", () => {
     await mockRouterSequence(page, [{ type: "ddp", confidence: 0.55 }]);
 
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(ddpFixturePath);
@@ -136,7 +139,8 @@ test.describe("document router enabled flows", () => {
 
   test("allows mid-draft doc type overrides", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const preview = page.locator("[data-doc-type]");
     await expect(preview).toHaveAttribute("data-doc-type", "charter");

@@ -4034,10 +4034,13 @@ const resolveDocTypeForManualSync = useCallback(
             className={chatPanelClassName}
             data-testid="chat-panel"
             role={chatIsOverlay ? "complementary" : undefined}
-            aria-label={chatIsOverlay ? "Chat assistant" : undefined}
+            aria-labelledby="chat-title"
           >
             <Panel
               title="Chat Assistant"
+              titleId="chat-title"
+              titleTestId="chat-title"
+              headingLevel={2}
               right={
                 <div className="flex items-center gap-2">
                   {isPreviewFocus && (
@@ -4228,29 +4231,33 @@ const resolveDocTypeForManualSync = useCallback(
             <aside
               className={previewPanelClassName}
               data-testid="preview-panel"
+              aria-labelledby="preview-title"
             >
-            <Panel
-              title="Document preview"
-              right={
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200">
-                    <span>{docTypeBadgeLabel}</span>
-                    {docTypeConfidencePercent != null ? (
-                      <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                        {docTypeConfidencePercent}% confidence
-                      </span>
-                    ) : null}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowDocTypeModal(true)}
-                    className="rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    Change
-                  </button>
-                </div>
-              }
-            >
+              <Panel
+                title="Document preview"
+                titleId="preview-title"
+                titleTestId="preview-title"
+                headingLevel={2}
+                right={
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200">
+                      <span>{docTypeBadgeLabel}</span>
+                      {docTypeConfidencePercent != null ? (
+                        <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                          {docTypeConfidencePercent}% confidence
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowDocTypeModal(true)}
+                      className="rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Change
+                    </button>
+                  </div>
+                }
+              >
               <div
                 className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60"
                 data-doc-type={templateDocType || undefined}
@@ -4482,7 +4489,27 @@ function ToastStack({ toasts, onDismiss }) {
   );
 }
 
-function Panel({ title, icon, right, children, className = "" }) {
+function Panel({
+  title,
+  icon,
+  right,
+  children,
+  className = "",
+  headingLevel = 2,
+  titleId,
+  titleTestId,
+}) {
+  const numericLevel = Number(headingLevel);
+  const normalizedLevel = Number.isFinite(numericLevel)
+    ? Math.min(Math.max(Math.round(numericLevel), 1), 6)
+    : 2;
+  const HeadingTag = `h${normalizedLevel}`;
+  const headingProps = {
+    className: "m-0 p-0 text-inherit font-inherit leading-none",
+    ...(titleId ? { id: titleId } : {}),
+    ...(titleTestId ? { "data-testid": titleTestId } : {}),
+  };
+
   return (
     <div
       className={`rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40 ${className}`}
@@ -4490,7 +4517,7 @@ function Panel({ title, icon, right, children, className = "" }) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
-          <span>{title}</span>
+          <HeadingTag {...headingProps}>{title}</HeadingTag>
         </div>
         {right}
       </div>

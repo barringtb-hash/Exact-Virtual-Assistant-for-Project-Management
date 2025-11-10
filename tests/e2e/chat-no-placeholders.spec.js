@@ -15,7 +15,8 @@ test.describe("assistant chat", () => {
   test("hides placeholder text while showing real assistant replies", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const micButton = page.getByRole("button", { name: "Ready" });
     await expect(micButton).toHaveAttribute("aria-label", "Ready");

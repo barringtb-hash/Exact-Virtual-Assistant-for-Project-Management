@@ -4519,6 +4519,15 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
   const testId = isUser ? "user-message" : "assistant-message";
+  const baseBubbleClasses = FLAGS.READABILITY_V1
+    ? "max-w-[70ch] rounded-2xl px-4 py-3 text-base leading-relaxed shadow-sm border transition-colors"
+    : "max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border";
+  const assistantBubbleClasses = FLAGS.READABILITY_V1
+    ? "bg-slate-50 border-slate-200 text-slate-800 shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100 dark:shadow-[0_12px_32px_rgba(15,23,42,0.45)]"
+    : "bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100";
+  const userBubbleClasses = FLAGS.READABILITY_V1
+    ? "bg-slate-900 text-white border-slate-900 shadow-[0_8px_24px_rgba(15,23,42,0.25)] dark:bg-indigo-500 dark:border-indigo-400 dark:shadow-[0_10px_28px_rgba(37,99,235,0.35)]"
+    : "bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400";
   const { structuredSections, hasStructuredContent } = useMemo(() => {
     if (!Array.isArray(sections)) {
       return { structuredSections: [], hasStructuredContent: false };
@@ -4550,13 +4559,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
     (hasStructuredContent || hideEmptySections === false);
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border ${
-          isUser
-            ? 'bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400'
-            : 'bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100'
-        }`}
-      >
+      <div className={`${baseBubbleClasses} ${isUser ? userBubbleClasses : assistantBubbleClasses}`}>
         {isUser || !showStructured ? (
           <span className="whitespace-pre-wrap">{safeText}</span>
         ) : (

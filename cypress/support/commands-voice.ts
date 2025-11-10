@@ -1,18 +1,32 @@
-import { resolveVoiceHarnessOptions } from "../harness/voice";
+type WithStubbedUserMediaCallback = (
+  stub: sinon.SinonStub<[MediaStreamConstraints?], Promise<MediaStream>>,
+) => unknown;
+
+interface WithStubbedUserMediaOptions {
+  stream?: MediaStream;
+}
+
+interface SimulateFinalTranscriptOptions {
+  isFinal?: boolean;
+}
 
 declare global {
   namespace Cypress {
     interface Chainable {
-      restoreGUM(): Chainable<void>;
-      stubGUMSuccess(stream?: MediaStream): Chainable<sinon.SinonStub>;
-      stubGUMReject(
-        errorName: "NotAllowedError" | "NotFoundError"
-      ): Chainable<sinon.SinonStub>;
+      assertMicPressed(expected?: boolean): Chainable<JQuery<HTMLElement>>;
+      simulateFinalTranscript(
+        text: string,
+        options?: SimulateFinalTranscriptOptions,
+      ): Chainable<unknown>;
+      withStubbedUserMedia(
+        callback: WithStubbedUserMediaCallback,
+        options?: WithStubbedUserMediaOptions,
+      ): Chainable<unknown>;
     }
   }
 }
 
-const ensureMediaDevices = (win: Window) => {
+const ensureMediaDevices = (win: Window): MediaDevices => {
   const navigatorWithDevices = win.navigator as Navigator & {
     mediaDevices?: MediaDevices;
   };
@@ -24,81 +38,70 @@ const ensureMediaDevices = (win: Window) => {
   return navigatorWithDevices.mediaDevices;
 };
 
-Cypress.Commands.add("restoreGUM", () => {
-  cy.window({ log: false }).then((win) => {
-    const gum = win.navigator?.mediaDevices?.getUserMedia as
-      | undefined
-      | (((...args: unknown[]) => Promise<MediaStream>) & {
-          restore?: () => void;
-        });
-
-    if (gum && typeof gum.restore === "function") {
-      gum.restore();
-    }
-  });
-});
-
-Cypress.Commands.add("stubGUMSuccess", (stream?: MediaStream) => {
-  return cy.window({ log: false }).then((win) => {
-    const mediaDevices = ensureMediaDevices(win);
-    const existing = mediaDevices.getUserMedia as unknown as {
-      restore?: () => void;
-    } | undefined;
-
-    if (existing?.restore) {
-      existing.restore();
-    }
-
-    const resolvedStream = stream
-      ? stream
-      : typeof win.MediaStream === "function"
-      ? new win.MediaStream()
-      : ({} as MediaStream);
-
-    const stub = Cypress.sinon
-      .stub(mediaDevices, "getUserMedia")
-      .callsFake(() => Promise.resolve(resolvedStream));
-
-    return cy.wrap(stub, { log: false });
-  });
+Cypress.Commands.add("assertMicPressed", (expected = true) => {
+  const pressedValue = expected ? "true" : "false";
+  return cy
+    .get('[data-testid="mic-button"]')
+    .should("have.attr", "aria-pressed", pressedValue);
 });
 
 Cypress.Commands.add(
-  "stubGUMReject",
-  (errorName: "NotAllowedError" | "NotFoundError") => {
+  "simulateFinalTranscript",
+  (text: string, options: SimulateFinalTranscriptOptions = {}) => {
+    return cy.window({ log: false }).then((win) => {
+      type VoiceTestHarnessWindow = Window & {
+        __simulateGuidedVoiceFinal?: (
+          transcript: string,
+          opts?: SimulateFinalTranscriptOptions,
+        ) => unknown;
+      };
+      const harness = win as VoiceTestHarnessWindow;
+      const simulator = harness.__simulateGuidedVoiceFinal;
+      if (typeof simulator !== "function") {
+        throw new Error(
+          "Voice harness is unavailable. Ensure voice E2E mode is enabled before calling simulateFinalTranscript().",
+        );
+      }
+      return simulator(text, options);
+    });
+  },
+);
+
+Cypress.Commands.add(
+  "withStubbedUserMedia",
+  (
+    callback: WithStubbedUserMediaCallback,
+    options: WithStubbedUserMediaOptions = {},
+  ) => {
     return cy.window({ log: false }).then((win) => {
       const mediaDevices = ensureMediaDevices(win);
-      const existing = mediaDevices.getUserMedia as unknown as {
-        restore?: () => void;
-      } | undefined;
-
-      if (existing?.restore) {
+      const existing = mediaDevices.getUserMedia as sinon.SinonStub | undefined;
+      if (existing && typeof existing.restore === "function") {
         existing.restore();
       }
 
-      const rejection =
-        typeof win.DOMException === "function"
-          ? new win.DOMException(errorName, errorName)
-          : Object.assign(new Error(errorName), { name: errorName });
+      const resolvedStream =
+        options.stream ??
+        (typeof win.MediaStream === "function"
+          ? new win.MediaStream()
+          : ({} as MediaStream));
 
       const stub = Cypress.sinon
         .stub(mediaDevices, "getUserMedia")
-        .callsFake(() => Promise.reject(rejection));
+        .callsFake(() => Promise.resolve(resolvedStream));
 
-      return cy.wrap(stub, { log: false });
+      return Cypress.Promise.try(() => callback(stub)).then(
+        (value) => {
+          stub.restore();
+          return value;
+        },
+        (error) => {
+          stub.restore();
+          throw error;
+        },
+      );
     });
-  }
+  },
 );
-
-/**
- * Convenience helper that ensures the current Cypress environment is configured
- * with sensible defaults for voice-oriented tests.
- */
-export const configureVoiceTestEnvironment = () => {
-  const { useMockMedia, useMockSpeechToText } = resolveVoiceHarnessOptions();
-
-  Cypress.env("VOICE_USE_MOCK_MEDIA", `${useMockMedia}`);
-  Cypress.env("VOICE_USE_MOCK_STT", `${useMockSpeechToText}`);
-};
 
 export {};

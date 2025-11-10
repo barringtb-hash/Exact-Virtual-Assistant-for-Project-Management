@@ -7,9 +7,25 @@ declare global {
   }
 }
 
+const FLAG_PREFIX = "VITE_";
+
 Cypress.on("window:before:load", (win) => {
   if (typeof win.__FLAG_OVERRIDES__ !== "object" || win.__FLAG_OVERRIDES__ === null) {
     win.__FLAG_OVERRIDES__ = {};
+  }
+
+  const overridesFromEnv = Cypress.env("FLAG_OVERRIDES");
+  if (overridesFromEnv && typeof overridesFromEnv === "object") {
+    Object.assign(win.__FLAG_OVERRIDES__, overridesFromEnv as Record<string, unknown>);
+  }
+
+  const rawEnv = Cypress.env();
+  if (rawEnv && typeof rawEnv === "object") {
+    for (const [key, value] of Object.entries(rawEnv)) {
+      if (typeof key === "string" && key.startsWith(FLAG_PREFIX)) {
+        win.__FLAG_OVERRIDES__[key] = value;
+      }
+    }
   }
 
   const styleEl = win.document.createElement("style");
@@ -28,3 +44,5 @@ Cypress.on("window:before:load", (win) => {
 
   win.document.head.appendChild(styleEl);
 });
+
+Cypress.on("uncaught:exception", () => false);

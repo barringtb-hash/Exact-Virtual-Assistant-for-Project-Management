@@ -4044,12 +4044,12 @@ const resolveDocTypeForManualSync = useCallback(
                   {isPreviewFocus && (
                     <button
                       type="button"
-                      aria-pressed={chatIsOverlay ? "true" : "false"}
-                      aria-label={chatIsOverlay ? "Dock chat" : "Pop out chat"}
+                      aria-pressed={chatOverlayPinned ? "true" : "false"}
+                      aria-label={chatOverlayPinned ? "Dock chat" : "Pop out chat"}
                       onClick={() => setChatOverlayPinned((value) => !value)}
                       className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
                     >
-                      <span className="text-xs">{chatIsOverlay ? "Dock" : "Pop out"}</span>
+                      <span className="text-xs">{chatOverlayPinned ? "Dock" : "Pop out"}</span>
                     </button>
                   )}
                   <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
@@ -4064,6 +4064,11 @@ const resolveDocTypeForManualSync = useCallback(
                   chatIsOverlay ? "flex-1 min-h-0" : "h-[480px]"
                 }`}
               >
+                {chatIsOverlay && (
+                  <div className="md:hidden flex justify-center pt-2 pb-1">
+                    <div className="h-1.5 w-12 rounded-full bg-slate-300/80 dark:bg-slate-600/80" />
+                  </div>
+                )}
                 <div
                   ref={messagesContainerRef}
                   className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3"

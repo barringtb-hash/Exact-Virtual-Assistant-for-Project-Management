@@ -128,6 +128,7 @@ describe("guided charter typed happy path", () => {
       req.reply({ body: { handled: true, idempotent: false, events: [] } });
     }).as("charterMessage");
 
+    cy.visit("/");
     cy.waitForAppReady();
     cy.getByTestId("btn-start-charter").should("be.visible");
   });

@@ -1,6 +1,10 @@
 /// <reference types="cypress" />
 
 describe("app boot smoke", () => {
+  beforeEach(() => {
+    cy.visit("/");
+  });
+
   it("loads the application shell and critical UI", () => {
     cy.waitForAppReady();
 

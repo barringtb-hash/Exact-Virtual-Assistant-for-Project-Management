@@ -1,4 +1,6 @@
-import "./commands";
+import "./commands-core";
+import "./commands-voice";
+
 declare global {
   interface Window {
     __FLAG_OVERRIDES__?: Record<string, unknown>;

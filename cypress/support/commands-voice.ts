@@ -90,16 +90,26 @@ Cypress.Commands.add(
         .stub(mediaDevices, "getUserMedia")
         .callsFake(() => Promise.resolve(resolvedStream));
 
-      return Cypress.Promise.try(() => callback(stub)).then(
-        (value) => {
+      const cypressWithOff = Cypress as unknown as {
+        off?: (action: string, fn: (error: Cypress.CypressError, runnable: Mocha.Runnable) => void) => void;
+      };
+
+      const handleFailure = (error: Cypress.CypressError, runnable: Mocha.Runnable) => {
+        cypressWithOff.off?.("fail", handleFailure);
+        stub.restore();
+        throw error;
+      };
+
+      Cypress.on("fail", handleFailure);
+
+      return cy
+        .wrap(null, { log: false })
+        .then(() => callback(stub))
+        .then((value) => {
+          cypressWithOff.off?.("fail", handleFailure);
           stub.restore();
           return value;
-        },
-        (error) => {
-          stub.restore();
-          throw error;
-        },
-      );
+        });
     });
   },
 );

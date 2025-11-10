@@ -1,6 +1,8 @@
 import { S } from "../../harness/selectors";
 import { stubCharterMessages, stubCharterStart } from "../../harness/server";
 
+Cypress.env("VITE_CHARTER_GUIDED_BACKEND", "true");
+
 const SLOT_UPDATE_EVENT = {
   type: "slot_update",
   event_id: "evt-slot-confirm",

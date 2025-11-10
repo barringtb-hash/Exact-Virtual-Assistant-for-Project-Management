@@ -10,6 +10,7 @@ const voiceHarness = resolveVoiceHarnessOptions({
 Cypress.env("VOICE_E2E", "true");
 Cypress.env("VOICE_USE_MOCK_MEDIA", voiceHarness.useMockMedia);
 Cypress.env("VOICE_USE_MOCK_STT", voiceHarness.useMockSpeechToText);
+Cypress.env("VITE_CHARTER_GUIDED_BACKEND", "true");
 
 describe("Smoke: voice title extraction", () => {
   const derivedTitle = "Voice Captured Charter";

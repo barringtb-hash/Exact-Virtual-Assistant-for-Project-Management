@@ -1350,6 +1350,11 @@ export default function ExactVirtualAssistantPM() {
     [chatOverlayPinned, isPreviewFocus]
   );
 
+  const previewPanelClassName = useMemo(() => {
+    const previewFocusClass = isPreviewFocus ? "lg:col-span-12" : "lg:col-span-4";
+    return chatIsOverlay ? previewFocusClass : "lg:col-span-4";
+  }, [chatIsOverlay, isPreviewFocus]);
+
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
   const schemaLoading =
@@ -4216,10 +4221,10 @@ const resolveDocTypeForManualSync = useCallback(
 
           {/* Right Preview */}
           {shouldShowPreview && (
-          <aside
-            className={chatIsOverlay ? "lg:col-span-12" : "lg:col-span-4"}
-            data-testid="preview-panel"
-          >
+            <aside
+              className={previewPanelClassName}
+              data-testid="preview-panel"
+            >
             <Panel
               title="Document preview"
               right={

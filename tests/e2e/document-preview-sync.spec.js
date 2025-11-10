@@ -36,6 +36,27 @@ test.describe("charter preview background extraction", () => {
     await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
     await expect(page.getByTestId("chat-title")).toBeVisible();
 
+    // Intercept the document-extraction call and return a deterministic response.
+    // Without this stub, the API calls the OpenAI client and throws
+    // "No OpenAI mock response configured" during tests.
+    await page.route("**/api/documents/extract", async (route) => {
+      const responseBody = {
+        status: "ok",
+        fields: {
+          project_name: "Launch Initiative",
+          project_lead: "Alex Example",
+          sponsor: "Casey Example",
+          start_date: "2024-03-15",
+        },
+        warnings: [],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(responseBody),
+      });
+    });
+
     const extractRequests = [];
     page.on("request", (request) => {
       if (

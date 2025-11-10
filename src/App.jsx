@@ -58,6 +58,7 @@ import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { runVoiceFieldExtraction } from "./features/charter/voiceFieldController.ts";
+import { getChatPanelClass, getPreviewPanelClass } from "./features/previewFocus/layout.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
@@ -1345,7 +1346,19 @@ export default function ExactVirtualAssistantPM() {
 
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
-  const chatIsOverlay = isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned;
+  const chatIsOverlay = useMemo(
+    () => isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned,
+    [chatOverlayPinned, isPreviewFocus]
+  );
+
+  const chatPanelClassName = useMemo(
+    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview }),
+    [chatIsOverlay, shouldShowPreview],
+  );
+  const previewPanelClassName = useMemo(
+    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus }),
+    [chatIsOverlay, isPreviewFocus],
+  );
 
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
@@ -4018,11 +4031,7 @@ const resolveDocTypeForManualSync = useCallback(
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
           <section
-            className={
-              chatIsOverlay
-                ? "fixed inset-x-0 bottom-0 h-[45vh] md:bottom-4 md:right-4 md:inset-x-auto md:w-[380px] md:h-[56vh] max-h-[70vh] z-50"
-                : (shouldShowPreview ? "lg:col-span-8" : "lg:col-span-12")
-            }
+            className={chatPanelClassName}
             data-testid="chat-panel"
             role={chatIsOverlay ? "complementary" : undefined}
             aria-label={chatIsOverlay ? "Chat assistant" : undefined}
@@ -4034,12 +4043,12 @@ const resolveDocTypeForManualSync = useCallback(
                   {isPreviewFocus && (
                     <button
                       type="button"
-                      aria-pressed={chatIsOverlay ? "true" : "false"}
-                      aria-label={chatIsOverlay ? "Dock chat" : "Pop out chat"}
-                      onClick={() => setChatOverlayPinned(v => !v)}
+                      aria-pressed={chatOverlayPinned ? "true" : "false"}
+                      aria-label={chatOverlayPinned ? "Dock chat" : "Pop out chat"}
+                      onClick={() => setChatOverlayPinned((value) => !value)}
                       className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
                     >
-                      <span className="text-xs">{chatIsOverlay ? "Dock" : "Pop out"}</span>
+                      <span className="text-xs">{chatOverlayPinned ? "Dock" : "Pop out"}</span>
                     </button>
                   )}
                   <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
@@ -4047,9 +4056,22 @@ const resolveDocTypeForManualSync = useCallback(
                   </button>
                 </div>
               }
+              className={chatIsOverlay ? "h-full flex flex-col" : undefined}
             >
-              <div className="flex flex-col h-[480px] rounded-2xl border border-white/50 bg-white/60 backdrop-blur overflow-hidden dark:border-slate-700/60 dark:bg-slate-900/40">
-                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div
+                className={`flex flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/60 backdrop-blur dark:border-slate-700/60 dark:bg-slate-900/40 ${
+                  chatIsOverlay ? "flex-1 min-h-0" : "h-[480px]"
+                }`}
+              >
+                {chatIsOverlay && (
+                  <div className="md:hidden flex justify-center pt-2 pb-1">
+                    <div className="h-1.5 w-12 rounded-full bg-slate-300/80 dark:bg-slate-600/80" />
+                  </div>
+                )}
+                <div
+                  ref={messagesContainerRef}
+                  className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3"
+                >
                   {visibleMessages.map((m) => (
                     <ChatBubble
                       key={m.id}
@@ -4203,10 +4225,10 @@ const resolveDocTypeForManualSync = useCallback(
 
           {/* Right Preview */}
           {shouldShowPreview && (
-          <aside
-            className={chatIsOverlay ? "lg:col-span-12" : "lg:col-span-4"}
-            data-testid="preview-panel"
-          >
+            <aside
+              className={previewPanelClassName}
+              data-testid="preview-panel"
+            >
             <Panel
               title="Document preview"
               right={
@@ -4460,9 +4482,11 @@ function ToastStack({ toasts, onDismiss }) {
   );
 }
 
-function Panel({ title, icon, right, children }) {
+function Panel({ title, icon, right, children, className = "" }) {
   return (
-    <div className="rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40">
+    <div
+      className={`rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40 ${className}`}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}

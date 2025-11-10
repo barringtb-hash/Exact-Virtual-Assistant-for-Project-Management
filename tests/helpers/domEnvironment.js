@@ -20,33 +20,71 @@ export function installDomEnvironment() {
   const previous = new Map();
 
   for (const key of GLOBAL_KEYS) {
-    if (key === "navigator") {
-      previous.set(key, globalThis.navigator);
-      globalThis.navigator = {
-        ...dom.window.navigator,
-      };
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+    previous.set(key, { value: globalThis[key], descriptor });
+
+    const value = dom.window[key];
+    if (typeof value === "undefined") {
       continue;
     }
 
-    previous.set(key, globalThis[key]);
-    const value = dom.window[key];
-    if (typeof value !== "undefined") {
+    if (key === "navigator") {
+      try {
+        globalThis.navigator = {
+          ...dom.window.navigator,
+        };
+      } catch {
+        Object.defineProperty(globalThis, "navigator", {
+          configurable: true,
+          writable: true,
+          value: {
+            ...dom.window.navigator,
+          },
+        });
+      }
+      continue;
+    }
+
+    try {
       globalThis[key] = value;
+    } catch {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        writable: true,
+        value,
+      });
     }
   }
 
   if (typeof dom.window.requestAnimationFrame === "function") {
-    previous.set("requestAnimationFrame", globalThis.requestAnimationFrame);
+    previous.set("requestAnimationFrame", {
+      value: globalThis.requestAnimationFrame,
+      descriptor: Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame"),
+    });
     globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
   }
 
   if (typeof dom.window.cancelAnimationFrame === "function") {
-    previous.set("cancelAnimationFrame", globalThis.cancelAnimationFrame);
+    previous.set("cancelAnimationFrame", {
+      value: globalThis.cancelAnimationFrame,
+      descriptor: Object.getOwnPropertyDescriptor(globalThis, "cancelAnimationFrame"),
+    });
     globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
   }
 
   const cleanup = () => {
-    for (const [key, value] of previous.entries()) {
+    for (const [key, record] of previous.entries()) {
+      const { descriptor, value } = record;
+
+      if (descriptor) {
+        try {
+          Object.defineProperty(globalThis, key, descriptor);
+          continue;
+        } catch {
+          // fall through to best-effort assignment below
+        }
+      }
+
       if (typeof value === "undefined") {
         delete globalThis[key];
       } else {

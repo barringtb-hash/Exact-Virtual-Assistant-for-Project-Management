@@ -1,30 +1,24 @@
 import { defineConfig } from "cypress";
+import type { Browser } from "cypress";
 
-const baseUrl = process.env.CYPRESS_BASE_URL ?? "http://localhost:5173";
+const port = process.env.PORT ?? "5173";
+const baseUrl =
+  process.env.CYPRESS_BASE_URL ??
+  process.env.VITE_TEST_HOST ??
+  `http://localhost:${port}`;
+
+const smokeSpecs = "cypress/e2e/00-smoke/**/*.cy.ts";
+const cliSpecs = process.env.CYPRESS_SPEC_PATTERN ?? process.env.CYPRESS_E2E_SPECS;
+const specPattern = cliSpecs && cliSpecs.length > 0 ? cliSpecs : smokeSpecs;
 
 export default defineConfig({
   e2e: {
-    // keeps clicks aimed at the center of targets
-    scrollBehavior: "center",
     baseUrl,
-    specPattern: "cypress/e2e/**/*.cy.ts",
+    specPattern,
     supportFile: "cypress/support/e2e.ts",
     testIsolation: true,
-    video: false,
-    defaultCommandTimeout: 10000,
-    requestTimeout: 10000,
-    responseTimeout: 10000,
-    retries: {
-      runMode: 1,
-      openMode: 0,
-    },
-    env: {
-      VOICE_E2E: process.env.VOICE_E2E ?? "false",
-      VOICE_USE_MOCK_MEDIA: process.env.VOICE_USE_MOCK_MEDIA ?? "false",
-      VOICE_USE_MOCK_STT: process.env.VOICE_USE_MOCK_STT ?? "false",
-    },
     setupNodeEvents(on, config) {
-      on("before:browser:launch", (browser = {}, launchOptions) => {
+      on("before:browser:launch", (browser = {} as Browser, launchOptions) => {
         if (browser.name === "chrome") {
           launchOptions.args.push(
             "--use-fake-device-for-media-stream",
@@ -41,5 +35,13 @@ export default defineConfig({
   },
   viewportWidth: 1280,
   viewportHeight: 900,
-  screenshotOnRunFailure: true,
+  retries: {
+    runMode: 1,
+    openMode: 0,
+  },
+  env: {
+    VOICE_E2E: process.env.VOICE_E2E ?? "false",
+    VOICE_USE_MOCK_MEDIA: process.env.VOICE_USE_MOCK_MEDIA ?? "false",
+    VOICE_USE_MOCK_STT: process.env.VOICE_USE_MOCK_STT ?? "false",
+  },
 });

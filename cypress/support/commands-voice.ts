@@ -1,12 +1,8 @@
+import { resolveVoiceHarnessOptions } from "../harness/voice";
+
 declare global {
   namespace Cypress {
     interface Chainable {
-      typeIntoComposer(
-        text: string
-      ): Chainable<JQuery<HTMLInputElement | HTMLTextAreaElement>>;
-      getComposerInput(): Chainable<
-        JQuery<HTMLInputElement | HTMLTextAreaElement>
-      >;
       restoreGUM(): Chainable<void>;
       stubGUMSuccess(stream?: MediaStream): Chainable<sinon.SinonStub>;
       stubGUMReject(
@@ -16,35 +12,17 @@ declare global {
   }
 }
 
-const COMPOSER_SELECTOR_PRIORITIES = [
-  '[data-testid="composer-input"]',
-  '[data-testid="composer-textarea"]',
-  '[data-testid="charter-wizard-input"]',
-  '[data-testid="guided-input"]',
-  '[data-testid="charter-guided-input"]',
-];
+const ensureMediaDevices = (win: Window) => {
+  const navigatorWithDevices = win.navigator as Navigator & {
+    mediaDevices?: MediaDevices;
+  };
 
-Cypress.Commands.add("getComposerInput", () => {
-  const selector = COMPOSER_SELECTOR_PRIORITIES.join(", ");
+  if (!navigatorWithDevices.mediaDevices) {
+    navigatorWithDevices.mediaDevices = {} as MediaDevices;
+  }
 
-  return cy
-    .get<HTMLTextAreaElement | HTMLInputElement>(selector, { timeout: 15000 })
-    .then(($elements) => {
-      for (const candidate of COMPOSER_SELECTOR_PRIORITIES) {
-        const match = $elements.filter(candidate);
-        if (match.length) {
-          const firstMatch = match.first() as JQuery<
-            HTMLInputElement | HTMLTextAreaElement
-          >;
-          return cy.wrap(firstMatch);
-        }
-      }
-
-      throw new Error(
-        `Could not find a composer or guided input. Tried: ${COMPOSER_SELECTOR_PRIORITIES.join(", ")}`
-      );
-    });
-});
+  return navigatorWithDevices.mediaDevices;
+};
 
 Cypress.Commands.add("restoreGUM", () => {
   cy.window({ log: false }).then((win) => {
@@ -59,18 +37,6 @@ Cypress.Commands.add("restoreGUM", () => {
     }
   });
 });
-
-const ensureMediaDevices = (win: Window) => {
-  const navigatorWithDevices = win.navigator as Navigator & {
-    mediaDevices?: MediaDevices;
-  };
-
-  if (!navigatorWithDevices.mediaDevices) {
-    navigatorWithDevices.mediaDevices = {} as MediaDevices;
-  }
-
-  return navigatorWithDevices.mediaDevices;
-};
 
 Cypress.Commands.add("stubGUMSuccess", (stream?: MediaStream) => {
   return cy.window({ log: false }).then((win) => {
@@ -124,18 +90,15 @@ Cypress.Commands.add(
   }
 );
 
-Cypress.Commands.add("typeIntoComposer", (text: string) => {
-  cy.get('[data-testid="composer-root"]', { timeout: 10000 })
-    .scrollIntoView({ block: "center" })
-    .should("be.visible");
+/**
+ * Convenience helper that ensures the current Cypress environment is configured
+ * with sensible defaults for voice-oriented tests.
+ */
+export const configureVoiceTestEnvironment = () => {
+  const { useMockMedia, useMockSpeechToText } = resolveVoiceHarnessOptions();
 
-  return cy
-    .getComposerInput()
-    .scrollIntoView({ block: "center" })
-    .should("be.visible")
-    .click({ scrollBehavior: "center" })
-    .type(text, { delay: 0 })
-    .should("have.value", text);
-});
+  Cypress.env("VOICE_USE_MOCK_MEDIA", `${useMockMedia}`);
+  Cypress.env("VOICE_USE_MOCK_STT", `${useMockSpeechToText}`);
+};
 
 export {};

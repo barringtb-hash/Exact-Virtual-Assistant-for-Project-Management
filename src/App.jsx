@@ -1345,7 +1345,10 @@ export default function ExactVirtualAssistantPM() {
 
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
-  const chatIsOverlay = isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned;
+  const chatIsOverlay = useMemo(
+    () => isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned,
+    [chatOverlayPinned, isPreviewFocus]
+  );
 
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
@@ -4036,7 +4039,7 @@ const resolveDocTypeForManualSync = useCallback(
                       type="button"
                       aria-pressed={chatIsOverlay ? "true" : "false"}
                       aria-label={chatIsOverlay ? "Dock chat" : "Pop out chat"}
-                      onClick={() => setChatOverlayPinned(v => !v)}
+                      onClick={() => setChatOverlayPinned((value) => !value)}
                       className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
                     >
                       <span className="text-xs">{chatIsOverlay ? "Dock" : "Pop out"}</span>

@@ -1,5 +1,9 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Buffer } from "node:buffer";
+import esbuild from "esbuild";
 
 import { MissingDocAssetError, UnsupportedDocTypeError } from "../../lib/doc/errors.js";
 import REGISTRY, { getDocTypeConfig } from "../../lib/doc/registry.js";
@@ -10,18 +14,87 @@ import {
 } from "../../lib/doc/audit.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
-import {
-  extractFieldsFromUtterance,
-  extractFieldsFromUtterances,
-} from "../../server/charter/extractFieldsFromUtterance.ts";
 
 const ATTACHMENT_CHAR_LIMIT = 20_000;
 const MIN_TEXT_CONTEXT_LENGTH = 25;
 const VALID_TOOL_ROLES = new Set(["user", "assistant", "system", "developer"]);
-const charterExtractionModule = {
-  extractFieldsFromUtterance,
-  extractFieldsFromUtterances,
-};
+
+const __filename =
+  typeof document === "undefined" ? fileURLToPath(import.meta.url) : "";
+const __dirname = typeof document === "undefined" ? path.dirname(__filename) : "";
+
+// Cache the compiled module to avoid repeated transforms
+let charterExtractionModule = null;
+
+/**
+ * Dynamically compiles and loads the TS module that provides:
+ *   - extractFieldsFromUtterance
+ *   - extractFieldsFromUtterances
+ */
+async function loadCharterExtraction() {
+  if (charterExtractionModule) return charterExtractionModule;
+
+  const tsPath = path.resolve(
+    __dirname,
+    "../../server/charter/extractFieldsFromUtterance.ts",
+  );
+  let tsSource;
+  try {
+    tsSource = await fs.readFile(tsPath, "utf8");
+  } catch (err) {
+    // Surface a clear message rather than a generic 500
+    throw new Error(`Charter extraction source not found at ${tsPath}`);
+  }
+
+  // Transform TypeScript -> ESM JavaScript
+  const { code } = await esbuild.transform(tsSource, {
+    loader: "ts",
+    format: "esm",
+    target: "es2022",
+  });
+
+  // Load the generated ESM via data URI
+  const dataUri =
+    "data:text/javascript;base64," + Buffer.from(code).toString("base64");
+  const module = await import(dataUri);
+
+  // Basic shape assertion (optional but helpful)
+  if (typeof module.extractFieldsFromUtterance !== "function") {
+    throw new Error("extractFieldsFromUtterance export missing after transform");
+  }
+  if (typeof module.extractFieldsFromUtterances !== "function") {
+    throw new Error("extractFieldsFromUtterances export missing after transform");
+  }
+
+  charterExtractionModule = module;
+  return module;
+}
+
+/** Honors test overrides, then dynamic load */
+async function resolveCharterExtraction() {
+  const overrides = globalThis?.__charterExtractionOverrides__;
+  if (overrides && typeof overrides === "object") {
+    const fallbackSingle = async (...args) => {
+      const module = await loadCharterExtraction();
+      return module.extractFieldsFromUtterance(...args);
+    };
+    const fallbackBatch = async (...args) => {
+      const module = await loadCharterExtraction();
+      return module.extractFieldsFromUtterances(...args);
+    };
+    return {
+      extractFieldsFromUtterance:
+        typeof overrides.extractFieldsFromUtterance === "function"
+          ? overrides.extractFieldsFromUtterance
+          : fallbackSingle,
+      extractFieldsFromUtterances:
+        typeof overrides.extractFieldsFromUtterances === "function"
+          ? overrides.extractFieldsFromUtterances
+          : fallbackBatch,
+    };
+  }
+  return await loadCharterExtraction();
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -397,22 +470,6 @@ function isGuidedEnabled(value) {
   return false;
 }
 
-function resolveCharterExtraction() {
-  const overrides = globalThis?.__charterExtractionOverrides__;
-  if (overrides && typeof overrides === "object") {
-    const single =
-      typeof overrides.extractFieldsFromUtterance === "function"
-        ? overrides.extractFieldsFromUtterance
-        : charterExtractionModule.extractFieldsFromUtterance;
-    const batch =
-      typeof overrides.extractFieldsFromUtterances === "function"
-        ? overrides.extractFieldsFromUtterances
-        : charterExtractionModule.extractFieldsFromUtterances;
-    return { extractFieldsFromUtterance: single, extractFieldsFromUtterances: batch };
-  }
-  return charterExtractionModule;
-}
-
 function computeUserTextLength(messages) {
   if (!Array.isArray(messages)) {
     return 0;
@@ -674,7 +731,7 @@ export default async function handler(req, res) {
         auditStatus = confirmationError?.code || "rejected";
       }
     } else if (isGuidedCharterRequest) {
-      const charterExtraction = resolveCharterExtraction();
+      const charterExtraction = await resolveCharterExtraction();
       const baseRequest = {
         messages: toolMessages,
         attachments: toolAttachments,
@@ -754,7 +811,7 @@ export default async function handler(req, res) {
               return {
                 status: "ok",
                 fields: result.fields || {},
-                ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
+                warnings: resultWarnings,
               };
             }
 
@@ -799,7 +856,7 @@ export default async function handler(req, res) {
             payload = {
               status: "ok",
               fields: result.fields || {},
-              ...(resultWarnings.length > 0 ? { warnings: resultWarnings } : {}),
+              warnings: resultWarnings,
             };
             auditStatus = "ok";
           }

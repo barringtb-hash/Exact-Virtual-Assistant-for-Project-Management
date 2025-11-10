@@ -39,3 +39,10 @@ PKGLIST
 else
   echo "apt-get not found; skipping Cypress system dependency installation" >&2
 fi
+
+if command -v npx >/dev/null 2>&1; then
+  # Ensure Chromium is available for Playwright-based E2E runs.
+  npx playwright install chromium
+else
+  echo "npx not found; skipping Playwright browser installation" >&2
+fi

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/run-playwright-e2e.mjs",
     "e2e:ci": "npm run test:e2e",
     "e2e:guided": "VITE_CYPRESS_SAFE_MODE=true VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_GUIDED_BACKEND=on VITE_CHARTER_WIZARD_VISIBLE=false VITE_AUTO_EXTRACTION_ENABLED=false npm run test:e2e",
     "e2e:wizard": "VITE_CYPRESS_SAFE_MODE=true VITE_CHARTER_GUIDED_CHAT_ENABLED=true VITE_CHARTER_GUIDED_BACKEND=on VITE_CHARTER_WIZARD_VISIBLE=true VITE_AUTO_EXTRACTION_ENABLED=true npm run test:e2e",

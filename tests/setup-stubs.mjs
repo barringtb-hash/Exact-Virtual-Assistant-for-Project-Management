@@ -23,5 +23,7 @@ for (const pkg of stubPackages) {
   const target = path.join(nodeModulesRoot, ...parts);
 
   await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.cp(source, target, { recursive: true, force: true });
+  // Remove target directory first to avoid race conditions with force: true
+  await fs.rm(target, { recursive: true, force: true }).catch(() => {});
+  await fs.cp(source, target, { recursive: true });
 }

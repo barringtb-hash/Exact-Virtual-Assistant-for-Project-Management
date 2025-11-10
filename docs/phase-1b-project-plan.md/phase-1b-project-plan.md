@@ -24,9 +24,10 @@
 - **Goal**: Only show the preview panel when document creation is active. If the PM is just chatting and not creating a document, they should only see the chat interface.
 - **Task**: Add logic to toggle the preview panel’s visibility based on whether the user has indicated they want to create a document.
 
-## 7. Making the Preview Panel the Main Panel When Active
+## 7. Making the Preview Panel the Main Panel When Active (Completed)
 - **Goal**: When the preview panel is active, it should take center stage, with the chat minimized but still accessible.
-- **Task**: Adjust the UI so that when document creation is in progress, the preview panel becomes the main focus and the chat field moves to a smaller area in the bottom right corner for easier reading and editing.
+- **Implementation summary**: Preview sessions now default to a full-width document canvas while the chat launches as a floating overlay pinned to the lower-right corner. Users can dock or pop-out the chat, preserving conversation functionality without obscuring the preview (see automated coverage in [`cypress/e2e/stage7_preview_focus.cy.ts`](../../cypress/e2e/stage7_preview_focus.cy.ts)).
+- **Rollback guidance**: Toggle `VITE_PREVIEW_FOCUS_ENABLED` (preview dominance) or `VITE_CHAT_OVERLAY_ON_PREVIEW` (overlay vs. docked chat) to revert to earlier layouts if issues arise.
 
 ## 8. Improve the Export Template for Professional Appearance
 - **Goal**: Ensure that the final exported DOCX and PDF documents use a professional-looking template.

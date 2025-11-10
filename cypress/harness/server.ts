@@ -1,4 +1,11 @@
 // cypress/harness/server.ts
+// Route constants - must match src/lib/assistantClient.ts
+const CHARTER_ROUTES = {
+  start: "**/api/assistant/charter/start*",
+  messages: "**/api/assistant/charter/messages*",
+  stream: "**/api/assistant/charter/stream*",
+};
+
 type CharterStartResponse = {
   conversationId: string;
   prompt: string;
@@ -9,7 +16,7 @@ type CharterStartResponse = {
 };
 
 export function stubCharterStart(overrides?: Partial<CharterStartResponse>) {
-  const START_URL = "**/guided/charter/start*";
+  const START_URL = CHARTER_ROUTES.start;
 
   cy.intercept({ url: START_URL }).as("charterStartAny");
   cy.intercept("POST", START_URL, (req) => {
@@ -39,7 +46,7 @@ export function stubCharterStart(overrides?: Partial<CharterStartResponse>) {
 }
 
 export function stubCharterMessages() {
-  const MESSAGE_URL = "**/guided/charter/messages";
+  const MESSAGE_URL = CHARTER_ROUTES.messages;
   cy.intercept("POST", MESSAGE_URL, (req) => {
     const { message } = req.body ?? {};
     if (message === "North Star Initiative") {
@@ -65,6 +72,17 @@ export function stubCharterMessages() {
     }
     req.reply({ body: { handled: true, idempotent: false, events: [] } });
   }).as("charterMessage");
+}
+
+export function stubCharterStream(conversationId = "conv-001") {
+  cy.intercept("GET", CHARTER_ROUTES.stream, (req) => {
+    req.reply({
+      statusCode: 200,
+      headers: { "content-type": "text/event-stream" },
+      body: "event: close\ndata: {}\n\n",
+    });
+  }).as("charterStream");
+  cy.log("Stubbed charter routes ready");
 }
 
 export function stubVoiceExtract(expectText: string, draft: Record<string,string>) {

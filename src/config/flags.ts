@@ -90,4 +90,10 @@ export const FLAGS = {
   PREVIEW_FOCUS_ENABLED: readBooleanFlag("VITE_PREVIEW_FOCUS_ENABLED", true),
   // Display the chat assistant overlay within preview experiences by default.
   CHAT_OVERLAY_ON_PREVIEW: readBooleanFlag("VITE_CHAT_OVERLAY_ON_PREVIEW", true),
+  // Readability enhancements.
+  READABILITY_V1: readBooleanFlag("VITE_READABILITY_V1", true),
+  READABILITY_HIDE_FIELD_TIMESTAMPS: readBooleanFlag(
+    "VITE_READABILITY_HIDE_FIELD_TIMESTAMPS",
+    false,
+  ),
 } as const;

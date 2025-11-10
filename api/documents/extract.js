@@ -46,16 +46,32 @@ async function loadCharterExtraction() {
     throw new Error(`Charter extraction source not found at ${tsPath}`);
   }
 
-  // Transform TypeScript -> ESM JavaScript
-  const { code } = await esbuild.transform(tsSource, {
-    loader: "ts",
+  // Bundle the charter extraction module so that relative imports resolve when
+  // loading from a data URI.
+  const { outputFiles } = await esbuild.build({
+    stdin: {
+      contents: tsSource,
+      loader: "ts",
+      resolveDir: path.dirname(tsPath),
+      sourcefile: tsPath,
+    },
+    bundle: true,
+    platform: "node",
     format: "esm",
     target: "es2022",
+    write: false,
+    sourcemap: false,
   });
+
+  const bundledOutput = outputFiles?.[0]?.text;
+  if (!bundledOutput) {
+    throw new Error("Failed to bundle charter extraction module");
+  }
 
   // Load the generated ESM via data URI
   const dataUri =
-    "data:text/javascript;base64," + Buffer.from(code).toString("base64");
+    "data:text/javascript;base64," +
+    Buffer.from(bundledOutput).toString("base64");
   const module = await import(dataUri);
 
   // Basic shape assertion (optional but helpful)

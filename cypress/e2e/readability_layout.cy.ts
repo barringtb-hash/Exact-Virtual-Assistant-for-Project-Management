@@ -1,6 +1,19 @@
 describe('Readability Layout Tests', () => {
+  const selectTheme = (mode: 'light' | 'dark' | 'auto') => {
+    cy.get('select[aria-label="Theme mode"]').should('exist').then(($select) => {
+      const currentValue = $select.val();
+      if (currentValue !== mode) {
+        cy.wrap($select).select(mode, { force: true });
+      }
+    });
+  };
+
   beforeEach(() => {
-    cy.visit('/');
+    cy.visit('/', {
+      onBeforeLoad(window) {
+        window.localStorage.setItem('eva-theme-mode', 'light');
+      },
+    });
   });
 
   it('verifies chat message bubbles have correct font size and styling', () => {
@@ -22,35 +35,60 @@ describe('Readability Layout Tests', () => {
     });
   });
 
-  it('verifies preview inputs have correct border colors and styling', () => {
-    // Wait for preview panel to load
-    cy.get('[data-testid="preview-field-title"]').should('exist');
+  it('forces light theme and verifies assistant bubble uses white surface', () => {
+    cy.contains('Chat Assistant').should('exist');
 
-    // Check input border color (should be gray-300: rgb(209, 213, 219) in light mode)
-    cy.get('input[type="text"]').first().should('exist').then(($input) => {
-      const borderColor = $input.css('border-color');
-      // Accept multiple valid gray values as border colors may vary slightly
-      expect(borderColor).to.match(/rgb\(209,\s*213,\s*219\)|rgb\(156,\s*163,\s*175\)/);
-    });
+    selectTheme('light');
 
-    // Verify input text size is at least 16px
-    cy.get('input[type="text"]').first().should('have.css', 'font-size').then((fontSize) => {
-      const size = parseFloat(fontSize);
-      expect(size).to.be.gte(16);
-    });
+    cy.get('.eva-chat-message--assistant .eva-chat-message-bubble')
+      .first()
+      .should('have.css', 'background-color', 'rgb(255, 255, 255)')
+      .and(($bubble) => {
+        const borderColor = $bubble.css('border-color');
+        expect(borderColor).to.match(/rgb\((?:229,\s*231,\s*235|209,\s*213,\s*219)\)/);
+      });
+  });
+
+  it('switches to dark theme and ensures assistant bubble styles update', () => {
+    cy.contains('Chat Assistant').should('exist');
+
+    selectTheme('dark');
+
+    cy.get('.eva-chat-message--assistant .eva-chat-message-bubble')
+      .first()
+      .should('have.css', 'background-color', 'rgb(15, 23, 42)')
+      .and('have.css', 'box-shadow', 'none');
+  });
+
+  it('ensures light mode preview inputs use high-contrast borders', () => {
+    cy.contains('Chat Assistant').should('exist');
+
+    selectTheme('light');
+
+    cy.get('input, textarea')
+      .filter(':visible')
+      .first()
+      .should('exist')
+      .and('have.css', 'border-width', '1px')
+      .and('have.css', 'border-color', 'rgb(209, 213, 219)')
+      .and('have.css', 'background-color', 'rgb(255, 255, 255)');
   });
 
   it('verifies sections have proper borders and spacing', () => {
     // Check if sections exist with proper styling
-    cy.get('section').first().then(($section) => {
-      if ($section.length > 0) {
-        // Verify section has border
-        cy.wrap($section).should('have.css', 'border-width').and('not.eq', '0px');
-
-        // Verify section has padding
-        cy.wrap($section).should('have.css', 'padding').and('not.eq', '0px');
-      }
-    });
+    cy.get('section')
+      .filter(':visible')
+      .first()
+      .should('have.css', 'border-width', '1px')
+      .and(($section) => {
+        expect($section.css('border-color')).to.not.match(/rgba\(0,\s*0,\s*0,\s*0\)/);
+      })
+      .and(($section) => {
+        const paddingTop = parseFloat($section.css('padding-top'));
+        const paddingLeft = parseFloat($section.css('padding-left'));
+        expect(paddingTop).to.be.greaterThan(0);
+        expect(paddingLeft).to.be.greaterThan(0);
+      });
   });
 
   it('verifies app loads without crashes when readability flag is enabled', () => {

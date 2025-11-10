@@ -58,6 +58,7 @@ import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
 import { guidedStateToCharterDTO } from "./features/charter/persist.ts";
 import { runVoiceFieldExtraction } from "./features/charter/voiceFieldController.ts";
+import { getChatPanelClass, getPreviewPanelClass } from "./features/previewFocus/layout.ts";
 import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
@@ -1350,11 +1351,14 @@ export default function ExactVirtualAssistantPM() {
     [chatOverlayPinned, isPreviewFocus]
   );
 
-  const previewPanelClassName = useMemo(() => {
-    const previewFocusClass = isPreviewFocus ? "lg:col-span-12" : "lg:col-span-4";
-    const dockedClass = isPreviewFocus ? "lg:col-span-8" : "lg:col-span-4";
-    return chatIsOverlay ? previewFocusClass : dockedClass;
-  }, [chatIsOverlay, isPreviewFocus]);
+  const chatPanelClassName = useMemo(
+    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview }),
+    [chatIsOverlay, shouldShowPreview],
+  );
+  const previewPanelClassName = useMemo(
+    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus }),
+    [chatIsOverlay, isPreviewFocus],
+  );
 
   const manifestLoading =
     hasPreviewDocType && (manifestStatus === "loading" || manifestStatus === "idle");
@@ -4027,15 +4031,7 @@ const resolveDocTypeForManualSync = useCallback(
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Center Chat */}
           <section
-            className={
-              chatIsOverlay
-                ? "bottom-sheet floating-card inset-x-0 bottom-0 md:inset-auto md:left-auto md:right-4 md:bottom-4"
-                : shouldShowPreview
-                  ? isPreviewFocus
-                    ? "lg:col-span-4"
-                    : "lg:col-span-8"
-                  : "lg:col-span-12"
-            }
+            className={chatPanelClassName}
             data-testid="chat-panel"
             role={chatIsOverlay ? "complementary" : undefined}
             aria-label={chatIsOverlay ? "Chat assistant" : undefined}

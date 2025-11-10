@@ -1352,7 +1352,8 @@ export default function ExactVirtualAssistantPM() {
 
   const previewPanelClassName = useMemo(() => {
     const previewFocusClass = isPreviewFocus ? "lg:col-span-12" : "lg:col-span-4";
-    return chatIsOverlay ? previewFocusClass : "lg:col-span-4";
+    const dockedClass = isPreviewFocus ? "lg:col-span-8" : "lg:col-span-4";
+    return chatIsOverlay ? previewFocusClass : dockedClass;
   }, [chatIsOverlay, isPreviewFocus]);
 
   const manifestLoading =
@@ -4028,9 +4029,11 @@ const resolveDocTypeForManualSync = useCallback(
           <section
             className={
               chatIsOverlay
-                ? "bottom-sheet floating-card"
+                ? "bottom-sheet floating-card inset-x-0 bottom-0 md:inset-auto md:left-auto md:right-4 md:bottom-4"
                 : shouldShowPreview
-                  ? "lg:col-span-8"
+                  ? isPreviewFocus
+                    ? "lg:col-span-4"
+                    : "lg:col-span-8"
                   : "lg:col-span-12"
             }
             data-testid="chat-panel"

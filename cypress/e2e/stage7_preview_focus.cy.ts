@@ -10,10 +10,11 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
     // Wait for preview panel to appear
     cy.get('[data-testid="preview-panel"]', { timeout: 10000 }).should('exist').and('be.visible');
 
-    // Check that chat panel has fixed positioning (overlay mode)
+    // Check that chat panel uses overlay positioning helpers
     cy.get('[data-testid="chat-panel"]', { timeout: 10000 })
       .should('be.visible')
-      .and('have.class', 'fixed');
+      .and('have.class', 'bottom-sheet')
+      .and('have.class', 'floating-card');
 
     // Verify preview panel spans full width (lg:col-span-12)
     cy.get('[data-testid="preview-panel"]')
@@ -42,17 +43,34 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
 
     // Chat should start in overlay mode
     cy.get('[data-testid="chat-panel"]')
-      .should('have.class', 'fixed');
+      .should('have.class', 'bottom-sheet')
+      .and('have.class', 'floating-card')
+      .and('have.class', 'inset-x-0')
+      .and('have.class', 'bottom-0');
 
     // Click the "Dock" button
     cy.get('[data-testid="chat-panel"]')
       .contains('button', 'Dock')
       .click();
 
-    // Chat should now be in grid mode (not fixed)
+    // Chat should now be in docked grid mode
     cy.get('[data-testid="chat-panel"]')
-      .should('not.have.class', 'fixed')
-      .and('have.class', 'lg:col-span-8');
+      .should('not.have.class', 'bottom-sheet')
+      .and('not.have.class', 'floating-card')
+      .and('have.class', 'lg:col-span-4');
+
+    // Preview should take the dominant width when chat is docked
+    cy.get('[data-testid="preview-panel"]')
+      .should('have.class', 'lg:col-span-8');
+
+    // Chat remains functional in docked mode
+    cy.get('[data-testid="composer-input"]')
+      .should('be.visible')
+      .type('Docked mode message');
+    cy.get('[data-testid="composer-send"]').click();
+    cy.get('[data-testid="chat-panel"]')
+      .contains('Docked mode message', { timeout: 5000 })
+      .should('exist');
 
     // Button should now say "Pop out"
     cy.get('[data-testid="chat-panel"]')
@@ -66,7 +84,22 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
 
     // Chat should be back in overlay mode
     cy.get('[data-testid="chat-panel"]')
-      .should('have.class', 'fixed');
+      .should('have.class', 'bottom-sheet')
+      .and('have.class', 'floating-card')
+      .and('have.class', 'inset-x-0')
+      .and('have.class', 'bottom-0');
+
+    cy.get('[data-testid="preview-panel"]')
+      .should('have.class', 'lg:col-span-12');
+
+    // Composer should continue working after returning to overlay mode
+    cy.get('[data-testid="composer-input"]')
+      .should('be.visible')
+      .type('Overlay mode message');
+    cy.get('[data-testid="composer-send"]').click();
+    cy.get('[data-testid="chat-panel"]')
+      .contains('Overlay mode message', { timeout: 5000 })
+      .should('exist');
   });
 
   it('allows typing and sending messages in overlay mode', () => {
@@ -78,7 +111,7 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
 
     // Verify chat is in overlay mode
     cy.get('[data-testid="chat-panel"]')
-      .should('have.class', 'fixed');
+      .should('have.class', 'bottom-sheet');
 
     // Type a message in the composer
     cy.get('[data-testid="composer-input"]')
@@ -108,9 +141,10 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
     cy.get('[data-testid="preview-panel"]')
       .should('have.class', 'lg:col-span-12');
 
-    // Chat should be in overlay (fixed position)
+    // Chat should use the floating card treatment on md+
     cy.get('[data-testid="chat-panel"]')
-      .should('have.class', 'fixed');
+      .should('have.class', 'bottom-sheet')
+      .and('have.class', 'floating-card');
   });
 
   it('shows chat as bottom sheet on mobile viewport', () => {
@@ -123,9 +157,9 @@ describe('Stage 7: Preview Focus and Chat Overlay', () => {
     // Wait for preview to appear
     cy.get('[data-testid="preview-panel"]', { timeout: 10000 }).should('exist');
 
-    // Chat should be in overlay mode
+    // Chat should present as a bottom sheet on mobile
     cy.get('[data-testid="chat-panel"]')
-      .should('have.class', 'fixed')
+      .should('have.class', 'bottom-sheet')
       .and('have.class', 'inset-x-0')
       .and('have.class', 'bottom-0');
   });

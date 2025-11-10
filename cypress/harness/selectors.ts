@@ -1,24 +1,29 @@
 /**
- * Central place to describe selectors that are shared across Cypress support
- * helpers and the test harness. Keeping them in one file helps avoid drift
- * between the tests and custom commands that rely on the same DOM hooks.
+ * Shared map of `data-testid` selectors used throughout the Cypress harness.
+ * Keeping the selectors centralized ensures that custom commands and tests stay
+ * in sync whenever the application markup evolves.
  */
-export const COMPOSER_SELECTOR_PRIORITIES = [
-  '[data-testid="composer-input"]',
-  '[data-testid="composer-textarea"]',
-  '[data-testid="charter-wizard-input"]',
-  '[data-testid="guided-input"]',
-  '[data-testid="charter-guided-input"]',
-] as const;
-
-export type ComposerSelector = (typeof COMPOSER_SELECTOR_PRIORITIES)[number];
-
-export const harnessSelectors = {
+export const S = {
+  appReady: '[data-testid="app-ready"]',
+  appHeader: '[data-testid="app-header"]',
+  chatPanel: '[data-testid="chat-panel"]',
   composerRoot: '[data-testid="composer-root"]',
-  composerInputOrTextarea: COMPOSER_SELECTOR_PRIORITIES.join(', '),
+  composerInput: '[data-testid="composer-input"]',
+  composerTextareaLegacy: '[data-testid="composer-textarea"]',
+  composerSend: '[data-testid="composer-send"]',
+  micButton: '[data-testid="mic-button"]',
+  previewPanel: '[data-testid="preview-panel"]',
+  previewPendingOverlay: '[data-testid="preview-pending-overlay"]',
+  charterStartButton: '[data-testid="btn-start-charter"]',
 } as const;
 
-export type HarnessSelectorKey = keyof typeof harnessSelectors;
+export type SelectorKey = keyof typeof S;
 
-export const getHarnessSelector = (key: HarnessSelectorKey) =>
-  harnessSelectors[key];
+export const getSelector = (key: SelectorKey): string => S[key];
+
+export const resolveTestIdSelector = (testId: SelectorKey | string): string => {
+  if (testId in S) {
+    return S[testId as SelectorKey];
+  }
+  return `[data-testid="${String(testId)}"]`;
+};

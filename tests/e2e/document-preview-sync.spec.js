@@ -11,7 +11,8 @@ const demoTppPath = path.join(fixturesDir, "demo-tpp.txt");
 test.describe("charter preview background extraction", () => {
   test("does not auto extract when uploading attachments without intent", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const extractRequests = [];
     page.on("request", (request) => {
@@ -32,7 +33,8 @@ test.describe("charter preview background extraction", () => {
 
   test("triggers charter extraction after NL request and populates the preview", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("heading", { name: "Assistant Chat" }).waitFor();
+    await page.getByRole("heading", { name: /chat assistant/i }).waitFor();
+    await expect(page.getByTestId("chat-title")).toBeVisible();
 
     const extractRequests = [];
     page.on("request", (request) => {

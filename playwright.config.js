@@ -16,10 +16,10 @@ const createWebServerProject = ({
     ...use,
   },
   webServer: {
-    command: "node tests/e2e/run-test-server.mjs",
+    command: "node tests/e2e/test-server.mjs",
     url: `http://127.0.0.1:${port}/api/charter/health`,
-    timeout: 120_000,
-    reuseExistingServer: false,
+    timeout: 60_000,
+    reuseExistingServer: !process.env.CI,
     env: {
       ...process.env,
       FILES_LINK_SECRET: process.env.FILES_LINK_SECRET || "playwright-secret",

@@ -47,4 +47,13 @@ test("Cypress harness routes must match app assistant client routes", async () =
     !harnessContent.includes('"/guided/charter/') && !harnessContent.includes("'**/guided/charter/"),
     "Harness must NOT use legacy /guided/charter/ routes"
   );
+
+  // Ensure we do not register a generic/methodless intercept for START_URL
+  // which would capture the request before the POST stub and break cy.wait('@charterStart').
+  const methodlessInterceptForStart =
+    /cy\.intercept\(\s*\{\s*url:\s*(?:START_URL|CHARTER_ROUTES\.start)\s*\}\s*\)/.test(harnessContent);
+  assert.ok(
+    !methodlessInterceptForStart,
+    "Do not use a methodless cy.intercept({ url: START_URL }) or cy.intercept({ url: CHARTER_ROUTES.start }) in the harness - it will short-circuit the POST stub"
+  );
 });

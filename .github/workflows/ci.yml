@@ -51,6 +51,14 @@ jobs:
           spec: cypress/e2e/00-smoke/**/*.cy.ts
         env:
           CI: true
+      - name: Upload Cypress screenshots (smoke)
+        if: ${{ failure() || always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-smoke
+          path: cypress/screenshots
+          if-no-files-found: ignore
+          retention-days: 7
 
   e2e-full:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'schedule'
@@ -73,3 +81,11 @@ jobs:
           spec: cypress/e2e/{00-smoke,90-extended}/**/*.cy.ts
         env:
           CI: true
+      - name: Upload Cypress screenshots (full)
+        if: ${{ failure() || always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-full
+          path: cypress/screenshots
+          if-no-files-found: ignore
+          retention-days: 7

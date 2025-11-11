@@ -18,7 +18,9 @@ type CharterStartResponse = {
 export function stubCharterStart(overrides?: Partial<CharterStartResponse>) {
   const START_URL = CHARTER_ROUTES.start;
 
-  cy.intercept({ url: START_URL }).as("charterStartAny");
+  // IMPORTANT: Do NOT register a methodless intercept for START_URL before this POST stub.
+  // Cypress will match the first intercept and @charterStart won't fire.
+  cy.log("Stubbing charter start (POST) -> @charterStart");
   cy.intercept("POST", START_URL, (req) => {
     const correlationId = req.body?.correlation_id;
     expect(correlationId, "correlation id").to.be.a("string").and.not.be.empty;

@@ -81,7 +81,8 @@ export function stubCharterStream(conversationId = "conv-001") {
     req.reply({
       statusCode: 200,
       headers: { "content-type": "text/event-stream" },
-      body: "event: close\ndata: {}\n\n",
+      // Keep stream open - don't send close event which would reset the guided session
+      body: "",
     });
   }).as("charterStream");
   cy.log("Stubbed charter routes ready");

@@ -1974,7 +1974,7 @@ export default function ExactVirtualAssistantPM() {
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {
       // Apply guided answers in either local orchestrator mode or guided backend mode
-      const isGuidedMode = isGuidedChatEnabled || (CHARTER_GUIDED_BACKEND_ENABLED && guidedConversationIdRef.current);
+      const isGuidedMode = isGuidedChatEnabled || (CHARTER_GUIDED_BACKEND_ENABLED && guidedConversationId);
       if (!isGuidedMode) {
         return null;
       }
@@ -2047,6 +2047,7 @@ export default function ExactVirtualAssistantPM() {
     },
     [
       createBlankDraft,
+      guidedConversationId,
       isGuidedChatEnabled,
       previewDocType,
       setFieldStates,

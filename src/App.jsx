@@ -3552,6 +3552,8 @@ const resolveDocTypeForManualSync = useCallback(
       processedGuidedEventIdsRef.current = new Set();
       hasPostedInitialPromptRef.current = false;
       setGuidedState(createInitialGuidedState());
+      // Ensure charter template is selected so preview renders correctly
+      setDocType('charter');
       startDocSession({ docType: 'charter', origin: 'wizard' });
 
       const startResponse = await startCharterSession(correlationId);

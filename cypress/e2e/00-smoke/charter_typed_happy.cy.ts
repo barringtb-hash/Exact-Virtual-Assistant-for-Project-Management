@@ -14,6 +14,9 @@ describe("Charter – typed happy path", () => {
     cy.wait("@charterStart");
     cy.contains(`[data-testid="${S.assistantMessage}"]`, "Project Title (required)").should("be.visible");
 
+    // Wait for preview panel to render with charter template
+    cy.getByTestId("preview-panel", { timeout: 5000 }).should("be.visible");
+
     cy.submitComposer("North Star Initiative");
     cy.wait("@charterMessage");
     cy.contains(`[data-testid="${S.assistantMessage}"]`, "Saved Project Title.").should("be.visible");

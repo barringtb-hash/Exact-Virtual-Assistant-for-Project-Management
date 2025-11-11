@@ -8,8 +8,11 @@ Cypress.on("window:before:load", (win) => {
     (win as any).__FLAG_OVERRIDES__ = {};
   }
 
-  // Force test-safe app behavior to avoid localStorage/session side effects
-  (win as any).__FLAG_OVERRIDES__.VITE_CYPRESS_SAFE_MODE = "true";
+  // Enable guided backend so the app makes API calls that our intercepts can capture
+  // Note: We do NOT set VITE_CYPRESS_SAFE_MODE because it disables REMOTE_GUIDED_BACKEND_ENABLED
+  // which would prevent the app from making API calls (defeating our intercept stubs).
+  // Our intercepts handle all API calls deterministically, so we don't need SAFE_MODE's protection.
+  (win as any).__FLAG_OVERRIDES__.VITE_CHARTER_GUIDED_BACKEND = "on";
 
   // Anti-occlusion style so headers/overlays cannot block taps/clicks
   const styleEl = win.document.createElement("style");

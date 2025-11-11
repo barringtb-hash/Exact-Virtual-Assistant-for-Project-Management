@@ -1,10 +1,11 @@
 import { S } from "../../harness/selectors";
-import { stubCharterStart, stubCharterMessages, stubVoiceExtract } from "../../harness/server";
+import { stubCharterStart, stubCharterMessages, stubCharterStream, stubVoiceExtract } from "../../harness/server";
 
 describe("Voice → title extraction", () => {
   beforeEach(() => {
     stubCharterStart();
     stubCharterMessages();
+    stubCharterStream();
     stubVoiceExtract("Polaris Launch", { project_name: "Polaris Launch" });
     cy.waitForAppReady();
   });

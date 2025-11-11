@@ -21,6 +21,7 @@ Cypress.on("window:before:load", (win) => {
     [data-testid="app-header"] { z-index: 20 !important; pointer-events: none !important; }
     [data-testid="composer-root"] { z-index: 40 !important; }
     [data-testid="loading-overlay"] { pointer-events: none !important; }
+    [data-testid="sync-devtools"] { pointer-events: none !important; opacity: 0.3 !important; }
   `;
   win.document.head.appendChild(styleEl);
 });

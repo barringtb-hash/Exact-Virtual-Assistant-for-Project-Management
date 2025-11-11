@@ -2334,7 +2334,11 @@ export default function ExactVirtualAssistantPM() {
 
       if (stateChanged && nextState) {
         setGuidedState(nextState);
-        scheduleChatPreviewSync({ reason: reason || "guided-slot-update" });
+        // In guided backend mode, draft updates come from guidedState via flushGuidedAnswers useEffect
+        // Don't call scheduleChatPreviewSync which would trigger unnecessary extraction calls
+        if (!CHARTER_GUIDED_BACKEND_ENABLED) {
+          scheduleChatPreviewSync({ reason: reason || "guided-slot-update" });
+        }
       }
 
       if (appendedAssistant && !hasPostedInitialPromptRef.current) {

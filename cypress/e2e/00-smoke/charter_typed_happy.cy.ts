@@ -17,7 +17,10 @@ describe("Charter – typed happy path", () => {
     cy.submitComposer("North Star Initiative");
     cy.wait("@charterMessage");
     cy.contains(`[data-testid="${S.assistantMessage}"]`, "Saved Project Title.").should("be.visible");
-    cy.getByTestId(S.previewTitle).should("have.value", "North Star Initiative");
+    // Wait for preview field to exist and be populated from guided state
+    cy.getByTestId(S.previewTitle, { timeout: 10000 })
+      .should("exist")
+      .should("have.value", "North Star Initiative");
 
     cy.submitComposer("Jordan Example");
     cy.wait("@charterMessage");

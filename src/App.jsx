@@ -1973,7 +1973,9 @@ export default function ExactVirtualAssistantPM() {
 
   const applyGuidedAnswersToDraft = useCallback(
     (state) => {
-      if (!isGuidedChatEnabled) {
+      // Apply guided answers in either local orchestrator mode or guided backend mode
+      const isGuidedMode = isGuidedChatEnabled || (CHARTER_GUIDED_BACKEND_ENABLED && guidedConversationIdRef.current);
+      if (!isGuidedMode) {
         return null;
       }
       if (previewDocType !== "charter") {

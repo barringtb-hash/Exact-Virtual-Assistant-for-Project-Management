@@ -37,8 +37,11 @@ The Exact Virtual Assistant for Project Management routes every request through 
    INTENT_ONLY_EXTRACTION=true
    # Optional streaming switch used by /api/chat/stream
    CHAT_STREAMING=false
+   # FILES_LINK_SECRET=$(openssl rand -hex 32)
    ENV
    ```
+
+   # Generate FILES_LINK_SECRET with: openssl rand -hex 32
 3. Run the Vite dev server and open the printed URL:
    ```bash
    npm run dev
@@ -53,7 +56,8 @@ Environment flags keep the router predictable across dev, preview, and productio
 | `INTENT_ONLY_EXTRACTION` | Enforce explicit user intent before routing extraction. | `true` |
 | `CHAT_STREAMING` | Enables the `/api/chat/stream` Edge handler. | `false` |
 | `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions (when user starts charter or sends create/update intent). Set to `false` to always show the preview panel. | `true` |
-| `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_
+| `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_ |
+| `FILES_LINK_SECRET` | HMAC secret that signs `/api/charter/make-link` payloads and validates `/api/charter/download` signatures. Generate a 32-byte hex string and keep it private. | _required for charter links_ |
 
 ## API
 Document pipelines live behind the router-first API layer:

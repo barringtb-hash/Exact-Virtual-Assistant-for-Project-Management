@@ -1,7 +1,12 @@
 export default class Docxtemplater {
-  constructor() {
+  constructor(zip) {
     this.data = {};
     this.__documentXml = "<w:document></w:document>";
+    const templateBuffer =
+      zip && typeof zip === "object" && Buffer.isBuffer(zip.buffer)
+        ? zip.buffer
+        : Buffer.alloc(0);
+    this.__templateBuffer = Buffer.from(templateBuffer);
   }
 
   setData(data) {
@@ -24,6 +29,7 @@ export default class Docxtemplater {
   }
 
   getZip() {
+    const hasTemplate = this.__templateBuffer.length > 0;
     const payload = JSON.stringify(this.data);
     const documentXml =
       typeof this.__documentXml === "string"
@@ -40,7 +46,13 @@ export default class Docxtemplater {
       },
       generate: ({ type } = {}) => {
         if (type === "nodebuffer") {
+          if (hasTemplate) {
+            return Buffer.from(this.__templateBuffer);
+          }
           return Buffer.from(payload, "utf8");
+        }
+        if (hasTemplate) {
+          return Buffer.from(this.__templateBuffer).toString("base64");
         }
         return payload;
       },

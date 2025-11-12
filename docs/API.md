@@ -282,6 +282,47 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Allows the frontend to detect misconfiguration (missing `FILES_LINK_SECRET`) and show actionable guidance inside the chat instead of surfacing opaque errors.
   - Non-GET methods receive `405 Method Not Allowed`.
 
+### Charter link probe & cURL checks
+- Use the health probe to confirm share links are configured:
+  ```bash
+  curl -i http://localhost:3000/api/charter/health
+  # Expect 200 OK with {"ok":true,"hasSecret":true} once FILES_LINK_SECRET is present
+  ```
+- Validate payloads before rendering to DOCX/PDF:
+  ```bash
+  curl -i -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"docType":"charter","payload":{}}' \
+    http://localhost:3000/api/documents/validate
+  # Expect 200 OK with validation errors when fields are missing
+  ```
+- Render a DOCX charter and confirm binary output:
+  ```bash
+  curl -i -X POST \
+    -H "Content-Type: application/json" \
+    -d '@charter.json' \
+    http://localhost:3000/api/documents/render?docType=charter
+  # Expect 200 OK with application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  ```
+- Export a PDF charter through the legacy alias:
+  ```bash
+  curl -i -X POST \
+    -H "Content-Type: application/json" \
+    -d '@charter.json' \
+    http://localhost:3000/api/export/pdf
+  # Expect 200 OK with application/pdf
+  ```
+- Exercise the make-link/download flow end to end:
+  ```bash
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"charter":{...},"baseName":"Project_Charter"}' \
+    http://localhost:3000/api/charter/make-link | tee /tmp/links.json
+
+  curl -i "$(jq -r '.links.docx' /tmp/links.json)"
+  # Expect 200 OK when signature is valid; 403 when tampered or 410 after expiry
+  ```
+
 ## Upload & extraction guidance
 - **Size guardrails** – File uploads larger than 10 MB are rejected; after parsing, text is trimmed to roughly 20k characters. Downstream charter extraction expects callers to honor those limits (surface truncation warnings to users if `truncated: true`).
 - **Suggested client flow**

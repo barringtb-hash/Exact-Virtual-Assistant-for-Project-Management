@@ -10,6 +10,7 @@ This project relies on environment variables and manifest metadata to keep inten
 | `CHAT_STREAMING` | No | `false` | Enables the Edge streaming handler at `/api/chat/stream`. Leave disabled to fall back to `/api/chat` only. |
 | `OPENAI_API_KEY` | Yes | _n/a_ | API key consumed by extraction, validation, rendering, and chat handlers. Provide via secret storage; never commit real keys. |
 | `OPENAI_ORG_ID` (or equivalent) | No | _unset_ | Optional override if your account requires explicit organization scoping. |
+| `FILES_LINK_SECRET` | Yes (for charter share links) | _unset_ | HMAC secret that signs `/api/charter/make-link` payloads and verifies `/api/charter/download` requests. Provide a strong 32-byte hex value and rotate if exposed. |
 
 Add any doc-type specific toggles (for example, preview flags) adjacent to their manifests in [`templates/registry.js`](../templates/registry.js) and document the behavior in the relevant acceptance guide.
 
@@ -21,8 +22,11 @@ cat <<'ENV' > .env.local
 INTENT_ONLY_EXTRACTION=true
 CHAT_STREAMING=false
 # OPENAI_API_KEY=sk-...
+# FILES_LINK_SECRET=$(openssl rand -hex 32)
 ENV
 ```
+
+# Generate `FILES_LINK_SECRET` locally with: `openssl rand -hex 32`
 
 ## Secrets management
 - Store secrets in your deployment platform (e.g., Vercel project settings) rather than committing them to the repo.

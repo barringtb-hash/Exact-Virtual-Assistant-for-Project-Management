@@ -20,7 +20,26 @@ export async function docApi(operation, payload, { fetchImpl, signal, bases } = 
         signal,
       });
       if (response.ok) {
-        return response.json();
+        try {
+          return await response.json();
+        } catch (parseError) {
+          const contentType =
+            typeof response.headers?.get === "function"
+              ? response.headers.get("content-type")
+              : undefined;
+          const message = `${base}/${operation} returned a non-JSON response.`;
+          const error = new Error(message);
+          error.status = response.status;
+          error.cause = parseError;
+          error.payload = {
+            error: {
+              message,
+              contentType: contentType || null,
+            },
+          };
+          error.contentType = contentType || null;
+          throw error;
+        }
       }
       if (response.status === 404) {
         lastError = new Error(`${base}/${operation} returned 404`);

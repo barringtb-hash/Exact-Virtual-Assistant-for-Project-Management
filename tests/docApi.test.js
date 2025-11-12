@@ -46,3 +46,41 @@ test("docApi surfaces error when every base returns unauthorized", async () => {
     }
   );
 });
+
+test("docApi throws a descriptive error when a JSON response is unavailable", async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new SyntaxError("Unexpected token ");
+    },
+    headers: {
+      get(name) {
+        return name.toLowerCase() === "content-type"
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : undefined;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      docApi("render", { foo: "bar" }, {
+        fetchImpl,
+        bases: ["https://remote.example/api"],
+      }),
+    (error) => {
+      assert.equal(error?.status, 200);
+      assert.equal(
+        error?.payload?.error?.message,
+        "https://remote.example/api/render returned a non-JSON response."
+      );
+      assert.equal(
+        error?.payload?.error?.contentType,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      );
+      assert.ok(error?.cause instanceof SyntaxError);
+      return true;
+    }
+  );
+});

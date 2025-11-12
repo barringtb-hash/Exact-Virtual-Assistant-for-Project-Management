@@ -8,6 +8,7 @@ export async function docApi(operation, payload, { fetchImpl, signal, bases } = 
   const body = payload === undefined ? undefined : JSON.stringify(payload);
 
   const baseList = Array.isArray(bases) && bases.length > 0 ? bases : ['/api/documents', '/api/doc'];
+  const fallbackStatuses = new Set([401, 403]);
   let lastError;
 
   for (const base of baseList) {
@@ -26,6 +27,15 @@ export async function docApi(operation, payload, { fetchImpl, signal, bases } = 
         lastError.status = response.status;
         continue;
       }
+
+      if (fallbackStatuses.has(response.status)) {
+        const error = new Error(`${base}/${operation} failed with status ${response.status}`);
+        error.status = response.status;
+        error.payload = await response.json().catch(() => undefined);
+        lastError = error;
+        continue;
+      }
+
       const error = new Error(`${base}/${operation} failed with status ${response.status}`);
       error.status = response.status;
       error.payload = await response.json().catch(() => undefined);

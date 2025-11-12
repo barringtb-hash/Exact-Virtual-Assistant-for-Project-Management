@@ -50,8 +50,18 @@ test("/api/documents/validate surfaces structured charter errors", async () => {
   assert(res.body.errors.length > 0);
   const missingFields = new Set(
     res.body.errors
-      .filter((error) => error?.instancePath?.startsWith("/"))
-      .map((error) => error.instancePath.slice(1))
+      .map((error) => {
+        const missingProperty = error?.params?.missingProperty;
+        if (typeof missingProperty === "string" && missingProperty.length > 0) {
+          return missingProperty;
+        }
+        const path = error?.instancePath;
+        if (typeof path === "string" && path.startsWith("/")) {
+          return path.slice(1);
+        }
+        return undefined;
+      })
+      .filter(Boolean)
   );
   assert(missingFields.has("sponsor"));
   assert.equal(res.body?.normalized?.project_name, "x");

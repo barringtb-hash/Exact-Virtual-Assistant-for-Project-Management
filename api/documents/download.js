@@ -14,6 +14,7 @@ import {
   renderXlsxBuffer,
   FormatNotImplementedError,
 } from "../../templates/renderers.js";
+import { createAttachmentHeaderValue } from "../../lib/http/contentDisposition.js";
 import {
   recordDocumentAudit,
   normalizeDocumentDetection,
@@ -106,7 +107,7 @@ export default async function handler(req, res) {
     const buffer = await formatHandler.render(document);
 
     res.setHeader("Content-Type", formatHandler.contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Disposition", createAttachmentHeaderValue(filename));
     res.status(200);
     res.end(buffer);
 

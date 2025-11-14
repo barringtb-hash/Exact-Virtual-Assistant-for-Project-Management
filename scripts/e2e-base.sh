@@ -28,10 +28,15 @@ echo "==> Wait for server to be ready"
 npx --yes wait-on --timeout 60000 "http://127.0.0.1:${PORT}"
 
 echo "==> Run Cypress"
-XVFB=""
+# Require Xvfb for headless Cypress runs on Linux. If the command is not available,
+# exit with instructions on how to install it.
 if command -v xvfb-run >/dev/null 2>&1; then
   XVFB="xvfb-run -a"
+else
+  echo "Error: Xvfb is not installed. Please run scripts/install-cypress-deps.sh before running e2e tests." >&2
+  exit 1
 fi
+
 
 CYPRESS_CFG="${CYPRESS_CFG:-cypress.config.ts}"
 

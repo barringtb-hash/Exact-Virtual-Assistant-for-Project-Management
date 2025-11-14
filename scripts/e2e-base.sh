@@ -28,20 +28,16 @@ echo "==> Wait for server to be ready"
 npx --yes wait-on --timeout 60000 "http://127.0.0.1:${PORT}"
 
 echo "==> Run Cypress"
-XVFB=""
+CYPRESS_CFG="${CYPRESS_CFG:-cypress.config.ts}"
 if command -v xvfb-run >/dev/null 2>&1; then
   XVFB="xvfb-run -a"
-fi
-
-CYPRESS_CFG="${CYPRESS_CFG:-cypress.config.ts}"
-
-set +e
-if [ -n "$CYPRESS_SPEC" ]; then
-  $XVFB npx --yes cypress run --config-file "$CYPRESS_CFG" --spec "$CYPRESS_SPEC"
 else
-  $XVFB npx --yes cypress run --config-file "$CYPRESS_CFG"
+  echo "Error: Xvfb is not installed. Run scripts/install-cypress-deps.sh before e2e." >&2
+  exit 1
 fi
-E2E_EXIT=$?
-set -e
 
-exit $E2E_EXIT
+if [ -n "${CYPRESS_SPEC:-}" ]; then
+  $XVFB npx --yes cypress run --config-file "${CYPRESS_CFG}" --spec "${CYPRESS_SPEC}"
+else
+  $XVFB npx --yes cypress run --config-file "${CYPRESS_CFG}"
+fi

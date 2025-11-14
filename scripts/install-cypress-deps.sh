@@ -38,7 +38,7 @@ sudo apt-get install -y --no-install-recommends \
   libgtk2.0-0 \
   libgbm1 \
   libnss3 \
-  $LIBASOUND_PKG \
+  "$LIBASOUND_PKG" \
   libatk-bridge2.0-0 \
   libatk1.0-0 \
   libcups2 \
@@ -53,8 +53,6 @@ sudo apt-get install -y --no-install-recommends \
   xauth \
   x11-xkb-utils \
   fonts-liberation \
-  ca-certificates \
-  wget \
-  curl
+  ca-certificates
 
 echo "Cypress system dependencies installed successfully."

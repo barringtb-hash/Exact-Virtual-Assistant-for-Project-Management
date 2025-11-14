@@ -16,6 +16,7 @@ jobs:
       VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
       VITE_CHARTER_WIZARD_VISIBLE: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
       VITE_AUTO_EXTRACTION_ENABLED: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
+      PORT: ${{ matrix.mode == 'guided' && '5173' || '5174' }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +86,7 @@ jobs:
       VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
       VITE_CHARTER_WIZARD_VISIBLE: "true"
       VITE_AUTO_EXTRACTION_ENABLED: "true"
+      PORT: 5175
 
     steps:
       - name: Checkout

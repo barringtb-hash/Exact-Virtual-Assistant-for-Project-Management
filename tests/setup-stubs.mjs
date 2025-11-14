@@ -21,15 +21,12 @@ const lockPath = path.join(nodeModulesRoot, ".stubs-lock");
 await fs.mkdir(nodeModulesRoot, { recursive: true });
 
 const sentinelExists = async () =>
-  fs.access(sentinelPath)
+  fs
+    .access(sentinelPath)
     .then(() => true)
-    .catch((error) => {
-      if (error.code === "ENOENT") {
-        return false;
-      }
-
-      throw error;
-    });
+    .catch((error) =>
+      error.code === "ENOENT" ? false : Promise.reject(error),
+    );
 
 const acquireLock = async () => {
   // Multiple Node test workers import this script concurrently. Acquire a lock

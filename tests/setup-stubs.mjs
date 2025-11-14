@@ -23,5 +23,10 @@ for (const pkg of stubPackages) {
   const target = path.join(nodeModulesRoot, ...parts);
 
   await fs.mkdir(path.dirname(target), { recursive: true });
+
+  // Ensure the stub directory replaces any previously installed package
+  // contents so imports consistently resolve to the lightweight test doubles.
+  await fs.rm(target, { recursive: true, force: true });
+
   await fs.cp(source, target, { recursive: true, force: true });
 }

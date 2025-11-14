@@ -3870,9 +3870,15 @@ const resolveDocTypeForManualSync = useCallback(
         for (const file of pickedFiles) {
           try {
             const base64 = await fileToBase64(file);
+            const headers = { "Content-Type": "application/json" };
+            const filesApiKey = import.meta?.env?.VITE_FILES_API_KEY;
+            if (filesApiKey) {
+              headers["X-API-Key"] = filesApiKey;
+            }
+
             const response = await fetch("/api/files/text", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers,
               body: JSON.stringify({
                 name: file.name,
                 mimeType: file.type,
@@ -3880,14 +3886,41 @@ const resolveDocTypeForManualSync = useCallback(
               }),
             });
 
-            let payload = {};
+            if (!response.ok) {
+              const rawBody = await response.text().catch(() => "");
+              console.error("Failed to upload /api/files/text", {
+                status: response.status,
+                bodySnippet: rawBody.slice(0, 200),
+              });
+              const message = `Unable to process ${file.name}`;
+              chatActions.setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "assistant",
+                  text: `Attachment error (${file.name}): ${message}`,
+                },
+              ]);
+              continue;
+            }
+
+            let payload;
             try {
               payload = await response.json();
             } catch (err) {
               console.error("Failed to parse /api/files/text response", err);
+              chatActions.setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "assistant",
+                  text: `Attachment error (${file.name}): Unable to read file response`,
+                },
+              ]);
+              continue;
             }
 
-            if (!response.ok || payload?.ok === false) {
+            if (!payload?.ok) {
               const message = payload?.error || `Unable to process ${file.name}`;
               chatActions.setMessages((prev) => [
                 ...prev,

@@ -49,26 +49,35 @@ describe('Charter guided chat experience', () => {
     };
 
     cy.contains('[data-testid="assistant-message"]', 'Let’s build your charter step-by-step.')
+      .scrollIntoView()
       .should('be.visible');
     assertPrompt('Project Title (required).');
 
     sendComposerMessage('North Star Initiative');
-    cy.contains('[data-testid="assistant-message"]', 'Saved Project Title.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved Project Title.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('Sponsor (required).');
 
     cy.get('[data-testid="chip-skip"]').click();
-    cy.contains('[data-testid="assistant-message"]', 'Skipping Sponsor.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Skipping Sponsor.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('Project Lead (required).');
 
     cy.get('[data-testid="chip-back"]').click();
     assertPrompt('Sponsor (required).');
 
     sendComposerMessage('Jordan Example');
-    cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved Sponsor.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('Project Lead (required).');
 
     sendComposerMessage('Taylor Projector');
-    cy.contains('[data-testid="assistant-message"]', 'Saved Project Lead.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved Project Lead.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('Start Date (required).');
 
     sendComposerMessage('next quarter');
@@ -76,11 +85,15 @@ describe('Charter guided chat experience', () => {
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'Try again or type "skip" to move on.');
 
     sendComposerMessage('2024-05-01');
-    cy.contains('[data-testid="assistant-message"]', 'Saved Start Date.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved Start Date.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('End Date (required).');
 
     sendComposerMessage('2024-10-15');
-    cy.contains('[data-testid="assistant-message"]', 'Saved End Date.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Saved End Date.')
+      .scrollIntoView()
+      .should('be.visible');
     assertPrompt('Vision (required).');
 
     const skipSequence: Array<[string, string]> = [
@@ -98,7 +111,9 @@ describe('Charter guided chat experience', () => {
     skipSequence.forEach(([current, next]) => {
       assertPrompt(current);
       cy.get('[data-testid="chip-skip"]').click();
-      cy.contains('[data-testid="assistant-message"]', `Skipping ${current.split(' (')[0]}.`).should('be.visible');
+      cy.contains('[data-testid="assistant-message"]', `Skipping ${current.split(' (')[0]}.`)
+        .scrollIntoView()
+        .should('be.visible');
       assertPrompt(next);
     });
 
@@ -116,7 +131,9 @@ describe('Charter guided chat experience', () => {
     });
 
     cy.get('[data-testid="chip-skip"]').click();
-    cy.contains('[data-testid="assistant-message"]', 'Skipping Core Team.').should('be.visible');
+    cy.contains('[data-testid="assistant-message"]', 'Skipping Core Team.')
+      .scrollIntoView()
+      .should('be.visible');
     cy.get('[data-testid="assistant-message"]').last().should('contain.text', 'That covers every section.');
     cy.get('[data-testid="btn-start-charter"]').should('have.text', 'Restart Charter');
   });

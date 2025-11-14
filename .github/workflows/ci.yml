@@ -16,6 +16,8 @@ jobs:
       VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
       VITE_CHARTER_WIZARD_VISIBLE: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
       VITE_AUTO_EXTRACTION_ENABLED: ${{ matrix.mode == 'wizard' && 'true' || 'false' }}
+          # Assign a unique port per mode to prevent preview server conflicts
+    PORT: ${{ matrix.mode == 'guided' && '5173' || '5174' }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +87,8 @@ jobs:
       VITE_CHARTER_GUIDED_CHAT_ENABLED: "true"
       VITE_CHARTER_WIZARD_VISIBLE: "true"
       VITE_AUTO_EXTRACTION_ENABLED: "true"
+          # Assign a dedicated port for the voice job
+        PORT: 5175
 
     steps:
       - name: Checkout

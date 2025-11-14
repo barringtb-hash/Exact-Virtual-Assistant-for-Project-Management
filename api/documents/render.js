@@ -14,6 +14,7 @@ import {
 } from "../../lib/doc/render.js";
 import { getDocTypeConfig } from "../../lib/doc/registry.js";
 import { resolveDocType } from "../../lib/doc/utils.js";
+import { createAttachmentHeaderValue } from "../../lib/http/contentDisposition.js";
 import {
   createDocValidationError,
   ensureValidationAssets,
@@ -283,7 +284,7 @@ export default async function handler(req, res) {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+    res.setHeader("Content-Disposition", createAttachmentHeaderValue(filename));
     res.status(200).send(buffer);
 
     recordDocumentAudit("documents.render", {

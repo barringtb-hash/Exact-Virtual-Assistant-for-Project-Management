@@ -1,5 +1,6 @@
 import { formatDocRenderError } from "../charter/render.js";
 import { renderCharterPdfBuffer } from "../../lib/charter/pdf.js";
+import { createAttachmentHeaderValue } from "../../lib/http/contentDisposition.js";
 
 // Backwards-compatible export for existing callers.
 export const renderPdfBuffer = renderCharterPdfBuffer;
@@ -22,7 +23,7 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=project_charter.pdf"
+      createAttachmentHeaderValue("project_charter.pdf")
     );
     res.status(200).send(pdfBuffer);
   } catch (error) {

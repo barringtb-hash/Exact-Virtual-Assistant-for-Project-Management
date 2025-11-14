@@ -2734,6 +2734,95 @@ const resolveDocTypeForManualSync = useCallback(
     return result;
   };
 
+  const requestRenderFallbackViaMakeLink = async (renderBody) => {
+    if (typeof fetch !== "function") {
+      return {
+        ok: false,
+        error: new Error("Fetch API is not available in this environment."),
+      };
+    }
+
+    const requestPayload =
+      renderBody && typeof renderBody === "object" && !Array.isArray(renderBody)
+        ? { ...renderBody }
+        : {};
+
+    if (!requestPayload.docType && typeof requestDocType === "string") {
+      requestPayload.docType = requestDocType;
+    }
+
+    const normalizedDocType =
+      typeof requestPayload.docType === "string"
+        ? requestPayload.docType.trim()
+        : "";
+
+    const baseCandidates = [];
+    if (normalizedDocType) {
+      baseCandidates.push(`/api/${normalizedDocType}`);
+    }
+    baseCandidates.push("/api/doc");
+
+    const body = JSON.stringify(requestPayload);
+    let lastError = null;
+
+    for (const base of baseCandidates) {
+      const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+      const url = `${normalizedBase}/make-link`;
+      let response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      } catch (networkError) {
+        const error =
+          networkError instanceof Error
+            ? networkError
+            : new Error(String(networkError));
+        error.endpoint = url;
+        lastError = error;
+        continue;
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        const message = `${url} returned a non-JSON response.`;
+        const contentType =
+          typeof response.headers?.get === "function"
+            ? response.headers.get("content-type")
+            : response.headers?.["content-type"];
+        const error = new Error(message);
+        error.status = response.status;
+        error.cause = parseError;
+        error.endpoint = url;
+        error.payload = {
+          error: { message, contentType: contentType || null },
+        };
+        if (contentType) {
+          error.contentType = contentType;
+        }
+        lastError = error;
+        continue;
+      }
+
+      if (!response.ok) {
+        const error = new Error(`${url} failed with status ${response.status}`);
+        error.status = response.status;
+        error.endpoint = url;
+        error.payload = data;
+        lastError = error;
+        continue;
+      }
+
+      return { ok: true, payload: data };
+    }
+
+    return { ok: false, error: lastError };
+  };
+
   const postDocRender = async ({ document, baseName, formats = [] }) => {
     const docPayload = {
       docType: requestDocType,
@@ -2763,13 +2852,46 @@ const resolveDocTypeForManualSync = useCallback(
         ? { bases: CHARTER_DOC_API_BASES }
         : undefined;
 
+    let payload;
+    let renderError = null;
+
     try {
-      const payload = await docApi("render", docPayload, docApiOptions);
-      return { ok: true, payload };
+      payload = await docApi("render", docPayload, docApiOptions);
     } catch (error) {
-      error.endpoint = "/api/documents/render";
-      throw error;
+      if (error?.code === "DOC_API_RESPONSE_NOT_JSON") {
+        const fallback = await requestRenderFallbackViaMakeLink(docPayload);
+        if (fallback.ok) {
+          payload = fallback.payload;
+        } else {
+          const fallbackError = fallback.error;
+          if (fallbackError) {
+            if (fallbackError.payload == null && error?.payload) {
+              fallbackError.payload = error.payload;
+            }
+            if (fallbackError.status == null && typeof error?.status === "number") {
+              fallbackError.status = error.status;
+            }
+            if (!fallbackError.endpoint) {
+              fallbackError.endpoint = error?.endpoint || "/api/documents/render";
+            }
+            renderError = fallbackError;
+          } else {
+            renderError = error;
+          }
+        }
+      } else {
+        renderError = error;
+      }
     }
+
+    if (renderError) {
+      if (!renderError.endpoint) {
+        renderError.endpoint = "/api/documents/render";
+      }
+      throw renderError;
+    }
+
+    return { ok: true, payload };
   };
 
   const makeShareLinksAndReply = async ({

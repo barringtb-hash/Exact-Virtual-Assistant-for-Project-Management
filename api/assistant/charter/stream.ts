@@ -2,6 +2,7 @@ import {
   CharterSessionError,
   ConversationBadRequestError,
   registerStream,
+  type CharterEvent,
 } from "./sessionManager";
 
 interface ApiRequest {
@@ -59,7 +60,10 @@ function sendError(res: ApiResponse, error: unknown) {
   res.status(500).json({ ok: false, error: "internal_error" });
 }
 
-function writeEvent(res: WritableResponse, event: { type: string; event_id?: string; [key: string]: unknown }) {
+function writeEvent(
+  res: WritableResponse,
+  event: CharterEvent | { type: string; event_id?: string },
+) {
   const payload = JSON.stringify(event);
   const lines: string[] = [];
   if (event.event_id) {

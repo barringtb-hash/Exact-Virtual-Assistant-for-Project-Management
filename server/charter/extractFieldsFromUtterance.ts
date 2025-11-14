@@ -761,7 +761,7 @@ export async function extractFieldsFromUtterance(
         },
       ],
       tool_choice: { type: "function", name: TOOL_NAME },
-    } as const;
+    };
 
     response = await client.responses.create(
       requestBody,

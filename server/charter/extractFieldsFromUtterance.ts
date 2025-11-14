@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import type {
+  ResponseCreateParamsNonStreaming,
+  ToolChoiceFunction,
+} from "openai/resources/responses/responses.js";
 import {
   CHARTER_FIELDS,
   type CharterField,
@@ -746,6 +750,11 @@ export async function extractFieldsFromUtterance(
 
   let response;
   try {
+    const toolChoice: ToolChoiceFunction = {
+      type: "function",
+      name: TOOL_NAME,
+    };
+
     const requestBody = {
       model,
       input,
@@ -757,11 +766,12 @@ export async function extractFieldsFromUtterance(
             description:
               "Populate project charter fields extracted from the provided context.",
             parameters: schema,
+            strict: true,
           },
         },
       ],
-      tool_choice: { type: "tool", name: TOOL_NAME, strict: true },
-    } as const;
+      tool_choice: toolChoice,
+    } satisfies ResponseCreateParamsNonStreaming;
 
     response = await client.responses.create(
       requestBody,

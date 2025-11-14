@@ -79,6 +79,8 @@ test("docApi throws a descriptive error when a JSON response is unavailable", as
         error?.payload?.error?.contentType,
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       );
+      assert.equal(error?.code, "DOC_API_RESPONSE_NOT_JSON");
+      assert.equal(error?.endpoint, "https://remote.example/api/render");
       assert.ok(error?.cause instanceof SyntaxError);
       return true;
     }

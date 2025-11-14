@@ -38,6 +38,8 @@ export async function docApi(operation, payload, { fetchImpl, signal, bases } = 
             },
           };
           error.contentType = contentType || null;
+          error.code = "DOC_API_RESPONSE_NOT_JSON";
+          error.endpoint = `${base}/${operation}`;
           throw error;
         }
       }

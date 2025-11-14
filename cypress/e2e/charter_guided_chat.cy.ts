@@ -3,7 +3,10 @@
 describe('Charter guided chat experience', () => {
   const sendComposerMessage = (text: string) => {
     cy.typeIntoComposer(text);
-    cy.get('[data-testid="composer-send"]').should('not.be.disabled').click();
+    cy.get('[data-testid="composer-send"]')
+      .scrollIntoView()
+      .should('not.be.disabled')
+      .click();
     cy.getComposerInput().should('have.value', '');
   };
 

@@ -28,6 +28,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Cypress system deps
+        run: bash scripts/install-cypress-deps.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
       - name: Use Node ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
@@ -37,11 +42,6 @@ jobs:
       - name: Install Node deps
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-      - name: Install Cypress system deps
-        run: bash scripts/install-cypress-deps.sh
-        env:
-          DEBIAN_FRONTEND: noninteractive
 
       - name: Lint
         run: npm run lint --if-present
@@ -96,6 +96,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Cypress system deps
+        run: bash scripts/install-cypress-deps.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
       - name: Use Node 22
         uses: actions/setup-node@v4
         with:
@@ -105,11 +110,6 @@ jobs:
       - name: Install Node deps
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-      - name: Install Cypress system deps
-        run: bash scripts/install-cypress-deps.sh
-        env:
-          DEBIAN_FRONTEND: noninteractive
 
       - name: E2E (voice guided backend)
         run: npm run e2e:voice

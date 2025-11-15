@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
 import {
   CHARTER_FIELDS,
   type CharterField,
@@ -746,7 +747,7 @@ export async function extractFieldsFromUtterance(
 
   let response;
   try {
-    const requestBody = {
+    const requestBody: ResponseCreateParamsNonStreaming = {
       model,
       input,
       tools: [
@@ -760,7 +761,7 @@ export async function extractFieldsFromUtterance(
           },
         },
       ],
-      tool_choice: { type: "function", function: { name: TOOL_NAME } },
+      tool_choice: { type: "function", name: TOOL_NAME },
     };
 
     response = await client.responses.create(

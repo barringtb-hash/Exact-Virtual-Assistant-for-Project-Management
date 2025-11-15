@@ -3598,16 +3598,17 @@ const resolveDocTypeForManualSync = useCallback(
   );
 
   const handleFinalVoiceTranscript = useCallback(
-    async ({ text, source, isCommand = false }) => {
+    async ({ text, source }) => {
       const trimmed = typeof text === "string" ? text.trim() : "";
       if (!trimmed) {
         return;
       }
 
-      if (isCommand) {
-        await handleCommandFromText(trimmed, {
-          userMessageAppended: source === "streaming",
-        });
+      const commandHandled = await handleCommandFromText(trimmed, {
+        userMessageAppended: source === "streaming",
+      });
+
+      if (commandHandled) {
         return;
       }
 
@@ -3692,7 +3693,6 @@ const resolveDocTypeForManualSync = useCallback(
       await handleFinalVoiceTranscript({
         text: trimmedTranscript,
         source: "manual",
-        isCommand: trimmedTranscript.startsWith("/"),
       });
     },
     [handleFinalVoiceTranscript],
@@ -3989,7 +3989,6 @@ const resolveDocTypeForManualSync = useCallback(
         await handleFinalVoiceTranscript({
           text: trimmed,
           source: "streaming",
-          isCommand: trimmed.startsWith("/"),
         });
       } finally {
         voiceActions.setStatus("idle");

@@ -6,7 +6,8 @@ describe('Charter guided chat experience', () => {
     cy.get('[data-testid="composer-send"]')
       .scrollIntoView()
       .should('not.be.disabled')
-      .click();
+      // The mode banner can overlap the send button; force the click once enabled.
+      .click({ force: true });
     cy.getComposerInput().should('have.value', '');
   };
 

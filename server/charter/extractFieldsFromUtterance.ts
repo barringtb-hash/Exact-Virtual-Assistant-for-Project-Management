@@ -753,12 +753,11 @@ export async function extractFieldsFromUtterance(
       tools: [
         {
           type: "function",
-          function: {
-            name: TOOL_NAME,
-            description:
-              "Populate project charter fields extracted from the provided context.",
-            parameters: schema,
-          },
+          name: TOOL_NAME,
+          description:
+            "Populate project charter fields extracted from the provided context.",
+          parameters: schema,
+          strict: true,
         },
       ],
       tool_choice: { type: "function", name: TOOL_NAME },

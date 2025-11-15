@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# Avoid interactive prompts in CI environments
+export DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
 
 # Only run on Debian/Ubuntu (Codespaces & GH runners)
 if ! command -v apt-get >/dev/null 2>&1; then
@@ -29,13 +32,14 @@ if [ -n "$UBUNTU_VERSION" ]; then
 fi
 
 echo "Installing Cypress system dependencies..."
-sudo apt-get update
+sudo apt-get update -y
 
 # Install dependencies with version-aware package selection
 sudo apt-get install -y --no-install-recommends \
   xvfb \
-  libgtk-3-0 \
+  xauth \
   libgtk2.0-0 \
+  libgtk-3-0 \
   libgbm1 \
   libnss3 \
   "$LIBASOUND_PKG" \
@@ -43,15 +47,17 @@ sudo apt-get install -y --no-install-recommends \
   libatk1.0-0 \
   libcups2 \
   libxss1 \
-  libxrandr2 \
-  libxdamage1 \
-  libxcomposite1 \
-  libxfixes3 \
+  libxtst6 \
+  libxkbcommon0 \
   libx11-xcb1 \
+  libxcomposite1 \
+  libxcursor1 \
+  libxdamage1 \
+  libxrandr2 \
+  libdrm2 \
+  libxfixes3 \
   libxshmfence1 \
   libglu1-mesa \
-  xauth \
-  x11-xkb-utils \
   fonts-liberation \
   ca-certificates
 

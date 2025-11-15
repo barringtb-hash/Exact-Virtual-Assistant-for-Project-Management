@@ -40,6 +40,8 @@ jobs:
 
       - name: Install Cypress system deps
         run: bash scripts/install-cypress-deps.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Lint
         run: npm run lint --if-present
@@ -106,6 +108,8 @@ jobs:
 
       - name: Install Cypress system deps
         run: bash scripts/install-cypress-deps.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: E2E (voice guided backend)
         run: npm run e2e:voice

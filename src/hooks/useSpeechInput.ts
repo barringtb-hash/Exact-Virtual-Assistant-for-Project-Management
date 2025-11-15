@@ -69,6 +69,15 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
       } else {
         console.error("Speech input error", error);
       }
+      voiceActions.setStatus("idle");
+      dispatch("VOICE_ERROR", {
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : "speech-input-error",
+      });
     },
     [onError],
   );
@@ -102,12 +111,25 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
       return;
     }
 
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      handleError(new Error("Voice input requires a secure (https) connection."));
+      dispatch("VOICE_STOP");
+      return;
+    }
+
     if (
       typeof navigator === "undefined" ||
       !navigator.mediaDevices ||
       typeof navigator.mediaDevices.getUserMedia !== "function"
     ) {
       handleError(new Error("Microphone access is not supported in this environment."));
+      dispatch("VOICE_STOP");
+      return;
+    }
+
+    if (typeof MediaRecorder === "undefined") {
+      handleError(new Error("MediaRecorder is not supported in this browser."));
+      dispatch("VOICE_STOP");
       return;
     }
 
@@ -117,7 +139,6 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (error) {
       handleError(error);
-      voiceActions.setStatus("idle");
       dispatch("VOICE_STOP");
       return;
     }
@@ -242,7 +263,6 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
       chunksRef.current = [];
       setIsRecording(false);
       dispatch("VOICE_STOP");
-      voiceActions.setStatus("idle");
     }
   }, [handleError, onTranscript]);
 

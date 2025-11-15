@@ -33,7 +33,7 @@ describe('Assistant chat flows', () => {
       });
     }).as('extractRequest');
 
-    cy.intercept('POST', '/api/transcribe', {
+    cy.intercept('POST', '**/api/transcribe', {
       transcript: 'Voice triggered follow-up',
     }).as('transcribeRequest');
 

@@ -1,6 +1,7 @@
 import { defineConfig } from "cypress";
 
-const baseUrl = process.env.CYPRESS_BASE_URL ?? "http://localhost:5173";
+const port = process.env.PORT ?? "5173";
+const baseUrl = process.env.CYPRESS_BASE_URL ?? `http://localhost:${port}`;
 
 export default defineConfig({
   e2e: {

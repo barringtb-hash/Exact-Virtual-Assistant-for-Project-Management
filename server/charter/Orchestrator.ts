@@ -641,14 +641,15 @@ async function handleAnswer(
     return true;
   }
 
-  if (!result.ok) {
-    const errorMessage = result.error?.message ?? `I couldn’t validate ${field.label}.`;
+  if (result.ok === false) {
+    const failure = result;
+    const errorMessage = failure.error.message ?? `I couldn’t validate ${field.label}.`;
     const name = field.reviewLabel ?? field.label;
     const issues = [errorMessage];
     dispatch(session, { type: "REJECT", fieldId: field.id, issues }, options);
     clearPendingToolData(session);
     const suffix =
-      result.error.code === "validation_failed" || result.error.code === "missing_required"
+      failure.error.code === "validation_failed" || failure.error.code === "missing_required"
         ? "Try again or type \"skip\" to move on."
         : "Let’s try again or you can type \"skip\".";
     sendAssistantMessage(session, options, `${errorMessage} ${suffix}`);

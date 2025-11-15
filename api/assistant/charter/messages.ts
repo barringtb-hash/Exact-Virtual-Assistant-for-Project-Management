@@ -40,6 +40,21 @@ function sanitizeConversationId(value: unknown): string {
   return trimmed;
 }
 
+function sanitizeCommand(value: unknown): string | string[] | null {
+  if (typeof value === "string") {
+    return value.trim() ? value : null;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry): entry is string => Boolean(entry));
+    if (parts.length > 0) {
+      return parts;
+    }
+  }
+  return null;
+}
+
 function sendError(res: ApiResponse, error: unknown) {
   if (error instanceof CharterSessionError) {
     res.status(error.status).json({ ok: false, error: error.code, message: error.message });
@@ -63,7 +78,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       conversationId,
       correlationId: typeof body?.correlation_id === "string" ? body.correlation_id : null,
       message: typeof body?.message === "string" ? body.message : null,
-      command: body?.command ?? null,
+      command: sanitizeCommand(body?.command),
     });
 
     res.status(200).json({

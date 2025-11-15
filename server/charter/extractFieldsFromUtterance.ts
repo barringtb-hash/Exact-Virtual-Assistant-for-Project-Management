@@ -760,8 +760,8 @@ export async function extractFieldsFromUtterance(
           },
         },
       ],
-      tool_choice: { type: "tool", name: TOOL_NAME, strict: true },
-    } as const;
+      tool_choice: { type: "function", name: TOOL_NAME },
+    };
 
     response = await client.responses.create(
       requestBody,

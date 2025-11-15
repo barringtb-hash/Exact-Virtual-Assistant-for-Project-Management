@@ -83,6 +83,7 @@ sudo apt-get install -y --no-install-recommends \
   libpulse0 \
   fonts-liberation \
   ca-certificates \
-  xdg-utils
+  xdg-utils \
+  lsof
 
 echo "Cypress system dependencies installed successfully."

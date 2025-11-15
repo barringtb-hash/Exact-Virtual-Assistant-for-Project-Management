@@ -63,6 +63,7 @@ import { usePreviewSyncService } from "./preview/PreviewSyncService.ts";
 import SyncDevtools, { installSyncTelemetry } from "./devtools/SyncDevtools.jsx";
 import { dispatch } from "./sync/syncStore.js";
 import { isVoiceE2EModeActive } from "./utils/e2eMode.js";
+import { asrService } from "./voice/ASRService.ts";
 import {
   CharterClientError,
   postCharterMessage,
@@ -105,6 +106,8 @@ const E2E_FLAG_SAFE_MODE = SAFE_MODE;
 const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON);
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
+
+/** @typedef {"manual" | "streaming"} VoiceSource */
 
 function sendTelemetryEvent(eventName, { conversationId = null, metadata = {} } = {}) {
   if (typeof fetch !== "function") {
@@ -825,12 +828,20 @@ export default function ExactVirtualAssistantPM() {
   const isAssistantThinking = useIsAssistantThinking();
   const isAssistantStreaming = useIsStreaming();
   const isComposerLocked = useInputLocked();
+
+  useEffect(() => {
+    if (!isAssistantThinking && !isAssistantStreaming) {
+      setIsAssistantBusy(false);
+    }
+  }, [isAssistantThinking, isAssistantStreaming]);
   const isSyncingPreviewFlag = useIsSyncingPreview();
   const voiceStatus = useVoiceStatus();
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
   const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
+  const [charterMode, setCharterMode] = useState("idle");
+  const [isAssistantBusy, setIsAssistantBusy] = useState(false);
   const [guidedState, setGuidedState] = useState(null);
   const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
 
@@ -977,6 +988,22 @@ export default function ExactVirtualAssistantPM() {
   const canStartGuided =
     (!guidedState || guidedState.status === "idle" || guidedState.status === "complete") &&
     (!CHARTER_GUIDED_BACKEND_ENABLED || !guidedConversationId);
+
+  useEffect(() => {
+    if (docSession?.isActive && docSession.docType === "charter") {
+      if (
+        docSession.origin === "wizard" ||
+        isGuidedSessionActive ||
+        Boolean(guidedConversationId)
+      ) {
+        setCharterMode("guided");
+      } else {
+        setCharterMode("free");
+      }
+    } else {
+      setCharterMode("idle");
+    }
+  }, [docSession, guidedConversationId, isGuidedSessionActive]);
   const guidedCurrentField = useMemo(() => {
     if (!guidedState?.currentFieldId) {
       return null;
@@ -1587,6 +1614,34 @@ export default function ExactVirtualAssistantPM() {
     },
     [dismissToast]
   );
+
+  const handleVoiceStartError = useCallback(
+    (error) => {
+      if (error) {
+        console.error("Voice input failed to start", error);
+      }
+      let message = "Voice input isn’t available in this browser. Try using the text box instead.";
+      if (typeof window !== "undefined") {
+        const protocol = window.location?.protocol;
+        const host = window.location?.hostname;
+        if (protocol !== "https:" && host && host !== "localhost" && host !== "127.0.0.1") {
+          message = "Voice input requires a secure (https) connection. Try using the text box instead.";
+        }
+      }
+      pushToast({ tone: "warning", message });
+      voiceActions.setStatus("idle");
+      dispatch("VOICE_ERROR", {
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : "voice-start-error",
+      });
+      setIsAssistantBusy(false);
+    },
+    [pushToast]
+  );
   const applyNormalizedDraft = useCallback(
     (normalizedDraft) => {
       if (!previewDocType) {
@@ -2051,6 +2106,28 @@ export default function ExactVirtualAssistantPM() {
     ],
   );
 
+  const shouldRunVoiceFieldExtraction = useCallback(
+    ({ source }) => {
+      if (!AUTO_EXTRACTION_ENABLED) {
+        return false;
+      }
+      if (!docSession?.isActive || docSession.docType !== "charter") {
+        return false;
+      }
+      if (isWizardActive) {
+        return false;
+      }
+      if (charterMode === "guided") {
+        return true;
+      }
+      if (guidedAutoExtractionDisabled) {
+        return false;
+      }
+      return true;
+    },
+    [charterMode, docSession, guidedAutoExtractionDisabled, isWizardActive],
+  );
+
   const applyVoiceExtractionToDraft = useCallback(
     (fields) => {
       if (previewDocType !== "charter") {
@@ -2067,6 +2144,47 @@ export default function ExactVirtualAssistantPM() {
 
       const baseDraft =
         charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft();
+      const guidedStateSnapshot = charterMode === "guided" ? guidedStateRef.current : null;
+
+      const isValuePresent = (value) => {
+        if (value == null) {
+          return false;
+        }
+        if (typeof value === "string") {
+          return value.trim().length > 0;
+        }
+        if (Array.isArray(value)) {
+          return value.length > 0;
+        }
+        if (typeof value === "object") {
+          return Object.keys(value).length > 0;
+        }
+        return true;
+      };
+
+      const canUpdateField = (fieldId, currentValue) => {
+        if (!guidedStateSnapshot) {
+          return true;
+        }
+        const fieldState = guidedStateSnapshot.fields?.[fieldId];
+        if (!fieldState) {
+          return true;
+        }
+        const isCurrentField = guidedStateSnapshot.currentFieldId === fieldId;
+        if (isCurrentField) {
+          return true;
+        }
+        const hasConfirmed = isValuePresent(fieldState.confirmedValue);
+        const hasPending = isValuePresent(fieldState.value);
+        if (hasConfirmed || hasPending) {
+          return false;
+        }
+        if (isValuePresent(currentValue)) {
+          return false;
+        }
+        return true;
+      };
+
       const diff = {};
 
       for (const [key, value] of entries) {
@@ -2077,7 +2195,7 @@ export default function ExactVirtualAssistantPM() {
           baseDraft && typeof baseDraft === "object" && key in baseDraft
             ? baseDraft[key]
             : undefined;
-        if (!valuesEqual(currentValue, value)) {
+        if (!valuesEqual(currentValue, value) && canUpdateField(key, currentValue)) {
           diff[key] = value;
         }
       }
@@ -2134,7 +2252,13 @@ export default function ExactVirtualAssistantPM() {
 
       return finalDraft;
     },
-    [createBlankDraft, previewDocType, recordDraftMetadata, setFieldStates],
+    [
+      charterMode,
+      createBlankDraft,
+      previewDocType,
+      recordDraftMetadata,
+      setFieldStates,
+    ],
   );
 
   const flushGuidedAnswers = useCallback(() => {
@@ -3473,6 +3597,90 @@ const resolveDocTypeForManualSync = useCallback(
     ]
   );
 
+  const handleFinalVoiceTranscript = useCallback(
+    async ({ text, source, isCommand = false }) => {
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (!trimmed) {
+        return;
+      }
+
+      if (isCommand) {
+        await handleCommandFromText(trimmed, {
+          userMessageAppended: source === "streaming",
+        });
+        return;
+      }
+
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        text: trimmed,
+        timestamp: Date.now(),
+      };
+      const baseVoice = Array.isArray(voiceTranscriptsRef.current)
+        ? voiceTranscriptsRef.current
+        : [];
+      const nextVoice = [...baseVoice, entry].slice(-20);
+      voiceTranscriptsRef.current = nextVoice;
+      voiceActions.setTranscripts(nextVoice);
+
+      if (source === "manual") {
+        const currentDraft = chatStoreApi.getState().composerDraft;
+        chatActions.setComposerDraft(
+          currentDraft ? `${currentDraft} ${trimmed}`.trim() : trimmed,
+        );
+      } else {
+        appendUserMessageToChat(trimmed);
+      }
+
+      dispatch("PREVIEW_UPDATED", { source: "voice" });
+
+      if (!shouldRunVoiceFieldExtraction({ source })) {
+        return;
+      }
+
+      const voiceResult = await runVoiceFieldExtraction({
+        docType: previewDocType,
+        messages: messagesRef.current,
+        attachments: attachmentsRef.current,
+        voice: nextVoice,
+        seed: charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft(),
+      });
+
+      if (voiceResult?.ok && voiceResult.fields) {
+        applyVoiceExtractionToDraft(voiceResult.fields);
+        return;
+      }
+
+      if (voiceResult?.reason === "empty") {
+        pushToast({
+          tone: "info",
+          message: "Voice transcript captured—review and confirm in the preview.",
+        });
+        return;
+      }
+
+      if (voiceResult?.reason && voiceResult.reason !== "skipped") {
+        console.error("Voice field extraction failed", voiceResult);
+        pushToast({
+          tone: "error",
+          message: "Unable to process the voice transcript. Please review and try again.",
+        });
+      }
+    },
+    [
+      appendUserMessageToChat,
+      applyVoiceExtractionToDraft,
+      createBlankDraft,
+      handleCommandFromText,
+      messagesRef,
+      attachmentsRef,
+      previewDocType,
+      runVoiceFieldExtraction,
+      shouldRunVoiceFieldExtraction,
+      pushToast,
+    ],
+  );
+
   const handleSpeechTranscript = useCallback(
     async (rawTranscript) => {
       const trimmedTranscript =
@@ -3481,22 +3689,18 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      const handled = await handleCommandFromText(trimmedTranscript);
-      if (!handled) {
-        const currentDraft = chatStoreApi.getState().composerDraft;
-        chatActions.setComposerDraft(
-          currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
-        );
-      }
+      await handleFinalVoiceTranscript({
+        text: trimmedTranscript,
+        source: "manual",
+        isCommand: trimmedTranscript.startsWith("/"),
+      });
     },
-    [handleCommandFromText],
+    [handleFinalVoiceTranscript],
   );
 
   const { startRecording, stopRecording } = useSpeechInput({
     onTranscript: handleSpeechTranscript,
-    onError: (error) => {
-      console.error("Transcription failed", error);
-    },
+    onError: handleVoiceStartError,
   });
 
   const submitChatTurn = useCallback(
@@ -3520,6 +3724,7 @@ const resolveDocTypeForManualSync = useCallback(
       messagesRef.current = nextHistory;
 
       chatActions.lockField("composer");
+      setIsAssistantBusy(true);
 
       const orchestrator = guidedOrchestratorRef.current;
       const shouldBypassGuided = trimmed.startsWith("/");
@@ -3628,6 +3833,7 @@ const resolveDocTypeForManualSync = useCallback(
         return { status: "responded" };
       } finally {
         chatActions.unlockField("composer");
+        setIsAssistantBusy(false);
       }
     },
     [
@@ -3646,10 +3852,12 @@ const resolveDocTypeForManualSync = useCallback(
     }
 
     const orchestrator = guidedOrchestratorRef.current;
+    setIsAssistantBusy(true);
 
     if (!REMOTE_GUIDED_BACKEND_ENABLED) {
       startDocSession({ docType: 'charter', origin: 'wizard' });
       orchestrator?.start();
+      setIsAssistantBusy(false);
       return;
     }
 
@@ -3719,6 +3927,8 @@ const resolveDocTypeForManualSync = useCallback(
       }
       console.error("Failed to start guided charter session", error);
       orchestrator?.start();
+    } finally {
+      setIsAssistantBusy(false);
     }
   }, [
     appendAssistantMessage,
@@ -3774,58 +3984,27 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      const entry = {
-        id: Date.now() + Math.random(),
-        text: trimmed,
-        timestamp: Date.now(),
-      };
-      const baseVoice = Array.isArray(voiceTranscriptsRef.current)
-        ? voiceTranscriptsRef.current
-        : [];
-      const nextVoice = [...baseVoice, entry].slice(-20);
-      voiceTranscriptsRef.current = nextVoice;
-      voiceActions.setTranscripts(nextVoice);
-      dispatch("PREVIEW_UPDATED", { source: "voice" });
-
-      voiceActions.setStatus("transcribing");
       try {
-        chatActions.pushUser(trimmed);
-        messagesRef.current = chatStoreApi.getState().messages;
-
-        const voiceResult = await runVoiceFieldExtraction({
-          docType: previewDocType,
-          messages: messagesRef.current,
-          attachments: attachmentsRef.current,
-          voice: nextVoice,
-          seed: charterDraftRef.current ?? initialDraftRef.current ?? createBlankDraft(),
+        voiceActions.setStatus("transcribing");
+        await handleFinalVoiceTranscript({
+          text: trimmed,
+          source: "streaming",
+          isCommand: trimmed.startsWith("/"),
         });
-
-        if (voiceResult?.ok && voiceResult.fields) {
-          applyVoiceExtractionToDraft(voiceResult.fields);
-        } else if (voiceResult?.reason === "empty") {
-          pushToast({
-            tone: "info",
-            message: "Voice transcript captured—review and confirm in the preview.",
-          });
-        } else if (voiceResult?.reason && voiceResult.reason !== "skipped") {
-          console.error("Voice field extraction failed", voiceResult);
-          pushToast({
-            tone: "error",
-            message: "Unable to process the voice transcript. Please review and try again.",
-          });
-        }
       } finally {
         voiceActions.setStatus("idle");
       }
     },
-    [
-      applyVoiceExtractionToDraft,
-      createBlankDraft,
-      previewDocType,
-      pushToast,
-      runVoiceFieldExtraction,
-    ]
+    [handleFinalVoiceTranscript]
   );
+
+  useEffect(() => {
+    asrService.registerHooks({
+      onPartial: (text) => handleVoiceTranscriptMessage(text, { isFinal: false }),
+      onFinal: (text) => handleVoiceTranscriptMessage(text, { isFinal: true }),
+      onError: handleVoiceStartError,
+    });
+  }, [handleVoiceTranscriptMessage, handleVoiceStartError]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.Cypress) {
@@ -4283,7 +4462,12 @@ const resolveDocTypeForManualSync = useCallback(
                               type="button"
                               data-testid={chip.testId}
                               onClick={() => handleGuidedCommandChip(chip.command)}
-                              disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
+                              disabled={
+                                isAssistantThinking ||
+                                isAssistantStreaming ||
+                                isComposerLocked ||
+                                isAssistantBusy
+                              }
                               className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
                             >
                               {chip.label}
@@ -4328,7 +4512,9 @@ const resolveDocTypeForManualSync = useCallback(
                     onUploadClick={() => fileInputRef.current?.click()}
                     onStartRecording={!realtimeEnabled ? startRecording : undefined}
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
+                    sendDisabled={isAssistantBusy}
                     uploadDisabled={isUploadingAttachments}
+                    micDisabled={isAssistantBusy}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}
                     startRealtime={startRealtime}

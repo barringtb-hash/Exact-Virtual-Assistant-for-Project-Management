@@ -5,6 +5,7 @@ interface RecognitionHooks {
   onPartial?: (text: string) => void;
   onFinal?: (text: string) => void;
   onStop?: () => void;
+  onError?: (error: unknown) => void;
 }
 
 function createId() {
@@ -26,6 +27,21 @@ export class ASRService {
     if (this.streamId) {
       return this.streamId;
     }
+    try {
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices ||
+        typeof navigator.mediaDevices.getUserMedia !== "function"
+      ) {
+        throw new Error("Microphone access is not supported in this environment.");
+      }
+      if (typeof RTCPeerConnection === "undefined") {
+        throw new Error("Realtime voice requires WebRTC support.");
+      }
+    } catch (error) {
+      this.handleError(error);
+      return undefined;
+    }
     const nextStreamId = createId();
     this.streamId = nextStreamId;
     InputGateway.submitFinalInput("typing");
@@ -37,6 +53,9 @@ export class ASRService {
 
   receivePartial(text: string) {
     const streamId = this.streamId ?? this.start();
+    if (!streamId) {
+      return;
+    }
     voiceActions.setStatus("listening");
     voiceActions.appendTranscript(text);
     InputGateway.onVoicePartial(text, { streamId });
@@ -65,6 +84,17 @@ export class ASRService {
     voiceActions.setStatus("idle");
     this.streamId = undefined;
     this.hooks.onStop?.();
+  }
+
+  private handleError(error: unknown) {
+    this.streamId = undefined;
+    try {
+      InputGateway.submitFinalInput("voice");
+    } catch {
+      // ignore
+    }
+    voiceActions.setStatus("idle");
+    this.hooks.onError?.(error);
   }
 
   isActive() {

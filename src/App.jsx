@@ -4175,7 +4175,7 @@ const resolveDocTypeForManualSync = useCallback(
           </div>
           <div className="flex items-center gap-2">
             <ThemeSelect mode={themeMode} resolvedMode={resolvedTheme} onChange={handleThemeModeChange} />
-            <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400">New Draft</button>
+            <button type="button" onClick={() => setShowDocTypeModal(true)} className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400">New Draft</button>
             <div className="px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-sm shadow-sm dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100">Guest</div>
           </div>
         </div>
@@ -4206,7 +4206,7 @@ const resolveDocTypeForManualSync = useCallback(
                       <span className="text-xs">{chatOverlayPinned ? "Dock" : "Pop out"}</span>
                     </button>
                   )}
-                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                  <button type="button" onClick={() => setShowDocTypeModal(true)} className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200" aria-label="New Draft">
                     <IconPlus className="h-4 w-4" />
                   </button>
                 </div>

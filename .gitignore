@@ -1,3 +1,7 @@
 node_modules/
 dist/
 tmp/
+
+# Environment variables (may contain secrets)
+.env.local
+.env.*.local

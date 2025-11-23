@@ -12,7 +12,7 @@ import {
 } from "../../lib/doc/audit.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
-import * as charterExtraction from "../../dist/server/charter/extractFieldsFromUtterance.mjs";
+import * as charterExtraction from "./_lib/charter/extractFieldsFromUtterance.mjs";
 
 const ATTACHMENT_CHAR_LIMIT = 20_000;
 const MIN_TEXT_CONTEXT_LENGTH = 25;

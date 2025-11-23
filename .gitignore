@@ -2,6 +2,9 @@ node_modules/
 dist/
 tmp/
 
+# Build output in api directory
+api/_lib/
+
 # Environment variables (may contain secrets)
 .env.local
 .env.*.local

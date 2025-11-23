@@ -11,6 +11,7 @@ async function buildServer() {
   try {
     console.log('Building server TypeScript files...');
 
+    // Build to dist/server for development
     await esbuild.build({
       entryPoints: [
         resolve(projectRoot, 'server/charter/extractFieldsFromUtterance.ts')
@@ -20,6 +21,23 @@ async function buildServer() {
       target: 'node22',
       format: 'esm',
       outdir: resolve(projectRoot, 'dist/server/charter'),
+      outExtension: { '.js': '.mjs' },
+      external: ['openai'],
+      sourcemap: true,
+      minify: false,
+      packages: 'external',
+    });
+
+    // Also build to api/_lib for Vercel deployment
+    await esbuild.build({
+      entryPoints: [
+        resolve(projectRoot, 'server/charter/extractFieldsFromUtterance.ts')
+      ],
+      bundle: true,
+      platform: 'node',
+      target: 'node22',
+      format: 'esm',
+      outdir: resolve(projectRoot, 'api/_lib/charter'),
       outExtension: { '.js': '.mjs' },
       external: ['openai'],
       sourcemap: true,

@@ -763,10 +763,10 @@ export async function extractFieldsFromUtterance(
       tool_choice: { type: "function", name: TOOL_NAME },
     };
 
-    response = await client.responses.create(
-      requestBody,
-      options.signal ? { signal: options.signal } : undefined
-    );
+    response = await client.responses.create({
+      ...requestBody,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
   } catch (error) {
     return {
       ok: false,

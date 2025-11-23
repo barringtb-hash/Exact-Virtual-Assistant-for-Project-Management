@@ -746,27 +746,24 @@ export async function extractFieldsFromUtterance(
 
   let response;
   try {
-    const requestBody = {
-      model,
-      input,
-      tools: [
-        {
-          type: "function" as const,
-          function: {
+    response = await client.responses.create(
+      {
+        model,
+        input,
+        tools: [
+          {
+            type: "function" as const,
             name: TOOL_NAME,
             description:
               "Populate project charter fields extracted from the provided context.",
             parameters: schema,
+            strict: null,
           },
-        },
-      ],
-      tool_choice: { type: "function" as const, name: TOOL_NAME },
-    };
-
-    response = await client.responses.create({
-      ...requestBody,
-      ...(options.signal ? { signal: options.signal } : {}),
-    });
+        ],
+        tool_choice: { type: "function" as const, name: TOOL_NAME },
+      },
+      options.signal ? { signal: options.signal } : undefined
+    );
   } catch (error) {
     return {
       ok: false,

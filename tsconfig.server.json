@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist/server",
+    "rootDir": ".",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": false,
+    "isolatedModules": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": false
+  },
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    "lib/**/*.ts",
+    "lib/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "cypress",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ]
+}

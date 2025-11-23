@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:server && vite build",
+    "build:server": "node scripts/build-server.mjs",
     "preview": "vite preview",
     "test": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",
     "test:unit": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/**/*.test.js",

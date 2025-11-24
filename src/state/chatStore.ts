@@ -1,4 +1,5 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
+import { createId } from "../utils/id.js";
 
 export type Role = "user" | "assistant" | "system";
 
@@ -20,13 +21,6 @@ type ChatState = {
 };
 
 type MessageUpdater = (messages: Message[]) => Message[];
-
-function createId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 const chatStore = createStore<ChatState>({
   messages: [],

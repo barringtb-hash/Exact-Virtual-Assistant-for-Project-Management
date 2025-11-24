@@ -24,6 +24,9 @@ import {
   recordDocumentAudit,
   resolveDetectionFromRequest,
 } from "../../lib/doc/audit.js";
+import {
+  parseDocumentBody,
+} from "../../server/documents/utils/index.js";
 
 const templateCache = new Map();
 
@@ -90,66 +93,6 @@ function inspectUnresolvedTags(doc) {
   }
 
   return unresolvedTags;
-}
-
-function extractDocumentPayload(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return {};
-  }
-
-  const documentCandidate = body.document;
-  if (documentCandidate && typeof documentCandidate === "object" && !Array.isArray(documentCandidate)) {
-    return documentCandidate;
-  }
-
-  const charterCandidate = body.charter;
-  if (charterCandidate && typeof charterCandidate === "object" && !Array.isArray(charterCandidate)) {
-    return charterCandidate;
-  }
-
-  return body;
-}
-
-function parseDocumentBody(body, { docType, docLabel }) {
-  if (body == null) {
-    return {};
-  }
-
-  if (typeof body === "string") {
-    const trimmed = body.trim();
-    if (!trimmed) {
-      return {};
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return extractDocumentPayload(parsed);
-      }
-      throw new InvalidDocPayloadError(
-        docType,
-        `Request body must be a JSON object containing the ${docLabel.toLowerCase()} payload.`
-      );
-    } catch (error) {
-      if (error instanceof InvalidDocPayloadError) {
-        throw error;
-      }
-      throw new InvalidDocPayloadError(
-        docType,
-        `Request body must be valid JSON matching the ${docLabel.toLowerCase()} schema.`,
-        error?.message
-      );
-    }
-  }
-
-  if (typeof body === "object" && !Array.isArray(body)) {
-    return extractDocumentPayload(body);
-  }
-
-  throw new InvalidDocPayloadError(
-    docType,
-    `Request body must be a JSON object containing the ${docLabel.toLowerCase()} payload.`
-  );
 }
 
 export async function renderDocxBufferForDocType(docType, document) {

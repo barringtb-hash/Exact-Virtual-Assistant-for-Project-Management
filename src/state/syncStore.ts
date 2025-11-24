@@ -1,5 +1,6 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
 import { FEATURE_FLAGS } from "../config/featureFlags.ts";
+import { createId } from "../utils/id.js";
 import type {
   AgentTurn,
   DraftDocument,
@@ -24,13 +25,6 @@ type ApplyPatchOptions = {
   turnId?: string;
   seq?: number;
 };
-
-function createId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 const cloneMetadata = (metadata: Record<string, unknown> | undefined) =>
   metadata ? { ...metadata } : undefined;

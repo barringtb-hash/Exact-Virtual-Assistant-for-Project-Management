@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FLAGS } from "../config/flags.ts";
 
@@ -52,7 +52,7 @@ function getProgress(state: ReturnType<typeof useConversationState>): {
   return { completed, total };
 }
 
-function FieldPrompt({
+const FieldPrompt = React.memo(({
   field,
   draft,
   setDraft,
@@ -66,11 +66,11 @@ function FieldPrompt({
   onSubmit: () => void;
   onSkip: () => void;
   error: string | null;
-}) {
-  const handleSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
+}) => {
+  const handleSubmit: React.FormEventHandler<HTMLFormElement> = useCallback((event) => {
     event.preventDefault();
     onSubmit();
-  };
+  }, [onSubmit]);
 
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
@@ -116,15 +116,15 @@ function FieldPrompt({
       </div>
     </form>
   );
-}
+});
 
-export function CharterFieldSession({
+export const CharterFieldSession = React.memo(({
   className,
   visible = FLAGS.CHARTER_WIZARD_VISIBLE,
 }: {
   className?: string;
   visible?: boolean;
-}) {
+}) => {
   if (!visible) {
     return null;
   }
@@ -222,40 +222,45 @@ export function CharterFieldSession({
   const { completed, total } = getProgress(state);
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     conversationActions.capture(draft);
-  };
+  }, [draft]);
 
-  const handleSkip = () => {
+  const handleSkip = useCallback(() => {
     conversationActions.skip("user-skipped");
     conversationActions.nextField();
-  };
+  }, []);
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     conversationActions.confirm();
-  };
+  }, []);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     conversationActions.nextField();
-  };
+  }, []);
 
-  const handlePreview = () => {
+  const handlePreview = useCallback(() => {
     conversationActions.preview();
-  };
+  }, []);
 
-  const handleEndReview = () => {
+  const handleEndReview = useCallback(() => {
     conversationActions.endReview();
-  };
+  }, []);
 
-  const handleFinalize = () => {
+  const handleFinalize = useCallback(() => {
     conversationActions.finalize();
-  };
+  }, []);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     conversationActions.back();
-  };
+  }, []);
 
-  const renderReview = () => {
+  const handleEdit = useCallback((fieldId: string) => {
+    conversationActions.endReview();
+    conversationActions.edit(fieldId);
+  }, []);
+
+  const reviewContent = useMemo(() => {
     const items = state.fieldOrder.map((fieldId) => {
       const field = lookup?.get(fieldId) ?? null;
       const fieldState = state.fields[fieldId];
@@ -280,10 +285,7 @@ export function CharterFieldSession({
           {(fieldState.status === "confirmed" || fieldState.status === "captured") && (
             <button
               type="button"
-              onClick={() => {
-                conversationActions.endReview();
-                conversationActions.edit(fieldId);
-              }}
+              onClick={() => handleEdit(fieldId)}
               className="mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-300"
             >
               Edit field
@@ -317,9 +319,9 @@ export function CharterFieldSession({
         </div>
       </div>
     );
-  };
+  }, [state.fieldOrder, state.fields, lookup, handleEndReview, handleFinalize, handleEdit]);
 
-  const renderFinalized = () => (
+  const finalizedContent = useMemo(() => (
     <div className="space-y-3">
       <p className="text-sm text-slate-700 dark:text-slate-200">
         Charter conversation finalized on {state.finalizedAt ? new Date(state.finalizedAt).toLocaleString() : "this session"}.
@@ -335,9 +337,15 @@ export function CharterFieldSession({
         Re-open review
       </button>
     </div>
-  );
+  ), [state.finalizedAt, handlePreview]);
 
-  const renderConversation = () => {
+  const handleEditCurrent = useCallback(() => {
+    if (currentField) {
+      conversationActions.edit(currentField.id);
+    }
+  }, [currentField]);
+
+  const conversationContent = useMemo(() => {
     if (!currentField || !currentFieldState) {
       return (
         <div className="text-sm text-slate-600 dark:text-slate-300">
@@ -381,7 +389,7 @@ export function CharterFieldSession({
               </button>
               <button
                 type="button"
-                onClick={() => conversationActions.edit(currentField.id)}
+                onClick={handleEditCurrent}
                 className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-800/60"
               >
                 Edit response
@@ -420,7 +428,7 @@ export function CharterFieldSession({
           </div>
         );
     }
-  };
+  }, [currentField, currentFieldState, state.step, draft, handleSubmit, handleSkip, errorMessage, handleConfirm, handleEditCurrent, handleNext, handlePreview, setDraft]);
 
   return (
     <section
@@ -447,10 +455,10 @@ export function CharterFieldSession({
       </header>
       <div className="space-y-4">
         {state.mode === "review"
-          ? renderReview()
+          ? reviewContent
           : state.mode === "finalized"
-          ? renderFinalized()
-          : renderConversation()}
+          ? finalizedContent
+          : conversationContent}
       </div>
       <footer className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
         <button
@@ -477,6 +485,8 @@ export function CharterFieldSession({
       </footer>
     </section>
   );
-}
+});
+
+CharterFieldSession.displayName = 'CharterFieldSession';
 
 export default CharterFieldSession;

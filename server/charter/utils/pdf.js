@@ -4,8 +4,8 @@ import * as pdfFonts from "pdfmake/build/vfs_fonts.js";
 import {
   createCharterValidationError,
   validateCharterPayload,
-} from "../../api/charter/validate.js";
-import { buildPdfDefinition } from "../../templates/pdf/charter.pdfdef.mjs";
+} from "../../../api/charter/validate.js";
+import { buildPdfDefinition } from "../../../templates/pdf/charter.pdfdef.mjs";
 
 function looksLikeVfsMap(candidate) {
   return (

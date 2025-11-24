@@ -8,7 +8,7 @@ import {
 import type {
   CharterFormField,
   CharterFormSchema,
-} from "../charter/formSchema.ts";
+} from "../../features/charter/utils/formSchema.ts";
 
 export type FieldRuleMap = Record<string, string>;
 

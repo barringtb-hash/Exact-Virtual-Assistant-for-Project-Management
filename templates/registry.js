@@ -94,11 +94,11 @@ function buildTemplateRegistry() {
     metadata: {
       encodedDocxPath: "project_charter_tokens.docx.b64",
     },
-    normalize: createModuleReference("lib/charter/normalize.js", {
+    normalize: createModuleReference("server/charter/utils/normalize.js", {
       exportName: "normalizeCharterPayload",
       fallbacks: ["default"],
     }),
-    preprocess: createModuleReference("lib/charter/template-aliases.js", {
+    preprocess: createModuleReference("server/charter/utils/template-aliases.js", {
       exportName: "expandTemplateAliases",
     }),
     renderer: createModuleReference("templates/renderers.js", {

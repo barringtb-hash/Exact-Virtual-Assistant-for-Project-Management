@@ -13,6 +13,12 @@ import {
 } from "../../lib/doc/audit.js";
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
+import {
+  formatErrorResponse,
+  MethodNotAllowedError,
+  InsufficientContextError,
+  ERROR_CODES,
+} from "../../server/utils/apiErrors.js";
 
 // Import extracted modules
 import {
@@ -130,8 +136,11 @@ async function resolveCharterExtraction() {
 }
 
 export default async function handler(req, res) {
+  const requestPath = req?.path || "/api/documents/extract";
+
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method Not Allowed" });
+    const error = new MethodNotAllowedError(req.method, ["POST"]);
+    return res.status(405).json(formatErrorResponse(error, { path: requestPath }));
   }
 
   try {
@@ -224,11 +233,10 @@ export default async function handler(req, res) {
     const shouldEnforceContext = config.type === "charter" && !guidedConfirmation;
 
     if (shouldEnforceContext && !hasContext) {
-      return res.status(422).json({
-        error:
-          "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document.",
-        code: "insufficient-context",
-      });
+      const error = new InsufficientContextError(
+        "Please provide attachments, voice notes, or at least 25 characters of user text before extracting the document."
+      );
+      return res.status(422).json(formatErrorResponse(error, { path: requestPath }));
     }
 
     let payload;
@@ -309,24 +317,21 @@ export default async function handler(req, res) {
 
     recordDocumentAudit("documents.extract", auditOptions, { logger: console });
   } catch (error) {
+    // Use standardized error response format
+    const statusCode = error?.statusCode || 500;
+
     if (error instanceof UnsupportedDocTypeError) {
-      return res.status(400).json({
-        error: `Extraction is not available for "${error.docType}" documents.`,
-      });
+      error.message = `Extraction is not available for "${error.docType}" documents.`;
+      return res.status(400).json(formatErrorResponse(error, { path: requestPath }));
     }
 
     if (error instanceof MissingDocAssetError) {
       console.error("doc extract asset missing", error);
-      return res.status(error.statusCode || 500).json({
-        error: error.message,
-        docType: error.docType,
-        assetType: error.assetType,
-      });
+      return res.status(statusCode).json(formatErrorResponse(error, { path: requestPath }));
     }
 
     // Handle API-related errors with appropriate status codes
-    const statusCode = error?.statusCode || 500;
-    const errorCode = error?.code || "internal_error";
+    const errorCode = error?.code || ERROR_CODES.INTERNAL_ERROR;
     const errorMessage = error?.message || "Unknown error";
 
     console.error("doc extract failed", {
@@ -336,10 +341,7 @@ export default async function handler(req, res) {
       stack: error?.stack,
     });
 
-    res.status(statusCode).json({
-      error: errorMessage,
-      code: errorCode,
-    });
+    res.status(statusCode).json(formatErrorResponse(error, { path: requestPath }));
   }
 }
 

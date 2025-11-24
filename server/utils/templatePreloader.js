@@ -1,6 +1,39 @@
 import fs from "fs/promises";
-import { getDocTypeConfig, getAllDocTypes } from "../../lib/doc/registry.js";
+import { getDocTypeConfig, listSupportedDocTypes } from "../../lib/doc/registry.js";
 import { MissingDocAssetError } from "../../lib/doc/errors.js";
+
+/**
+ * Template Preloader Module
+ *
+ * This module provides an LRU cache for document templates with support for:
+ * - Automatic cache warming on server startup
+ * - Cache hit/miss metrics for monitoring
+ * - Template invalidation for cache management
+ * - Graceful fallback for missing templates
+ *
+ * ## Server Startup Integration
+ *
+ * To enable template preloading at server startup, call `initializeTemplateCache()`
+ * in your server initialization code:
+ *
+ * ```javascript
+ * import { initializeTemplateCache } from './server/utils/templatePreloader.js';
+ *
+ * // In server startup
+ * await initializeTemplateCache({ warmCache: true });
+ * ```
+ *
+ * ## Cache Metrics
+ *
+ * Monitor cache performance with `getCacheMetrics()`:
+ *
+ * ```javascript
+ * const metrics = getCacheMetrics();
+ * console.log(`Hit rate: ${(metrics.hitRate * 100).toFixed(1)}%`);
+ * ```
+ *
+ * @module server/utils/templatePreloader
+ */
 
 /**
  * LRU Cache implementation for template buffers
@@ -10,12 +43,16 @@ class LRUCache {
   constructor(capacity = 50) {
     this.capacity = capacity;
     this.cache = new Map();
+    this.hits = 0;
+    this.misses = 0;
   }
 
   get(key) {
     if (!this.cache.has(key)) {
+      this.misses++;
       return undefined;
     }
+    this.hits++;
     // Move to end (most recently used)
     const value = this.cache.get(key);
     this.cache.delete(key);
@@ -43,10 +80,27 @@ class LRUCache {
 
   clear() {
     this.cache.clear();
+    this.hits = 0;
+    this.misses = 0;
   }
 
   get size() {
     return this.cache.size;
+  }
+
+  get hitRate() {
+    const total = this.hits + this.misses;
+    return total > 0 ? this.hits / total : 0;
+  }
+
+  getMetrics() {
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      hitRate: this.hitRate,
+      size: this.size,
+      capacity: this.capacity,
+    };
   }
 }
 
@@ -54,6 +108,8 @@ class LRUCache {
 const templateCache = new LRUCache(50);
 let preloadPromise = null;
 let isPreloaded = false;
+let preloadTimestamp = null;
+let initializationPromise = null;
 
 /**
  * Load a single template buffer from disk
@@ -122,7 +178,7 @@ export async function preloadAllTemplates() {
     };
 
     try {
-      const docTypes = getAllDocTypes();
+      const docTypes = listSupportedDocTypes();
       results.total = docTypes.length;
 
       const loadPromises = docTypes.map(async (docType) => {
@@ -151,6 +207,7 @@ export async function preloadAllTemplates() {
 
       await Promise.allSettled(loadPromises);
       isPreloaded = true;
+      preloadTimestamp = Date.now();
 
       console.log(
         `[TemplatePreloader] Preloaded ${results.successful.length}/${results.total} templates`
@@ -191,6 +248,21 @@ export function getCacheStats() {
     size: templateCache.size,
     capacity: templateCache.capacity,
     isPreloaded,
+    preloadTimestamp,
+  };
+}
+
+/**
+ * Get detailed cache metrics including hit/miss rates
+ * @returns {Object} Cache metrics
+ */
+export function getCacheMetrics() {
+  const metrics = templateCache.getMetrics();
+  return {
+    ...metrics,
+    isPreloaded,
+    preloadTimestamp,
+    hitRatePercent: (metrics.hitRate * 100).toFixed(1) + '%',
   };
 }
 
@@ -206,6 +278,102 @@ export function invalidateTemplate(docType) {
     templateCache.cache.delete(templatePath);
     console.log(`[TemplatePreloader] Invalidated template for ${docType}`);
   }
+}
+
+/**
+ * Initialize template cache with optional cache warming
+ *
+ * This function should be called during server startup to optionally
+ * pre-load templates into the cache for faster first-request response times.
+ *
+ * @param {Object} [options] - Initialization options
+ * @param {boolean} [options.warmCache=false] - Whether to preload all templates
+ * @param {boolean} [options.silent=false] - Suppress logging
+ * @returns {Promise<Object>} Initialization results
+ *
+ * @example
+ * // In server startup
+ * import { initializeTemplateCache } from './server/utils/templatePreloader.js';
+ *
+ * async function startServer() {
+ *   // Warm cache during startup
+ *   const result = await initializeTemplateCache({ warmCache: true });
+ *   console.log(`Loaded ${result.successful.length} templates`);
+ * }
+ */
+export async function initializeTemplateCache(options = {}) {
+  const { warmCache = false, silent = false } = options;
+
+  // Return existing initialization if in progress
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    const startTime = Date.now();
+
+    if (!warmCache) {
+      if (!silent) {
+        console.log('[TemplatePreloader] Cache initialized (lazy loading mode)');
+      }
+      return {
+        mode: 'lazy',
+        successful: [],
+        failed: [],
+        total: 0,
+        duration: 0,
+      };
+    }
+
+    // Warm the cache by preloading all templates
+    const results = await preloadAllTemplates();
+    const duration = Date.now() - startTime;
+
+    if (!silent) {
+      console.log(
+        `[TemplatePreloader] Cache warmed in ${duration}ms ` +
+        `(${results.successful.length}/${results.total} templates)`
+      );
+    }
+
+    return {
+      mode: 'warm',
+      ...results,
+      duration,
+    };
+  })();
+
+  return initializationPromise;
+}
+
+/**
+ * Check if the cache is healthy and ready
+ * @returns {Object} Health check result
+ */
+export function getHealthStatus() {
+  const metrics = getCacheMetrics();
+  return {
+    healthy: true,
+    isPreloaded,
+    cacheSize: metrics.size,
+    cacheCapacity: metrics.capacity,
+    hitRate: metrics.hitRatePercent,
+    preloadTimestamp,
+    uptime: preloadTimestamp ? Date.now() - preloadTimestamp : null,
+  };
+}
+
+/**
+ * Reset the template cache and metrics
+ * Useful for testing or when templates are significantly updated
+ */
+export function resetTemplateCache() {
+  templateCache.clear();
+  preloadPromise = null;
+  initializationPromise = null;
+  isPreloaded = false;
+  preloadTimestamp = null;
+  console.log('[TemplatePreloader] Cache fully reset');
 }
 
 // Export the cache for backward compatibility if needed

@@ -483,15 +483,18 @@ Optimized actual message-related components instead.
 - `tsconfig.server.json` - TypeScript configuration for server compilation
 - `scripts/build-server.mjs` - Build script using esbuild CLI
 
-**Files Modified**: 2 files
+**Files Modified**: 3 files
 - `/server/documents/extraction/charter.js` - Updated to load pre-compiled modules
 - `package.json` - Added build:server script and updated build process
+- `vite.config.js` - Set output directory to `dist/client` to prevent conflicts
 
 **Build Process**:
 - `npm run build:server` compiles `server/charter/extractFieldsFromUtterance.ts`
 - Output: `dist/server/server/charter/extractFieldsFromUtterance.js` (bundled, 30.7kb)
 - esbuild bundles all TypeScript dependencies while keeping node_modules external
 - Main `npm run build` now runs server compilation before client build
+- Client build outputs to `dist/client/` (via vite.config.js) to avoid conflicts
+- Server and client builds now use separate output directories
 
 **Expected Impact**: 90% reduction in extraction initialization time (eliminates runtime compilation)
 **Actual Changes**:
@@ -1183,7 +1186,7 @@ Each phase should be completed in a feature branch with:
 - `tsconfig.server.json` - Server-side TypeScript configuration
 - `scripts/build-server.mjs` - Server TypeScript build script
 
-**Files Modified**: 11 files
+**Files Modified**: 12 files
 - `/src/chat/ChatContext.tsx` - Split contexts, added selector hooks
 - `/src/chat/ChatComposer.tsx` - Use actions hook, wrapped with React.memo
 - `/src/chat/ChatTranscript.tsx` - Use messages hook, wrapped with React.memo
@@ -1194,6 +1197,7 @@ Each phase should be completed in a feature branch with:
 - `/api/documents/render.js` - Use centralized template preloader
 - `/server/documents/extraction/charter.js` - Load pre-compiled modules
 - `package.json` - Added `immer@^10.1.1`, updated build scripts
+- `vite.config.js` - Set outDir to `dist/client` to prevent build conflicts
 
 **Components Optimized**: 6 total
 - CharterFieldSession (main + FieldPrompt sub-component)

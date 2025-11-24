@@ -291,19 +291,6 @@ async function requestChatText(
   params: { messages: any[]; temperature: number; maxTokens: number }
 ): Promise<string> {
   const { messages, temperature, maxTokens } = params;
-  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-  if (useResponses) {
-    const prompt = formatMessagesForResponses(messages);
-    const response = await client.responses.create({
-      model: CHAT_MODEL,
-      temperature,
-      input: prompt,
-      ...(Number.isFinite(maxTokens) && maxTokens > 0
-        ? { max_output_tokens: maxTokens }
-        : {}),
-    } as any);
-    return (response as any).output_text ?? "";
-  }
 
   const completion = await client.chat.completions.create({
     model: CHAT_MODEL,
@@ -643,7 +630,6 @@ async function streamFromOpenAI(params: {
   send: (event: string, data?: unknown) => void;
 }): Promise<void> {
   const { client, messages, signal, send } = params;
-  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
 
   const firstNonEmpty = (
     ...candidates: Array<string | null | undefined>
@@ -659,70 +645,6 @@ async function streamFromOpenAI(params: {
   };
 
   try {
-    if (useResponses) {
-      const stream = await client.responses.create(
-        {
-          model: CHAT_MODEL,
-          temperature: 0.3,
-          input: formatMessagesForResponses(messages),
-          stream: true,
-        },
-        { signal }
-      );
-
-      for await (const rawEvent of stream as AsyncIterable<any>) {
-        if (!rawEvent) continue;
-        const event = rawEvent as any;
-
-        if (event.type === "response.output_text.delta") {
-          const delta = firstNonEmpty(event.delta);
-          if (delta) {
-            send("token", { delta });
-          }
-          continue;
-        }
-
-        if (event.type === "response.completed") {
-          return;
-        }
-
-        if (event.type === "error") {
-          const message = firstNonEmpty(
-            event.message,
-            "OpenAI streaming error"
-          );
-          const code = firstNonEmpty(event.code, "openai_error");
-          throw new OpenAIStreamError(message, 500, code || "openai_error");
-        }
-
-        if (event.type === "response.failed") {
-          const errorInfo = event.response?.error;
-          const message = firstNonEmpty(
-            errorInfo?.message,
-            "OpenAI streaming error"
-          );
-          const code = firstNonEmpty(errorInfo?.code, "openai_error");
-          throw new OpenAIStreamError(message, 500, code || "openai_error");
-        }
-
-        if (event.type === "response.incomplete") {
-          const reason = firstNonEmpty(
-            event.response?.incomplete_details?.reason
-          );
-          const message =
-            reason === "max_output_tokens"
-              ? "OpenAI stopped early because max_output_tokens was reached."
-              : reason === "content_filter"
-                ? "OpenAI stopped the response due to content filtering."
-                : "OpenAI response ended prematurely.";
-          const code = reason || "openai_incomplete";
-          throw new OpenAIStreamError(message, 500, code);
-        }
-      }
-
-      return;
-    }
-
     const stream = await client.chat.completions.create(
       {
         model: CHAT_MODEL,

@@ -678,38 +678,16 @@ export function normalizeExtractedFields(
 }
 
 function extractToolArguments(response: any): unknown {
-  const getToolCallDetails = (call: any) => {
-    if (!call) return null;
+  // For Chat Completions API, tool calls are in response.choices[0].message.tool_calls
+  const message = response?.choices?.[0]?.message;
 
-    if (call.type === "function_call") {
-      return { name: call.name, arguments: call.arguments };
-    }
-
-    if (call.type === "function" && call.function) {
-      return {
-        name: call.function?.name,
-        arguments: call.function?.arguments,
-      };
-    }
-
+  if (!message || !Array.isArray(message.tool_calls)) {
     return null;
-  };
-
-  const output = Array.isArray(response?.output) ? response.output : [];
-  for (const item of output) {
-    const call = getToolCallDetails(item);
-    if (call?.name === TOOL_NAME) {
-      return call.arguments;
-    }
   }
 
-  const toolCalls = Array.isArray(response?.output?.[0]?.tool_calls)
-    ? response.output[0].tool_calls
-    : [];
-  for (const callEntry of toolCalls) {
-    const call = getToolCallDetails(callEntry);
-    if (call?.name === TOOL_NAME) {
-      return call.arguments;
+  for (const toolCall of message.tool_calls) {
+    if (toolCall?.function?.name === TOOL_NAME && toolCall.function.arguments) {
+      return toolCall.function.arguments;
     }
   }
 
@@ -748,7 +726,7 @@ export async function extractFieldsFromUtterance(
   try {
     const requestBody = {
       model,
-      input,
+      messages: [{ role: "user" as const, content: input }],
       tools: [
         {
           type: "function",
@@ -760,12 +738,12 @@ export async function extractFieldsFromUtterance(
           },
         },
       ],
-      tool_choice: { type: "function", name: TOOL_NAME },
+      tool_choice: { type: "function", function: { name: TOOL_NAME } },
     };
 
     response = options.signal
-      ? await client.responses.create(requestBody as any, { signal: options.signal })
-      : await client.responses.create(requestBody as any);
+      ? await client.chat.completions.create(requestBody, { signal: options.signal })
+      : await client.chat.completions.create(requestBody);
   } catch (error) {
     return {
       ok: false,

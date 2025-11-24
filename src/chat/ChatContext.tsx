@@ -1,16 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useReducer, useRef } from "react";
+import type { ChatMessage, ChatRole } from "../types/chat.ts";
 
-export type ChatRole = "user" | "assistant" | "system";
-
-export interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  content: string;
-  pending?: boolean;
-  error?: string | null;
-  retryable?: boolean;
-  onRetry?: (() => void) | null;
-}
+// Re-export types for backwards compatibility
+export type { ChatMessage, ChatRole } from "../types/chat.ts";
 
 interface AppendAction {
   type: "append";

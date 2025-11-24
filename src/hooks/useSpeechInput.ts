@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { voiceActions } from "../state/voiceStore.ts";
 import { dispatch } from "../sync/syncStore.js";
+import type { TranscriptionResponse } from "../types/api.ts";
 
 export interface SpeechInputOptions {
   onTranscript: (transcript: string) => void | Promise<void>;
@@ -193,17 +194,15 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
             body: formData,
           });
 
-          let payload: any = null;
+          let payload: TranscriptionResponse | null = null;
           try {
-            payload = await response.json();
+            payload = await response.json() as TranscriptionResponse;
           } catch (parseError) {
             payload = null;
           }
 
           if (!response.ok) {
-            const message =
-              (payload && typeof payload.error === "string" && payload.error) ||
-              `Transcription failed with status ${response.status}`;
+            const message = payload?.error || `Transcription failed with status ${response.status}`;
             throw new Error(message);
           }
 

@@ -5,6 +5,7 @@
 
 import { rmsToDb, dbToUnit } from "./audioMath.ts";
 import { buildAudioConstraints } from "./audioConstraints.ts";
+import { getAudioContextConstructor, type MicLevelData } from "../types/audio.ts";
 
 type OnLevel = (data: { level: number; db: number; peak: number }) => void;
 
@@ -34,7 +35,10 @@ export class MicLevelEngine {
 
   async start(deviceId?: string) {
     await this.stop(); // clean start
-    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    const AudioCtx = getAudioContextConstructor();
+    if (!AudioCtx) {
+      throw new Error("AudioContext is not supported in this browser");
+    }
     this.ctx = new AudioCtx();
 
     // Must be in response to a user gesture on iOS Safari:

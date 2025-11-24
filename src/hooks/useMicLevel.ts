@@ -47,8 +47,9 @@ export function useMicLevel() {
       const list = await navigator.mediaDevices.enumerateDevices();
       const inputs = list.filter(d => d.kind === "audioinput");
       setState(s => ({ ...s, devices: inputs }));
-    } catch (e: any) {
-      setState(s => ({ ...s, error: e?.message || "Failed to enumerate devices" }));
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : "Failed to enumerate devices";
+      setState(s => ({ ...s, error: errorMessage }));
     }
   }, []);
 
@@ -71,8 +72,9 @@ export function useMicLevel() {
       await engineRef.current.start(deviceId);
       await refreshDevices(); // device labels unlock after permission
       setState(s => ({ ...s, isActive: true, error: undefined, selectedDeviceId: deviceId, hasPermission: true }));
-    } catch (e: any) {
-      setState(s => ({ ...s, error: e?.message || "Microphone start failed", isActive: false }));
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : "Microphone start failed";
+      setState(s => ({ ...s, error: errorMessage, isActive: false }));
     }
   }, [refreshDevices]);
 

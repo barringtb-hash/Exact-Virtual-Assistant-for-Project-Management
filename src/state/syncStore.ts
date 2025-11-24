@@ -1,6 +1,7 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
 import { FEATURE_FLAGS } from "../config/featureFlags.ts";
 import { createId } from "../utils/id.js";
+import { produce } from "immer";
 import type {
   AgentTurn,
   DraftDocument,
@@ -92,17 +93,7 @@ function logPatchGapEvent(details: Record<string, unknown>) {
   }
 }
 
-function cloneWorkingState(state: SyncState): WorkingState {
-  return {
-    turns: state.turns.map((turn) => ({
-      ...turn,
-      events: turn.events.map(cloneEvent),
-    })),
-    buffers: cloneBuffers(state.buffers),
-    activeTurnId: state.activeTurnId,
-    recentFinalInputs: cloneRecentFinalInputs(state.recentFinalInputs),
-  };
-}
+// cloneWorkingState removed - now using immer for immutable updates
 
 function ensureTurn(work: WorkingState, event: NormalizedInputEvent): AgentTurn {
   let turn = work.turns.find((candidate) => candidate.id === event.turnId);
@@ -116,7 +107,7 @@ function ensureTurn(work: WorkingState, event: NormalizedInputEvent): AgentTurn 
       updatedAt: event.createdAt,
       completedAt: event.stage === "final" ? event.createdAt : undefined,
     };
-    work.turns = [...work.turns, turn];
+    work.turns.push(turn);
   }
   return turn;
 }
@@ -305,127 +296,115 @@ export function resetSyncStore(overrides?: Partial<SyncState>) {
 }
 
 export function ingestInput(event: NormalizedInputEvent) {
-  syncStore.setState((state) => {
-    const work = cloneWorkingState(state);
-
-    if (state.policy === "exclusive") {
-      for (const turn of work.turns.slice()) {
-        if (turn.status === "open" && turn.id !== event.turnId && turn.source !== event.source) {
-          finalizeTurn(work, turn.id, event.createdAt);
+  syncStore.setState((state) =>
+    produce(state, (draft) => {
+      if (state.policy === "exclusive") {
+        for (const turn of draft.turns) {
+          if (turn.status === "open" && turn.id !== event.turnId && turn.source !== event.source) {
+            finalizeTurn(draft, turn.id, event.createdAt);
+          }
         }
       }
-    }
 
-    const normalized = cloneEvent(event);
-    const turn = ensureTurn(work, normalized);
-    turn.events = [...turn.events, normalized];
-    turn.updatedAt = normalized.createdAt;
-    if (turn.events.length === 1) {
-      turn.createdAt = normalized.createdAt;
-    }
+      const normalized = cloneEvent(event);
+      const turn = ensureTurn(draft, normalized);
+      turn.events.push(normalized);
+      turn.updatedAt = normalized.createdAt;
+      if (turn.events.length === 1) {
+        turn.createdAt = normalized.createdAt;
+      }
 
-    if (normalized.stage === "final") {
-      finalizeTurn(work, normalized.turnId, normalized.createdAt);
-      work.buffers.final = [...work.buffers.final, normalized];
-    } else {
-      turn.status = "open";
-      turn.completedAt = undefined;
-      work.buffers.preview = [...work.buffers.preview, normalized];
-      work.activeTurnId = turn.id;
-    }
-
-    return {
-      turns: work.turns,
-      buffers: work.buffers,
-      activeTurnId: work.activeTurnId,
-    };
-  });
+      if (normalized.stage === "final") {
+        finalizeTurn(draft, normalized.turnId, normalized.createdAt);
+        draft.buffers.final.push(normalized);
+      } else {
+        turn.status = "open";
+        turn.completedAt = undefined;
+        draft.buffers.preview.push(normalized);
+        draft.activeTurnId = turn.id;
+      }
+    })
+  );
 }
 
 export function submitFinalInput(turnId?: string, timestamp?: number) {
-  syncStore.setState((state) => {
-    const work = cloneWorkingState(state);
-    const now = timestamp ?? Date.now();
-    const targetId =
-      turnId ??
-      work.activeTurnId ??
-      work.turns
-        .filter((turn) => turn.status === "open")
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+  syncStore.setState((state) =>
+    produce(state, (draft) => {
+      const now = timestamp ?? Date.now();
+      const targetId =
+        turnId ??
+        draft.activeTurnId ??
+        draft.turns
+          .filter((turn) => turn.status === "open")
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
 
-    if (!targetId) {
-      return {};
-    }
+      if (!targetId) {
+        return;
+      }
 
-    const turnIndex = work.turns.findIndex((turn) => turn.id === targetId);
-    if (turnIndex === -1) {
-      return {};
-    }
+      const turnIndex = draft.turns.findIndex((turn) => turn.id === targetId);
+      if (turnIndex === -1) {
+        return;
+      }
 
-    const targetTurn = work.turns[turnIndex];
-    const windowStart = now - DEDUPE_WINDOW_MS;
-    const recentEntries = work.recentFinalInputs.filter((entry) => entry.timestamp >= windowStart);
-    const seenContents = new Set(recentEntries.map((entry) => entry.content));
+      const targetTurn = draft.turns[turnIndex];
+      const windowStart = now - DEDUPE_WINDOW_MS;
+      const recentEntries = draft.recentFinalInputs.filter((entry) => entry.timestamp >= windowStart);
+      const seenContents = new Set(recentEntries.map((entry) => entry.content));
 
-    const sanitizedById = new Map<string, NormalizedInputEvent>();
-    for (const event of work.buffers.preview) {
-      if (event.turnId !== targetId) {
-        continue;
+      const sanitizedById = new Map<string, NormalizedInputEvent>();
+      for (const event of draft.buffers.preview) {
+        if (event.turnId !== targetId) {
+          continue;
+        }
+        const normalized = normalizeContent(event.content);
+        if (!normalized) {
+          continue;
+        }
+        if (seenContents.has(normalized)) {
+          continue;
+        }
+        const sanitized = cloneEvent(event);
+        sanitized.content = normalized;
+        sanitizedById.set(event.id, sanitized);
+        recentEntries.push({ content: normalized, timestamp: now });
+        seenContents.add(normalized);
       }
-      const normalized = normalizeContent(event.content);
-      if (!normalized) {
-        continue;
-      }
-      if (seenContents.has(normalized)) {
-        continue;
-      }
-      const sanitized = cloneEvent(event);
-      sanitized.content = normalized;
-      sanitizedById.set(event.id, sanitized);
-      recentEntries.push({ content: normalized, timestamp: now });
-      seenContents.add(normalized);
-    }
 
-    const nextPreview: NormalizedInputEvent[] = [];
-    for (const event of work.buffers.preview) {
-      if (event.turnId !== targetId) {
-        nextPreview.push(event);
-        continue;
+      const nextPreview: NormalizedInputEvent[] = [];
+      for (const event of draft.buffers.preview) {
+        if (event.turnId !== targetId) {
+          nextPreview.push(event);
+          continue;
+        }
+        const sanitized = sanitizedById.get(event.id);
+        if (sanitized) {
+          nextPreview.push(sanitized);
+        }
       }
-      const sanitized = sanitizedById.get(event.id);
-      if (sanitized) {
-        nextPreview.push(sanitized);
-      }
-    }
-    work.buffers.preview = nextPreview;
+      draft.buffers.preview = nextPreview;
 
-    const nextEvents: NormalizedInputEvent[] = [];
-    for (const event of targetTurn.events) {
-      if (event.turnId !== targetId) {
-        nextEvents.push(event);
-        continue;
+      const nextEvents: NormalizedInputEvent[] = [];
+      for (const event of targetTurn.events) {
+        if (event.turnId !== targetId) {
+          nextEvents.push(event);
+          continue;
+        }
+        if (event.stage === "final") {
+          nextEvents.push(event);
+          continue;
+        }
+        const sanitized = sanitizedById.get(event.id);
+        if (sanitized) {
+          nextEvents.push(sanitized);
+        }
       }
-      if (event.stage === "final") {
-        nextEvents.push(event);
-        continue;
-      }
-      const sanitized = sanitizedById.get(event.id);
-      if (sanitized) {
-        nextEvents.push(sanitized);
-      }
-    }
-    targetTurn.events = nextEvents;
-    work.recentFinalInputs = recentEntries;
+      targetTurn.events = nextEvents;
+      draft.recentFinalInputs = recentEntries;
 
-    finalizeTurn(work, targetId, now);
-
-    return {
-      turns: work.turns,
-      buffers: work.buffers,
-      activeTurnId: work.activeTurnId,
-      recentFinalInputs: work.recentFinalInputs,
-    };
-  });
+      finalizeTurn(draft, targetId, now);
+    })
+  );
 }
 
 export function applyPatch(patch: DocumentPatch, options: ApplyPatchOptions = {}) {
@@ -676,24 +655,20 @@ export function setPolicy(nextPolicy: InputPolicy, options: { timestamp?: number
     }
 
     if (nextPolicy === "exclusive") {
-      const work = cloneWorkingState(state);
-      const openTurns = work.turns
-        .filter((turn) => turn.status === "open")
-        .sort((a, b) => b.updatedAt - a.updatedAt);
-      const [latest, ...others] = openTurns;
-      const timestamp = options.timestamp ?? Date.now();
-      for (const turn of others) {
-        finalizeTurn(work, turn.id, timestamp);
-      }
-      if (latest) {
-        work.activeTurnId = latest.id;
-      }
-      return {
-        policy: nextPolicy,
-        turns: work.turns,
-        buffers: work.buffers,
-        activeTurnId: work.activeTurnId,
-      };
+      return produce(state, (draft) => {
+        const openTurns = draft.turns
+          .filter((turn) => turn.status === "open")
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const [latest, ...others] = openTurns;
+        const timestamp = options.timestamp ?? Date.now();
+        for (const turn of others) {
+          finalizeTurn(draft, turn.id, timestamp);
+        }
+        if (latest) {
+          draft.activeTurnId = latest.id;
+        }
+        draft.policy = nextPolicy;
+      });
     }
 
     return { policy: nextPolicy };

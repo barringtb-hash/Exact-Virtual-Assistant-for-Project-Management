@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 
-import { useChatSession } from "./ChatContext.js";
+import { useChatMessages } from "./ChatContext.js";
 import ChatMessageBubble from "./ChatMessageBubble.js";
 
 export interface ChatTranscriptProps {
@@ -14,7 +14,7 @@ export const ChatTranscript = React.memo(({
   emptyPlaceholder = null,
   typingIndicatorLabel = "Assistant is typing…",
 }: ChatTranscriptProps) => {
-  const { messages } = useChatSession();
+  const messages = useChatMessages();
 
   const content = useMemo(() => {
     if (!messages.length) {

@@ -249,4 +249,4 @@ export function getCharterFormSchemaSnapshot(): CharterFormSchemaState {
   }
 }
 
-export { useDocTemplateForm } from "../../state/docTemplateStore.js";
+export { useDocTemplateForm } from "../../../state/docTemplateStore.js";

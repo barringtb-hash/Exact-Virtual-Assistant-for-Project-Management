@@ -499,7 +499,7 @@ function mapChatOpenAIError(
   ) {
     return {
       status: 400,
-      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Try "gpt-5-mini" or update access.`,
+      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Check your OpenAI account has access to this model.`,
       code: "invalid_model",
     };
   }

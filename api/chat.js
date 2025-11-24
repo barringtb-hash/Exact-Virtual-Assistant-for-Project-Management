@@ -228,7 +228,7 @@ export function mapChatOpenAIError(status, rawMessage) {
   if (normalizedStatus === 400 || /model .*does not exist|unsupported|invalid/i.test(message)) {
     return {
       status: 400,
-      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Try "gpt-5-mini" or update access.`,
+      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Check your OpenAI account has access to this model.`,
       code: "invalid_model",
     };
   }

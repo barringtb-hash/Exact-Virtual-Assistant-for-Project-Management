@@ -659,6 +659,7 @@ export async function buildChatMessages(client, body) {
 }
 
 export default async function handler(req, res) {
+  console.log("[chat] Handler started, USES_RESPONSES_PATTERN:", USES_RESPONSES_PATTERN.toString(), "CHAT_MODEL:", CHAT_MODEL);
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;
@@ -673,6 +674,7 @@ export default async function handler(req, res) {
       });
       return;
     }
+    console.log("[chat] API key configured, length:", apiKey.length, "using Chat Completions API (not Responses)");
 
     const client = new OpenAIClient({ apiKey });
     const body = req.body || {};

@@ -133,7 +133,7 @@ function resolveModel(explicit?: string): string {
     return trimmed;
   }
 
-  return "gpt-4.1-mini";
+  return "gpt-4o-mini";
 }
 
 function createOpenAIClient(): OpenAI {

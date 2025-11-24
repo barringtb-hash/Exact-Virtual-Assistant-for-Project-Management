@@ -64,7 +64,10 @@ export async function executeOpenAIExtraction({
 }) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
-  if (!apiKey) {
+  // Allow tests to bypass API key check when mock responses are configured
+  const hasMockResponses = Array.isArray(process.__OPENAI_MOCK_RESPONSES) && process.__OPENAI_MOCK_RESPONSES.length > 0;
+
+  if (!apiKey && !hasMockResponses) {
     const error = new Error("OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable.");
     error.statusCode = 500;
     error.code = "missing_api_key";
@@ -107,8 +110,15 @@ export async function executeOpenAIExtraction({
 
     if (status === 401) {
       const error = new Error("OpenAI API key is invalid. Please check your OPENAI_API_KEY configuration.");
-      error.statusCode = 500;
+      error.statusCode = 401;
       error.code = "invalid_api_key";
+      throw error;
+    }
+
+    if (status === 503) {
+      const error = new Error("OpenAI service is temporarily unavailable. Please try again shortly.");
+      error.statusCode = 503;
+      error.code = "service_unavailable";
       throw error;
     }
 

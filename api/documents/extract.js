@@ -325,7 +325,8 @@ export default async function handler(req, res) {
     }
 
     // Handle API-related errors with appropriate status codes
-    const statusCode = error?.statusCode || 500;
+    // Check both statusCode and status since different error types use different properties
+    const statusCode = error?.statusCode || error?.status || 500;
     const errorCode = error?.code || "internal_error";
     const errorMessage = error?.message || "Unknown error";
 

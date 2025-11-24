@@ -53,7 +53,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Prepends a project-management system prompt and trims history to the most recent 18 messages.
   - Validates each attachment, enforcing non-empty `text` values and a 4,000-character cap before summarizing oversized files via a map/reduce pass (`lib/tokenize.js`). Attachments that fit under `SMALL_ATTACHMENTS_TOKEN_BUDGET` are inlined verbatim as `### {name}` sections above the base instructions (names default to "Attachment {n}" when omitted).
   - Honors `CHAT_PROMPT_TOKEN_LIMIT` when set—payloads exceeding the token budget return a `400` with an explanatory error.
-  - Uses the Responses API when the configured model matches `gpt-4o`/`gpt-4.1` families; otherwise falls back to Chat Completions with `temperature: 0.3` for consistent tone.
+  - Uses the Responses API when the configured model matches `gpt-4o` family; otherwise falls back to Chat Completions with `temperature: 0.3` for consistent tone.
   - The frontend prefers EventSource when available and falls back to `fetch` streaming readers (`openChatStreamFetch`) so React Native or polyfilled environments continue to work.
 
 ## Edge chat streaming – `POST /api/chat/stream`
@@ -81,7 +81,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   ```
 - **Notes**
   - Runs on the Vercel Edge runtime (`runtime: "edge"`), so deploy it behind infrastructure that supports streaming responses (Vercel Edge, Cloudflare Workers, etc.). Disable intermediary response buffering (`proxy_buffering off;`, ALB response streaming) to avoid token delays.
-  - Shares message assembly logic with `/api/chat` and streams via Responses API when available (`gpt-4.1`/`gpt-4o`), otherwise falls back to Chat Completions.
+  - Shares message assembly logic with `/api/chat` and streams via Responses API when available (`gpt-4o`), otherwise falls back to Chat Completions.
   - Registers each live stream in `api/chat/streamingState.js`; cancelling or replacing a stream aborts the SSE connection with an `event: aborted` frame.
   - Rollback strategy: unset `CHAT_STREAMING` or redeploy with the variable set to `false`/`0` to disable the route while leaving the non-streaming `/api/chat` untouched.
 

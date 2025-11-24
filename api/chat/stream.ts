@@ -21,7 +21,7 @@ const runtimeEnv: Record<string, string | undefined> =
     : {};
 
 const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
-const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
+const USES_RESPONSES_PATTERN = /^(gpt-4o)/i;
 
 function resolveChatModel(): string {
   const env = runtimeEnv;
@@ -499,7 +499,7 @@ function mapChatOpenAIError(
   ) {
     return {
       status: 400,
-      message: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
+      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Try "gpt-4o-mini" or update access.`,
       code: "invalid_model",
     };
   }

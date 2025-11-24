@@ -4766,7 +4766,32 @@ async function callLLM(
     });
 
     if (!res.ok) {
-      throw new Error(`Unexpected response (${res.status}) from chat stream.`);
+      let errorData;
+      try {
+        errorData = await res.json();
+      } catch {
+        // If we can't parse the error response, use a generic message
+        errorData = {};
+      }
+
+      const errorMessage = errorData?.error || `Request failed with status ${res.status}`;
+      const errorCode = errorData?.code || "unknown_error";
+
+      // Create error with status and code for potential retry logic
+      const error = new Error(errorMessage);
+      error.status = res.status;
+      error.code = errorCode;
+
+      // Provide user-friendly messages for common errors
+      if (res.status === 429) {
+        error.message = "Rate limit exceeded. Please wait a moment and try again.";
+      } else if (res.status === 500 && errorCode === "missing_api_key") {
+        error.message = "OpenAI API key is not configured. Please contact support.";
+      } else if (res.status === 500 && errorCode === "invalid_api_key") {
+        error.message = "OpenAI API key is invalid. Please contact support.";
+      }
+
+      throw error;
     }
 
     const data = await res.json();

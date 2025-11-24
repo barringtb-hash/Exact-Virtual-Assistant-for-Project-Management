@@ -59,7 +59,12 @@ export async function docApi(operation, payload, { fetchImpl, signal, bases } = 
 
       const error = new Error(`${base}/${operation} failed with status ${response.status}`);
       error.status = response.status;
-      error.payload = await response.json().catch(() => undefined);
+      const errorPayload = await response.json().catch(() => undefined);
+      error.payload = errorPayload;
+      // Propagate error code from server response if available
+      if (errorPayload?.code) {
+        error.code = errorPayload.code;
+      }
       throw error;
     } catch (error) {
       if (error?.status === 404) {

@@ -62,25 +62,60 @@ export async function executeOpenAIExtraction({
   model = "gpt-4o-mini",
   temperature = 0.3,
 }) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  if (!apiKey) {
+    const error = new Error("OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable.");
+    error.statusCode = 500;
+    error.code = "missing_api_key";
+    throw error;
+  }
+
   const openaiMessages = buildOpenAIMessages(systemSections, messages);
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAI({ apiKey });
 
-  const completion = await client.chat.completions.create({
-    model,
-    temperature,
-    messages: openaiMessages,
-    response_format: { type: "json_object" },
-    ...(typeof seed === "number" ? { seed } : {}),
-  });
-
-  const replyContent = completion.choices?.[0]?.message?.content || "";
   try {
-    const parsed = JSON.parse(replyContent);
-    if (parsed && typeof parsed === "object") {
-      return parsed;
+    const completion = await client.chat.completions.create({
+      model,
+      temperature,
+      messages: openaiMessages,
+      response_format: { type: "json_object" },
+      ...(typeof seed === "number" ? { seed } : {}),
+    });
+
+    const replyContent = completion.choices?.[0]?.message?.content || "";
+    try {
+      const parsed = JSON.parse(replyContent);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+      return { result: replyContent };
+    } catch {
+      return { result: replyContent };
     }
-    return { result: replyContent };
-  } catch {
-    return { result: replyContent };
+  } catch (apiError) {
+    // Enhanced error handling for OpenAI API errors
+    const status = apiError?.status || apiError?.response?.status || 500;
+    const message = apiError?.error?.message || apiError?.message || "OpenAI request failed";
+
+    if (status === 429) {
+      const error = new Error("OpenAI rate limit exceeded. Please wait a moment and try again.");
+      error.statusCode = 429;
+      error.code = "rate_limit_exceeded";
+      throw error;
+    }
+
+    if (status === 401) {
+      const error = new Error("OpenAI API key is invalid. Please check your OPENAI_API_KEY configuration.");
+      error.statusCode = 500;
+      error.code = "invalid_api_key";
+      throw error;
+    }
+
+    // Re-throw with enhanced context
+    const error = new Error(message);
+    error.statusCode = status;
+    error.code = apiError?.code || "openai_error";
+    throw error;
   }
 }

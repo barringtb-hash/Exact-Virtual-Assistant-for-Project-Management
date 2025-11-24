@@ -664,7 +664,11 @@ export default async function handler(req, res) {
   try {
     const apiKey = (runtimeEnv.OPENAI_API_KEY || "").toString().trim();
     if (!apiKey) {
-      res.status(500).json({ error: "Missing OpenAI API key" });
+      console.error("[chat] Missing OPENAI_API_KEY environment variable");
+      res.status(500).json({
+        error: "Missing OpenAI API key. Please configure OPENAI_API_KEY in your environment variables.",
+        code: "missing_api_key"
+      });
       return;
     }
 

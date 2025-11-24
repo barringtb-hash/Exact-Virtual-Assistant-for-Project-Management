@@ -1,3 +1,3 @@
-export { normalizeCharterPayload as normalizeCharterServer } from "../../lib/charter/normalize.js";
+export { normalizeCharterPayload as normalizeCharterServer } from "../../server/charter/utils/normalize.js";
 
-export { normalizeCharterPayload as default } from "../../lib/charter/normalize.js";
+export { normalizeCharterPayload as default } from "../../server/charter/utils/normalize.js";

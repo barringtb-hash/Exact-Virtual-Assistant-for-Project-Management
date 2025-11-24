@@ -11,7 +11,7 @@ import {
   normalizeObjectEntries,
   normalizeStringList,
   toTrimmedString,
-} from "../../lib/charter/normalize.js";
+} from "../../server/charter/utils/normalize.js";
 
 const TOOL_NAME = "extract_charter_fields";
 const ISO_DATE_PATTERN = "^(?:\\d{4})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$";

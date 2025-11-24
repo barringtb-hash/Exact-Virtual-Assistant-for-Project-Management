@@ -6,7 +6,7 @@ import {
   createCharterFieldLookup,
   type CharterFormField,
   useCharterFormSchema,
-} from "../lib/charter/formSchema.ts";
+} from "../features/charter/utils/formSchema.ts";
 import {
   conversationActions,
   configureConversationMachineOptions,

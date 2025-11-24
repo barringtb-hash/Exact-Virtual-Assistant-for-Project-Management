@@ -1,5 +1,5 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
-import type { CharterFormSchema } from "../lib/charter/formSchema.ts";
+import type { CharterFormSchema } from "../features/charter/utils/formSchema.ts";
 import {
   applyConversationEvent,
   createConversationState,

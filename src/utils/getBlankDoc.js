@@ -1,5 +1,5 @@
 import { getTemplateManifest, getTemplateRegistry } from "../../templates/registry.js";
-import { createBlankCharter } from "../../lib/charter/normalize.js";
+import { createBlankCharter } from "../../server/charter/utils/normalize.js";
 
 function cloneValue(value) {
   if (Array.isArray(value)) {

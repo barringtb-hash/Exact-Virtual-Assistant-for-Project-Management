@@ -1,8 +1,8 @@
 import docHandler, {
   config as docRenderConfig,
   renderDocxBufferForDocType,
-} from "../doc/render.js";
-import { expandTemplateAliases } from "../../lib/charter/template-aliases.js";
+} from "../documents/render.js";
+import { expandTemplateAliases } from "../../server/charter/utils/template-aliases.js";
 import { formatDocRenderError, isDocRenderValidationError } from "../../lib/doc/render.js";
 
 const DOC_TYPE = "charter";

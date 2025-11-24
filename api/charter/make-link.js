@@ -1,4 +1,4 @@
-import { config as docConfig, handleDocMakeLink } from "../doc/make-link.js";
+import { config as docConfig, handleDocMakeLink } from "../documents/make-link.js";
 
 const DOC_TYPE = "charter";
 const DOWNLOAD_PATH = "/api/charter/download";

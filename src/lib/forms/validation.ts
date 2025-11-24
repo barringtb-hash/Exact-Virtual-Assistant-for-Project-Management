@@ -3,7 +3,7 @@ import {
   normalizeObjectEntries,
   normalizeStringList,
   toTrimmedString,
-} from "../../../lib/charter/normalize.js";
+} from "../../../server/charter/utils/normalize.js";
 
 import type {
   CharterFormField,

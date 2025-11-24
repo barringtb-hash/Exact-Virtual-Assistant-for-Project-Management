@@ -1,4 +1,4 @@
-import { createBlankCharter } from "../lib/charter/normalize.js";
+import { createBlankCharter } from "../server/charter/utils/normalize.js";
 
 export function createModuleReference(
   moduleId,

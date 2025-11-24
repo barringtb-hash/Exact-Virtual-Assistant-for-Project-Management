@@ -4,10 +4,10 @@ import crypto from "node:crypto";
 
 import makeLinkHandler from "../api/charter/make-link.js";
 import downloadHandler, { formatHandlers } from "../api/charter/download.js";
-import docMakeLinkHandler from "../api/doc/make-link.js";
+import docMakeLinkHandler from "../api/documents/make-link.js";
 import docDownloadHandler, {
   getFormatHandlersForDocType as getDocFormatHandlers,
-} from "../api/doc/download.js";
+} from "../api/documents/download.js";
 import { computeDocumentHash } from "../lib/doc/audit.js";
 import { MINIMAL_VALID_DDP as VALID_DDP } from "./fixtures/doc/ddp.js";
 

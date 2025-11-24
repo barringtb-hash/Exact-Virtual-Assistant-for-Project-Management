@@ -1,5 +1,5 @@
 import { formatDocRenderError } from "../charter/render.js";
-import { renderCharterPdfBuffer } from "../../lib/charter/pdf.js";
+import { renderCharterPdfBuffer } from "../../server/charter/utils/pdf.js";
 import { createAttachmentHeaderValue } from "../../lib/http/contentDisposition.js";
 
 // Backwards-compatible export for existing callers.

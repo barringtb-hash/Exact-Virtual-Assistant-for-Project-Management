@@ -9,11 +9,11 @@ export interface ChatTranscriptProps {
   typingIndicatorLabel?: string;
 }
 
-export function ChatTranscript({
+export const ChatTranscript = React.memo(({
   className,
   emptyPlaceholder = null,
   typingIndicatorLabel = "Assistant is typing…",
-}: ChatTranscriptProps) {
+}: ChatTranscriptProps) => {
   const { messages } = useChatSession();
 
   const content = useMemo(() => {
@@ -35,6 +35,8 @@ export function ChatTranscript({
       {content}
     </div>
   );
-}
+});
+
+ChatTranscript.displayName = 'ChatTranscript';
 
 export default ChatTranscript;

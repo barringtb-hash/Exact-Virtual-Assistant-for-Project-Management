@@ -8,7 +8,7 @@ export interface ChatMessageBubbleProps {
   typingIndicatorLabel?: string;
 }
 
-function TypingIndicator({ label }: { label: string }) {
+const TypingIndicator = React.memo(({ label }: { label: string }) => {
   return (
     <span className="eva-chat-typing" role="status" aria-live="polite" aria-label={label}>
       <span className="eva-chat-typing-dot" aria-hidden />
@@ -16,9 +16,11 @@ function TypingIndicator({ label }: { label: string }) {
       <span className="eva-chat-typing-dot" aria-hidden />
     </span>
   );
-}
+});
 
-export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
+TypingIndicator.displayName = 'TypingIndicator';
+
+export const ChatMessageBubble = React.memo<ChatMessageBubbleProps>(({
   message,
   typingIndicatorLabel = "Assistant is typing…",
 }) => {
@@ -53,6 +55,8 @@ export const ChatMessageBubble: React.FC<ChatMessageBubbleProps> = ({
       </div>
     </div>
   );
-};
+});
+
+ChatMessageBubble.displayName = 'ChatMessageBubble';
 
 export default ChatMessageBubble;

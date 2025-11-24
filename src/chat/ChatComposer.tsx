@@ -120,7 +120,7 @@ function useActiveStream() {
   } as const;
 }
 
-export function ChatComposer({
+export const ChatComposer = React.memo(({
   apiPath = "/api/chat",
   attachments,
   autoFocus = false,
@@ -135,7 +135,7 @@ export function ChatComposer({
   requestInit,
   systemMessage,
   threadId: providedThreadId,
-}: ChatComposerProps) {
+}: ChatComposerProps) => {
   const { appendMessage, updateMessage, getMessages } = useChatSession();
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -419,21 +419,25 @@ export function ChatComposer({
       </button>
     </form>
   );
-}
+});
+
+ChatComposer.displayName = 'ChatComposer';
 
 export interface ChatInterfaceProps extends ChatProviderProps, ChatComposerProps {}
 
-export function ChatInterface({
+export const ChatInterface = React.memo(({
   children,
   initialMessages,
   ...composerProps
-}: ChatInterfaceProps & { children?: React.ReactNode }) {
+}: ChatInterfaceProps & { children?: React.ReactNode }) => {
   return (
     <ChatProvider initialMessages={initialMessages}>
       {children}
       <ChatComposer {...composerProps} />
     </ChatProvider>
   );
-}
+});
+
+ChatInterface.displayName = 'ChatInterface';
 
 export default ChatComposer;

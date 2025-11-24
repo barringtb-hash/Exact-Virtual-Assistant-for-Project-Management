@@ -28,6 +28,7 @@ import {
 } from "../../server/documents/utils/index.js";
 import {
   getTemplateBuffer,
+  clearTemplateCache,
 } from "../../server/utils/templatePreloader.js";
 
 // Use the centralized template preloader instead of local cache
@@ -130,7 +131,7 @@ export const config = {
 };
 
 export function __clearDocTemplateCache() {
-  templateCache.clear();
+  clearTemplateCache();
 }
 
 export default async function handler(req, res) {

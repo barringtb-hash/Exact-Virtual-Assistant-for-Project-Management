@@ -3,10 +3,39 @@
  *
  * This module provides sanitization functions that clean and normalize
  * various data structures before they're used in document extraction.
+ *
+ * ## Purpose
+ *
+ * All input data from API requests must be sanitized before being passed to
+ * the extraction tools. This ensures:
+ * - Type safety: Invalid types are filtered out
+ * - Data integrity: Malformed entries don't break extraction
+ * - Security: Unexpected data shapes don't cause issues
+ * - Consistency: All data follows expected formats
+ *
+ * ## Sanitization Flow
+ *
+ * ```
+ * Request Body
+ *     │
+ *     ├─► sanitizeUserMessages() ─► Filtered user messages
+ *     ├─► sanitizeCharterMessagesForTool() ─► Messages for AI tool
+ *     ├─► sanitizeCharterAttachmentsForTool() ─► Attachments for AI tool
+ *     ├─► sanitizeCharterVoiceForTool() ─► Voice events for AI tool
+ *     ├─► sanitizeRequestedFieldIds() ─► Unique field IDs
+ *     └─► sanitizeGuidedConfirmation() ─► Validated confirmation
+ * ```
+ *
+ * @module server/documents/sanitization/sanitizers
  */
 
 import { extractMessageText } from "../utils/index.js";
 
+/**
+ * Set of valid roles that can be assigned to messages in tool calls.
+ * Messages with roles outside this set are defaulted to "user".
+ * @type {Set<string>}
+ */
 const VALID_TOOL_ROLES = new Set(["user", "assistant", "system", "developer"]);
 
 function isPlainObject(value) {

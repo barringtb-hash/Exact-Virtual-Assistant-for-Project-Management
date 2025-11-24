@@ -4,9 +4,14 @@
 
 import fs from "fs/promises";
 import { InvalidDocPayloadError } from "../../../lib/doc/errors.js";
+import {
+  ATTACHMENT_CHAR_LIMIT,
+  MIN_TEXT_CONTEXT_LENGTH,
+  VALID_TOOL_ROLES,
+} from "../../config/extraction.js";
 
-export const ATTACHMENT_CHAR_LIMIT = 20_000;
-export const MIN_TEXT_CONTEXT_LENGTH = 25;
+// Re-export constants for backwards compatibility
+export { ATTACHMENT_CHAR_LIMIT, MIN_TEXT_CONTEXT_LENGTH, VALID_TOOL_ROLES };
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);

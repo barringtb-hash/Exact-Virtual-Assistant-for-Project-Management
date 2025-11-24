@@ -1,14 +1,10 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
 import { createId } from "../utils/id.js";
+import type { ChatRole, StoreMessage } from "../types/chat.ts";
 
-export type Role = "user" | "assistant" | "system";
-
-export interface Message {
-  id: string;
-  role: Role;
-  text: string;
-  runId?: string;
-}
+// Re-export with aliases for backwards compatibility
+export type Role = ChatRole;
+export type Message = StoreMessage;
 
 type ChatState = {
   messages: Message[];

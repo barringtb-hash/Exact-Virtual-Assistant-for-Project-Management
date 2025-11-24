@@ -3,12 +3,12 @@ import {
   normalizeObjectEntries,
   normalizeStringList,
   toTrimmedString,
-} from "../../../lib/charter/normalize.js";
+} from "../../../server/charter/utils/normalize.js";
 
 import type {
   CharterFormField,
   CharterFormSchema,
-} from "../charter/formSchema.ts";
+} from "../../features/charter/utils/formSchema.ts";
 
 export type FieldRuleMap = Record<string, string>;
 

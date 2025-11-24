@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { normalizeCharterFormSchema } from "../../../src/lib/charter/formSchema.ts";
+import { normalizeCharterFormSchema } from "../../../src/features/charter/utils/formSchema.ts";
 import { createFormValidator } from "../../../src/lib/forms/validation.ts";
 import {
   conversationActions,

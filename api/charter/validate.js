@@ -1,4 +1,4 @@
-import docHandler from "../doc/validate.js";
+import docHandler from "../documents/validate.js";
 import { getDocTypeConfig } from "../../lib/doc/registry.js";
 import {
   createDocValidationError,

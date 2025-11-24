@@ -9,7 +9,7 @@ import {
   createConversationState,
   type ConversationState,
 } from "../src/state/conversationMachine.ts";
-import { normalizeCharterFormSchema } from "../src/lib/charter/formSchema.ts";
+import { normalizeCharterFormSchema } from "../src/features/charter/utils/formSchema.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "fixtures", "conversation");

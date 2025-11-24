@@ -7,7 +7,7 @@ import {
   getCharterFieldOrder,
   getRequiredCharterFieldIds,
   loadCharterFormSchema,
-} from "../src/lib/charter/formSchema.ts";
+} from "../src/features/charter/utils/formSchema.ts";
 
 const EXPECTED_FIELD_ORDER = [
   "project_name",

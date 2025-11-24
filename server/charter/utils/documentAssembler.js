@@ -1,4 +1,4 @@
-import { renderDocxBufferForDocType } from "../../api/documents/render.js";
+import { renderDocxBufferForDocType } from "../../../api/documents/render.js";
 import { renderCharterPdfBuffer } from "./pdf.js";
 
 const CHARTER_DOC_TYPE = "charter";

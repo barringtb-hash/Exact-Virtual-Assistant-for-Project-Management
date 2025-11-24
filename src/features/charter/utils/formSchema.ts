@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import {
   getDocTemplateFormState,
   useDocTemplateForm,
-} from "../../state/docTemplateStore.js";
-import { loadTemplateJson } from "../../utils/loadTemplateJson.js";
+} from "../../../state/docTemplateStore.js";
+import { loadTemplateJson } from "../../../utils/loadTemplateJson.js";
 
 export const CHARTER_FORM_SCHEMA_PATH = "charter/formSchema.json";
 

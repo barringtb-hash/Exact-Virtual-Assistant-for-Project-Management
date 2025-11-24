@@ -1,4 +1,4 @@
-import { readCharterDocumentRecords } from "../../../lib/charter/documentStore.js";
+import { readCharterDocumentRecords } from "../../../server/charter/utils/documentStore.js";
 
 export const config = {
   maxDuration: 30,

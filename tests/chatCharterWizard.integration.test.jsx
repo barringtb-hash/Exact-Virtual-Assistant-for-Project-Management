@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import CharterFieldSession from "../src/chat/CharterFieldSession.tsx";
-import { normalizeCharterFormSchema } from "../src/lib/charter/formSchema.ts";
+import { normalizeCharterFormSchema } from "../src/features/charter/utils/formSchema.ts";
 import { conversationActions } from "../src/state/conversationStore.ts";
 import { FIELD_METRIC_HEADER } from "../lib/telemetry/fieldMetrics.js";
 

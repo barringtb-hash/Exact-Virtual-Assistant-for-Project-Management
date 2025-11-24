@@ -6,7 +6,7 @@ import Composer from "./components/Composer";
 import PreviewEditable from "./components/PreviewEditable";
 import DocTypeModal from "./components/DocTypeModal";
 import getBlankDoc from "./utils/getBlankDoc.js";
-import normalizeCharter from "../lib/charter/normalize.js";
+import normalizeCharter from "../server/charter/utils/normalize.js";
 import useBackgroundExtraction, { onFileAttached } from "./hooks/useBackgroundExtraction";
 import { useSpeechInput } from "./hooks/useSpeechInput.ts";
 import mergeIntoDraftWithLocks from "./lib/preview/mergeIntoDraftWithLocks.js";

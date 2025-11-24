@@ -11,7 +11,7 @@ import {
   assembleCharterPdfBuffer,
 } from "./documentAssembler.js";
 import { computeNextVersion } from "./versioning.js";
-import { createStorageClientFromEnv } from "../storage/index.js";
+import { createStorageClientFromEnv } from "../../../lib/storage/index.js";
 
 const TMP_OUTPUT_DIR = path.resolve(process.cwd(), "tmp", "charter-finalization");
 

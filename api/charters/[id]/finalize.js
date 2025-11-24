@@ -1,4 +1,4 @@
-import finalizeCharter from "../../../lib/charter/finalizeCharter.js";
+import finalizeCharter from "../../../server/charter/utils/finalizeCharter.js";
 import { formatDocRenderError } from "../../documents/render.js";
 
 export const config = {

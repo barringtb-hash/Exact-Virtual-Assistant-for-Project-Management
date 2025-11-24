@@ -1,4 +1,4 @@
-import handler from "../doc/extract.js";
+import handler from "../documents/extract.js";
 
 function withCharterContext(req) {
   const query = { ...(req.query || {}), docType: "charter" };

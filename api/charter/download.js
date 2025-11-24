@@ -2,7 +2,7 @@ import docHandler, {
   config as docConfig,
   getFormatHandlersForDocType,
   listSupportedFormats,
-} from "../doc/download.js";
+} from "../documents/download.js";
 
 const DOC_TYPE = "charter";
 

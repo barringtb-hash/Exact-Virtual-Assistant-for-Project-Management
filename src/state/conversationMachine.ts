@@ -2,7 +2,7 @@ import {
   type CharterFormField,
   type CharterFormSchema,
   createCharterFieldLookup,
-} from "../lib/charter/formSchema.ts";
+} from "../features/charter/utils/formSchema.ts";
 import { sanitizeTelemetryToken } from "../../lib/telemetry/fieldMetrics.js";
 import {
   createFormValidator,

@@ -2,7 +2,7 @@ import {
   normalizeObjectEntries,
   normalizeStringList,
   toTrimmedString,
-} from "../../../lib/charter/normalize.js";
+} from "../../../server/charter/utils/normalize.js";
 import { CHARTER_FIELDS, type CharterFieldId } from "./schema";
 import type { GuidedState } from "./guidedState";
 

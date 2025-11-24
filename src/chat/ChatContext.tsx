@@ -57,15 +57,19 @@ const chatReducer: ChatReducer = (state, action) => {
   }
 };
 
-interface ChatContextValue {
+interface ChatMessagesContextValue {
   messages: ChatMessage[];
+}
+
+interface ChatActionsContextValue {
   appendMessage: (message: ChatMessage) => void;
   updateMessage: (id: string, updater: (message: ChatMessage) => ChatMessage) => void;
   resetMessages: (messages: ChatMessage[]) => void;
   getMessages: () => ChatMessage[];
 }
 
-const ChatContext = createContext<ChatContextValue | undefined>(undefined);
+const ChatMessagesContext = createContext<ChatMessagesContextValue | undefined>(undefined);
+const ChatActionsContext = createContext<ChatActionsContextValue | undefined>(undefined);
 
 export interface ChatProviderProps {
   children: React.ReactNode;
@@ -91,18 +95,43 @@ export function ChatProvider({ children, initialMessages = [] }: ChatProviderPro
 
   const getMessages = useCallback(() => messagesRef.current, []);
 
-  const value = useMemo(
-    () => ({ messages, appendMessage, updateMessage, resetMessages, getMessages }),
-    [appendMessage, getMessages, messages, resetMessages, updateMessage],
+  // Separate memoization for messages and actions
+  const messagesValue = useMemo(() => ({ messages }), [messages]);
+
+  const actionsValue = useMemo(
+    () => ({ appendMessage, updateMessage, resetMessages, getMessages }),
+    [appendMessage, updateMessage, resetMessages, getMessages],
   );
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  return (
+    <ChatMessagesContext.Provider value={messagesValue}>
+      <ChatActionsContext.Provider value={actionsValue}>
+        {children}
+      </ChatActionsContext.Provider>
+    </ChatMessagesContext.Provider>
+  );
 }
 
-export function useChatSession() {
-  const context = useContext(ChatContext);
+// Selector hooks for accessing specific parts of context
+export function useChatMessages() {
+  const context = useContext(ChatMessagesContext);
   if (!context) {
-    throw new Error("useChatSession must be used within a ChatProvider");
+    throw new Error("useChatMessages must be used within a ChatProvider");
+  }
+  return context.messages;
+}
+
+export function useChatActions() {
+  const context = useContext(ChatActionsContext);
+  if (!context) {
+    throw new Error("useChatActions must be used within a ChatProvider");
   }
   return context;
+}
+
+// Backwards compatibility - returns both messages and actions
+export function useChatSession() {
+  const messages = useChatMessages();
+  const actions = useChatActions();
+  return { messages, ...actions };
 }

@@ -1,4 +1,3 @@
-import fs from "fs/promises";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 
@@ -27,40 +26,14 @@ import {
 import {
   parseDocumentBody,
 } from "../../server/documents/utils/index.js";
+import {
+  getTemplateBuffer,
+  clearTemplateCache,
+} from "../../server/utils/templatePreloader.js";
 
-const templateCache = new Map();
-
+// Use the centralized template preloader instead of local cache
 async function loadDocxTemplateBuffer(docType, config) {
-  const templatePath = config?.render?.docxTemplatePath;
-  if (!templatePath) {
-    throw new MissingDocAssetError(docType, "docx template");
-  }
-
-  if (templateCache.has(templatePath)) {
-    return templateCache.get(templatePath);
-  }
-
-  const promise = fs
-    .readFile(templatePath, "utf8")
-    .then((base64) => Buffer.from(base64.trim(), "base64"))
-    .catch((error) => {
-      if (error?.code === "ENOENT") {
-        throw new MissingDocAssetError(docType, "docx template", [templatePath]);
-      }
-      const assetError = new Error(
-        `Failed to load docx template for "${docType}" documents.`
-      );
-      assetError.name = "DocAssetLoadError";
-      assetError.statusCode = 500;
-      assetError.docType = docType;
-      assetError.assetType = "docx template";
-      assetError.cause = error;
-      assetError.filePath = templatePath;
-      throw assetError;
-    });
-
-  templateCache.set(templatePath, promise);
-  return promise;
+  return getTemplateBuffer(docType, config);
 }
 
 function inspectUnresolvedTags(doc) {
@@ -158,7 +131,7 @@ export const config = {
 };
 
 export function __clearDocTemplateCache() {
-  templateCache.clear();
+  clearTemplateCache();
 }
 
 export default async function handler(req, res) {

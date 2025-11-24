@@ -5,7 +5,7 @@ import {
   ChatMessage,
   ChatProvider,
   type ChatProviderProps,
-  useChatSession,
+  useChatActions,
 } from "./ChatContext.js";
 import { createId } from "../utils/id.js";
 
@@ -136,7 +136,7 @@ export const ChatComposer = React.memo(({
   systemMessage,
   threadId: providedThreadId,
 }: ChatComposerProps) => {
-  const { appendMessage, updateMessage, getMessages } = useChatSession();
+  const { appendMessage, updateMessage, getMessages } = useChatActions();
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);

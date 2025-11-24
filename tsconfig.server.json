@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": false,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist/server",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "server/**/*.ts",
+    "src/features/charter/schema.ts",
+    "src/features/charter/persist.ts",
+    "src/features/charter/validate.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "cypress",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ]
+}

@@ -1,58 +1,74 @@
-import fs from "fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Buffer } from "node:buffer";
-import esbuild from "esbuild";
+import fs from "fs/promises";
 
 const __filename =
   typeof document === "undefined" ? fileURLToPath(import.meta.url) : "";
 const __dirname = typeof document === "undefined" ? path.dirname(__filename) : "";
 
-// Cache the compiled module to avoid repeated transforms
+// Cache the loaded module to avoid repeated imports
 let charterExtractionModule = null;
 
 /**
- * Dynamically compiles and loads the TS module that provides:
+ * Loads the pre-compiled charter extraction module that provides:
  *   - extractFieldsFromUtterance
  *   - extractFieldsFromUtterances
+ *
+ * This module is pre-compiled during the build process (see build:server script)
+ * to eliminate runtime TypeScript compilation overhead.
  */
 export async function loadCharterExtraction() {
   if (charterExtractionModule) return charterExtractionModule;
 
-  const tsPath = path.resolve(
+  // Try to load pre-compiled module first (production)
+  const compiledPath = path.resolve(
     __dirname,
-    "../../charter/extractFieldsFromUtterance.ts",
+    "../../../dist/server/server/charter/extractFieldsFromUtterance.js"
   );
-  let tsSource;
+
   try {
-    tsSource = await fs.readFile(tsPath, "utf8");
+    // Check if compiled module exists
+    await fs.access(compiledPath);
+    const module = await import(compiledPath);
+
+    // Basic shape assertion
+    if (typeof module.extractFieldsFromUtterance !== "function") {
+      throw new Error("extractFieldsFromUtterance export missing from compiled module");
+    }
+    if (typeof module.extractFieldsFromUtterances !== "function") {
+      throw new Error("extractFieldsFromUtterances export missing from compiled module");
+    }
+
+    charterExtractionModule = module;
+    return module;
   } catch (err) {
-    // Surface a clear message rather than a generic 500
-    throw new Error(`Charter extraction source not found at ${tsPath}`);
+    // Fallback: try to import TypeScript directly (development mode with tsx/ts-node)
+    const tsPath = path.resolve(
+      __dirname,
+      "../../charter/extractFieldsFromUtterance.ts"
+    );
+
+    try {
+      // This will only work if running with tsx, ts-node, or similar
+      const module = await import(tsPath);
+
+      if (typeof module.extractFieldsFromUtterance !== "function") {
+        throw new Error("extractFieldsFromUtterance export missing from TS module");
+      }
+      if (typeof module.extractFieldsFromUtterances !== "function") {
+        throw new Error("extractFieldsFromUtterances export missing from TS module");
+      }
+
+      charterExtractionModule = module;
+      return module;
+    } catch (tsErr) {
+      throw new Error(
+        `Failed to load charter extraction module. ` +
+        `Compiled module not found at ${compiledPath} and TypeScript source at ${tsPath} could not be loaded. ` +
+        `Run "npm run build:server" to compile server TypeScript files.`
+      );
+    }
   }
-
-  // Transform TypeScript -> ESM JavaScript
-  const { code } = await esbuild.transform(tsSource, {
-    loader: "ts",
-    format: "esm",
-    target: "es2022",
-  });
-
-  // Load the generated ESM via data URI
-  const dataUri =
-    "data:text/javascript;base64;" + Buffer.from(code).toString("base64");
-  const module = await import(dataUri);
-
-  // Basic shape assertion (optional but helpful)
-  if (typeof module.extractFieldsFromUtterance !== "function") {
-    throw new Error("extractFieldsFromUtterance export missing after transform");
-  }
-  if (typeof module.extractFieldsFromUtterances !== "function") {
-    throw new Error("extractFieldsFromUtterances export missing after transform");
-  }
-
-  charterExtractionModule = module;
-  return module;
 }
 
 /** Honors test overrides, then dynamic load */

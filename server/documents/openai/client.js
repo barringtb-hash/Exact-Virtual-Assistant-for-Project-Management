@@ -59,7 +59,7 @@ export async function executeOpenAIExtraction({
   systemSections,
   messages,
   seed,
-  model = "gpt-4o-mini",
+  model = "gpt-5-mini",
   temperature = 0.3,
 }) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();

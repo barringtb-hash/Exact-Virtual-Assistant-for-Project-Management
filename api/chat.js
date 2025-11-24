@@ -48,7 +48,7 @@ if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
 }
 
 export const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
-export const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o)/i;
+export const USES_RESPONSES_PATTERN = /^(gpt-4\.1|gpt-4o|gpt-5)/i;
 
 function resolveChatModel() {
   const env = runtimeEnv;
@@ -79,7 +79,7 @@ function resolveChatModel() {
     }
   }
 
-  return "gpt-4o";
+  return "gpt-5-mini";
 }
 
 export const CHAT_MODEL = resolveChatModel();
@@ -228,7 +228,7 @@ export function mapChatOpenAIError(status, rawMessage) {
   if (normalizedStatus === 400 || /model .*does not exist|unsupported|invalid/i.test(message)) {
     return {
       status: 400,
-      message: `Model "${CHAT_MODEL}" isn’t available for this endpoint/key. Try "gpt-4.1-mini" or update access.`,
+      message: `Model "${CHAT_MODEL}" isn't available for this endpoint/key. Try "gpt-5-mini" or update access.`,
       code: "invalid_model",
     };
   }

@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,9 +14,43 @@ import {
 import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
 
-const ATTACHMENT_CHAR_LIMIT = 20_000;
-const MIN_TEXT_CONTEXT_LENGTH = 25;
-const VALID_TOOL_ROLES = new Set(["user", "assistant", "system", "developer"]);
+// Import extracted modules
+import {
+  sanitizeExtractionIssues,
+  sanitizeGuidedConfirmation,
+  sanitizeCharterMessagesForTool,
+  sanitizeCharterAttachmentsForTool,
+  sanitizeCharterVoiceForTool,
+  sanitizeRequestedFieldIds,
+  sanitizeCharterSeed,
+  sanitizeUserMessages,
+} from "../../server/documents/sanitization/sanitizers.js";
+
+import {
+  MIN_TEXT_CONTEXT_LENGTH,
+  normalizeIntent,
+  getLastUserMessageText,
+  normalizeRequestBody,
+  isGuidedEnabled,
+  computeUserTextLength,
+  hasVoiceText,
+  hasAttachmentContext,
+  formatDocTypeMetadata,
+  formatAttachments,
+  formatVoice,
+} from "../../server/documents/utils/index.js";
+
+import {
+  loadExtractPrompt,
+  loadExtractMetadata,
+  executeOpenAIExtraction,
+} from "../../server/documents/openai/client.js";
+
+import {
+  processGuidedConfirmation,
+  processBatchGuidedExtraction,
+  processSingleGuidedExtraction,
+} from "../../server/documents/extraction/guided.js";
 
 const __filename =
   typeof document === "undefined" ? fileURLToPath(import.meta.url) : "";
@@ -94,503 +127,6 @@ async function resolveCharterExtraction() {
     };
   }
   return await loadCharterExtraction();
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-async function readFirstAvailableFile(paths = []) {
-  for (const filePath of paths) {
-    if (!filePath) {
-      continue;
-    }
-    try {
-      const content = await fs.readFile(filePath, "utf8");
-      return { content, path: filePath };
-    } catch (error) {
-      if (error?.code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
-  return null;
-}
-
-function formatDocTypeMetadata(metadata) {
-  if (!metadata) {
-    return "";
-  }
-
-  if (metadata.path.endsWith(".json")) {
-    try {
-      const parsed = JSON.parse(metadata.content);
-      return `Doc Type Metadata:\n${JSON.stringify(parsed, null, 2)}`;
-    } catch {
-      // fall back to raw content
-    }
-  }
-
-  const trimmed = metadata.content.trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  return `Doc Type Metadata:\n${trimmed}`;
-}
-
-function formatAttachments(attachments) {
-  if (!Array.isArray(attachments) || attachments.length === 0) {
-    return "";
-  }
-
-  const formatted = attachments
-    .map((attachment, index) => {
-      const rawText = typeof attachment?.text === "string" ? attachment.text : "";
-      const text = rawText.slice(0, ATTACHMENT_CHAR_LIMIT).trim();
-      if (!text) {
-        return null;
-      }
-
-      const name =
-        typeof attachment?.name === "string" && attachment.name.trim()
-          ? attachment.name.trim()
-          : `Attachment ${index + 1}`;
-      const mimeType =
-        typeof attachment?.mimeType === "string" && attachment.mimeType.trim()
-          ? attachment.mimeType.trim()
-          : "";
-
-      const headerParts = [`### Attachment: ${name}`];
-      if (mimeType) {
-        headerParts.push(`Type: ${mimeType}`);
-      }
-
-      return [...headerParts, text].join("\n");
-    })
-    .filter(Boolean);
-
-  if (formatted.length === 0) {
-    return "";
-  }
-
-  return `Attachment Context:\n${formatted.join("\n\n")}`;
-}
-
-function formatVoice(voiceEvents) {
-  if (!Array.isArray(voiceEvents) || voiceEvents.length === 0) {
-    return "";
-  }
-
-  const entries = voiceEvents
-    .map((event) => {
-      const text = typeof event?.text === "string" ? event.text.trim() : "";
-      if (!text) {
-        return null;
-      }
-      const timestamp =
-        typeof event?.timestamp === "number"
-          ? new Date(event.timestamp).toISOString()
-          : undefined;
-      const prefix = timestamp ? `[${timestamp}] ` : "";
-      return `${prefix}${text}`;
-    })
-    .filter(Boolean);
-
-  if (entries.length === 0) {
-    return "";
-  }
-
-  return `Voice Context:\n${entries.join("\n")}`;
-}
-
-function normalizeIntent(value) {
-  if (value == null) {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  if (typeof value === "object") {
-    return value;
-  }
-
-  return null;
-}
-
-function sanitizeExtractionIssues(issues) {
-  if (!Array.isArray(issues) || issues.length === 0) {
-    return [];
-  }
-
-  return issues
-    .map((issue) => {
-      if (!isPlainObject(issue)) {
-        return null;
-      }
-      const normalized = { ...issue };
-      if (typeof normalized.level !== "string") {
-        normalized.level = "warning";
-      }
-      return normalized;
-    })
-    .filter(Boolean);
-}
-
-function sanitizeGuidedConfirmation(value) {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  const decisionRaw = typeof value.decision === "string" ? value.decision.trim().toLowerCase() : "";
-  let decision = null;
-  if (decisionRaw === "approve" || decisionRaw === "confirm" || decisionRaw === "accepted") {
-    decision = "approve";
-  } else if (decisionRaw === "reject" || decisionRaw === "deny" || decisionRaw === "rejected") {
-    decision = "reject";
-  }
-
-  if (!decision) {
-    return null;
-  }
-
-  const fields = isPlainObject(value.fields) ? value.fields : {};
-  const warnings = sanitizeExtractionIssues(value.warnings);
-  const argumentsValue =
-    value.arguments !== undefined && value.arguments !== null ? value.arguments : null;
-  const error = isPlainObject(value.error) ? { ...value.error } : null;
-
-  return {
-    decision,
-    fields,
-    warnings,
-    arguments: argumentsValue,
-    error,
-  };
-}
-
-function extractMessageText(entry) {
-  if (!entry || typeof entry !== "object") {
-    return "";
-  }
-
-  const candidates = [entry.text, entry.content, entry.message];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const trimmed = candidate.trim();
-      if (trimmed) {
-        return trimmed;
-      }
-    }
-  }
-
-  return "";
-}
-
-function getLastUserMessageText(messages) {
-  if (!Array.isArray(messages)) {
-    return "";
-  }
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const entry = messages[index];
-    const role = typeof entry?.role === "string" && entry.role.trim() ? entry.role.trim() : "user";
-    if (role !== "user") {
-      continue;
-    }
-
-    const text = extractMessageText(entry);
-    if (text) {
-      return text;
-    }
-  }
-
-  return "";
-}
-
-function sanitizeCharterMessagesForTool(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-
-      const text = extractMessageText(entry);
-      if (!text) {
-        return null;
-      }
-
-      const roleCandidate =
-        typeof entry.role === "string" && entry.role.trim()
-          ? entry.role.trim().toLowerCase()
-          : "user";
-      const role = VALID_TOOL_ROLES.has(roleCandidate) ? roleCandidate : "user";
-
-      return { role, content: text };
-    })
-    .filter(Boolean);
-}
-
-function sanitizeCharterAttachmentsForTool(attachments) {
-  if (!Array.isArray(attachments)) {
-    return [];
-  }
-
-  return attachments
-    .map((attachment) => {
-      if (!attachment || typeof attachment !== "object") {
-        return null;
-      }
-
-      const text = typeof attachment.text === "string" ? attachment.text.trim() : "";
-      if (!text) {
-        return null;
-      }
-
-      const entry = { text };
-
-      if (typeof attachment.name === "string" && attachment.name.trim()) {
-        entry.name = attachment.name.trim();
-      }
-
-      if (typeof attachment.mimeType === "string" && attachment.mimeType.trim()) {
-        entry.mimeType = attachment.mimeType.trim();
-      }
-
-      return entry;
-    })
-    .filter(Boolean);
-}
-
-function sanitizeCharterVoiceForTool(voiceEvents) {
-  if (!Array.isArray(voiceEvents)) {
-    return [];
-  }
-
-  return voiceEvents
-    .map((event) => {
-      if (!event || typeof event !== "object") {
-        return null;
-      }
-
-      const text = typeof event.text === "string" ? event.text.trim() : "";
-      if (!text) {
-        return null;
-      }
-
-      const entry = { text };
-
-      if (typeof event.id === "string" && event.id.trim()) {
-        entry.id = event.id.trim();
-      }
-
-      const timestampCandidate = event.timestamp;
-      if (typeof timestampCandidate === "number" && Number.isFinite(timestampCandidate)) {
-        entry.timestamp = timestampCandidate;
-      }
-
-      return entry;
-    })
-    .filter(Boolean);
-}
-
-function sanitizeRequestedFieldIds(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const seen = new Set();
-  const result = [];
-  for (const entry of value) {
-    if (typeof entry !== "string") {
-      continue;
-    }
-    const trimmed = entry.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-  return result;
-}
-
-function sanitizeCharterSeed(seed) {
-  if (seed === null) {
-    return null;
-  }
-
-  if (!seed || typeof seed !== "object" || Array.isArray(seed)) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(JSON.stringify(seed));
-  } catch {
-    return undefined;
-  }
-}
-
-function mapExtractionErrorToStatus(code) {
-  switch (code) {
-    case "no_fields_requested":
-      return 400;
-    case "missing_required":
-    case "validation_failed":
-      return 409;
-    case "configuration":
-      return 500;
-    case "openai_error":
-    case "invalid_tool_payload":
-    case "missing_tool_call":
-      return 502;
-    default:
-      return 500;
-  }
-}
-
-function isGuidedEnabled(value) {
-  if (value === true) {
-    return true;
-  }
-  if (value === 1) {
-    return true;
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim().toLowerCase();
-    return trimmed === "true" || trimmed === "1" || trimmed === "yes";
-  }
-  return false;
-}
-
-function computeUserTextLength(messages) {
-  if (!Array.isArray(messages)) {
-    return 0;
-  }
-
-  return messages.reduce((total, entry) => {
-    const role = typeof entry?.role === "string" && entry.role.trim() ? entry.role.trim() : "user";
-    if (role !== "user") {
-      return total;
-    }
-
-    const text = extractMessageText(entry);
-    return text ? total + text.length : total;
-  }, 0);
-}
-
-function sanitizeUserMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages
-    .map((entry) => {
-      const role = typeof entry?.role === "string" ? entry.role.trim() : "user";
-      if (role !== "user") {
-        return null;
-      }
-      const text = extractMessageText(entry);
-      if (!text) {
-        return null;
-      }
-      return { role: "user", content: text, text };
-    })
-    .filter(Boolean);
-}
-
-function hasVoiceText(voiceEvents) {
-  if (!Array.isArray(voiceEvents)) {
-    return false;
-  }
-
-  return voiceEvents.some((event) => {
-    if (!event || typeof event !== "object") {
-      return false;
-    }
-    const text = typeof event.text === "string" ? event.text.trim() : "";
-    return Boolean(text);
-  });
-}
-
-function hasAttachmentContext(attachments) {
-  if (!Array.isArray(attachments)) {
-    return false;
-  }
-
-  return attachments.some((attachment) => attachment != null);
-}
-
-function normalizeRequestBody(body) {
-  if (body == null) {
-    return {};
-  }
-
-  if (typeof body === "string") {
-    const trimmed = body.trim();
-    if (!trimmed) {
-      return {};
-    }
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-      return {};
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof body === "object" && !Array.isArray(body)) {
-    return body;
-  }
-
-  return {};
-}
-
-async function loadExtractPrompt(docType, config) {
-  const candidates = Array.isArray(config?.extract?.promptCandidates)
-    ? [...config.extract.promptCandidates]
-    : [];
-  const fallback = config?.extract?.fallbackPromptPath;
-  if (fallback && !candidates.includes(fallback)) {
-    candidates.push(fallback);
-  }
-
-  const file = await readFirstAvailableFile(candidates);
-  if (!file) {
-    throw new MissingDocAssetError(docType, "extract prompt", candidates);
-  }
-  return file.content;
-}
-
-async function loadExtractMetadata(config) {
-  const candidates = Array.isArray(config?.extract?.metadataCandidates)
-    ? config.extract.metadataCandidates
-    : [];
-  if (candidates.length === 0) {
-    return null;
-  }
-  return readFirstAvailableFile(candidates);
-}
-
-function buildOpenAIMessages(systemSections, messages) {
-  const normalizedMessages = Array.isArray(messages) ? messages : [];
-  return [
-    { role: "system", content: systemSections.join("\n\n") },
-    ...normalizedMessages.map((message) => ({
-      role: message?.role || "user",
-      content: message?.content || message?.text || "",
-    })),
-  ];
 }
 
 export default async function handler(req, res) {
@@ -700,36 +236,10 @@ export default async function handler(req, res) {
     let auditStatus = null;
 
     if (isGuidedCharterRequest && guidedConfirmation) {
-      if (guidedConfirmation.decision === "approve") {
-        payload = {
-          status: "ok",
-          fields: guidedConfirmation.fields,
-          ...(guidedConfirmation.warnings.length > 0
-            ? { warnings: guidedConfirmation.warnings }
-            : {}),
-        };
-        statusCode = 200;
-        auditStatus = "confirmed";
-      } else {
-        const confirmationError = guidedConfirmation.error || null;
-        const errorStatus = confirmationError?.code
-          ? mapExtractionErrorToStatus(confirmationError.code)
-          : 409;
-        statusCode = errorStatus >= 400 ? errorStatus : 409;
-        payload = {
-          status: "error",
-          error:
-            confirmationError || {
-              code: "confirmation_rejected",
-              message: "Pending extraction proposal was rejected.",
-            },
-          fields: {},
-          ...(guidedConfirmation.warnings.length > 0
-            ? { warnings: guidedConfirmation.warnings }
-            : {}),
-        };
-        auditStatus = confirmationError?.code || "rejected";
-      }
+      const result = await processGuidedConfirmation(guidedConfirmation);
+      payload = result.payload;
+      statusCode = result.statusCode;
+      auditStatus = result.auditStatus;
     } else if (isGuidedCharterRequest) {
       const charterExtraction = await resolveCharterExtraction();
       const baseRequest = {
@@ -741,137 +251,25 @@ export default async function handler(req, res) {
       };
 
       if (Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0) {
-        const requests = guidedRequestsRaw
-          .map((entry) => {
-            if (!entry || typeof entry !== "object") {
-              return null;
-            }
-            const requestFieldIds = sanitizeRequestedFieldIds(
-              entry.requestedFieldIds
-            );
-            if (requestFieldIds.length === 0) {
-              return null;
-            }
-            const requestSeed =
-              entry.seed !== undefined
-                ? sanitizeCharterSeed(entry.seed)
-                : seedValue;
-            const requestMessages = Array.isArray(entry.messages)
-              ? sanitizeCharterMessagesForTool(entry.messages)
-              : toolMessages;
-            const requestAttachments = Array.isArray(entry.attachments)
-              ? sanitizeCharterAttachmentsForTool(entry.attachments)
-              : toolAttachments;
-            const requestVoice = Array.isArray(entry.voice)
-              ? sanitizeCharterVoiceForTool(entry.voice)
-              : toolVoice;
-
-            return {
-              messages: requestMessages,
-              attachments: requestAttachments,
-              voice: requestVoice,
-              requestedFieldIds: requestFieldIds,
-              ...(requestSeed !== undefined ? { seed: requestSeed } : {}),
-            };
-          })
-          .filter(Boolean);
-
-        if (requests.length === 0) {
-          payload = {
-            status: "error",
-            error: {
-              code: "no_fields_requested",
-              message: "No valid charter field ids were requested for extraction.",
-            },
-            fields: {},
-          };
-          statusCode = 400;
-          auditStatus = "error";
-        } else {
-          const results = await charterExtraction.extractFieldsFromUtterances(
-            requests
-          );
-          let highestStatus = 200;
-          const mappedResults = results.map((result) => {
-            if (result.ok) {
-              const resultWarnings = sanitizeExtractionIssues(result.warnings);
-              if (resultWarnings.length > 0) {
-                highestStatus = Math.max(highestStatus, 202);
-                return {
-                  status: "pending",
-                  pending: {
-                    fields: result.fields || {},
-                    warnings: resultWarnings,
-                    ...(result.rawToolArguments !== undefined
-                      ? { arguments: result.rawToolArguments }
-                      : {}),
-                  },
-                };
-              }
-              return {
-                status: "ok",
-                fields: result.fields || {},
-                warnings: resultWarnings,
-              };
-            }
-
-            const errorStatus = mapExtractionErrorToStatus(result.error?.code);
-            if (errorStatus > highestStatus) {
-              highestStatus = errorStatus;
-            }
-            return {
-              status: "error",
-              error: result.error,
-              fields: result.fields || {},
-              ...(sanitizeExtractionIssues(result.warnings).length > 0
-                ? { warnings: sanitizeExtractionIssues(result.warnings) }
-                : {}),
-            };
-          });
-
-          payload = { status: "batch", results: mappedResults };
-          statusCode = highestStatus;
-          auditStatus = "batch";
-        }
+        const result = await processBatchGuidedExtraction({
+          charterExtraction,
+          guidedRequestsRaw,
+          toolMessages,
+          toolAttachments,
+          toolVoice,
+          seedValue,
+        });
+        payload = result.payload;
+        statusCode = result.statusCode;
+        auditStatus = result.auditStatus;
       } else {
-        const result = await charterExtraction.extractFieldsFromUtterance(
-          baseRequest
-        );
-        if (result.ok) {
-          const resultWarnings = sanitizeExtractionIssues(result.warnings);
-          if (resultWarnings.length > 0) {
-            payload = {
-              status: "pending",
-              pending: {
-                fields: result.fields || {},
-                warnings: resultWarnings,
-                ...(result.rawToolArguments !== undefined
-                  ? { arguments: result.rawToolArguments }
-                  : {}),
-              },
-            };
-            statusCode = 202;
-            auditStatus = "pending";
-          } else {
-            payload = {
-              status: "ok",
-              fields: result.fields || {},
-              warnings: resultWarnings,
-            };
-            auditStatus = "ok";
-          }
-        } else {
-          statusCode = mapExtractionErrorToStatus(result.error?.code);
-          payload = {
-            status: "error",
-            error: result.error,
-            fields: result.fields || {},
-            ...(sanitizeExtractionIssues(result.warnings).length > 0
-              ? { warnings: sanitizeExtractionIssues(result.warnings) }
-              : {}),
-          };
-          auditStatus = result.error?.code || "error";
-        }
+        const result = await processSingleGuidedExtraction({
+          charterExtraction,
+          baseRequest,
+        });
+        payload = result.payload;
+        statusCode = result.statusCode;
+        auditStatus = result.auditStatus;
       }
     } else {
       const extractPrompt = await loadExtractPrompt(docType, config);
@@ -886,28 +284,11 @@ export default async function handler(req, res) {
         .map((section) => (section || "").trim())
         .filter(Boolean);
 
-      const openaiMessages = buildOpenAIMessages(systemSections, messages);
-      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-      const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.3,
-        messages: openaiMessages,
-        response_format: { type: "json_object" },
-        ...(typeof seed === "number" ? { seed } : {}),
+      payload = await executeOpenAIExtraction({
+        systemSections,
+        messages,
+        seed,
       });
-
-      const replyContent = completion.choices?.[0]?.message?.content || "";
-      try {
-        const parsed = JSON.parse(replyContent);
-        if (parsed && typeof parsed === "object") {
-          payload = parsed;
-        } else {
-          payload = { result: replyContent };
-        }
-      } catch {
-        payload = { result: replyContent };
-      }
       auditStatus = payload?.status || "ok";
     }
 

@@ -3,6 +3,7 @@
  */
 
 import fs from "fs/promises";
+import { InvalidDocPayloadError } from "../../lib/doc/errors.js";
 
 export const ATTACHMENT_CHAR_LIMIT = 20_000;
 export const MIN_TEXT_CONTEXT_LENGTH = 25;
@@ -221,6 +222,73 @@ export function normalizeRequestBody(body) {
   }
 
   return {};
+}
+
+/**
+ * Extract document payload from request body
+ * Looks for .document or .charter properties, falls back to body itself
+ */
+export function extractDocumentPayload(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {};
+  }
+
+  const documentCandidate = body.document;
+  if (documentCandidate && typeof documentCandidate === "object" && !Array.isArray(documentCandidate)) {
+    return documentCandidate;
+  }
+
+  const charterCandidate = body.charter;
+  if (charterCandidate && typeof charterCandidate === "object" && !Array.isArray(charterCandidate)) {
+    return charterCandidate;
+  }
+
+  return body;
+}
+
+/**
+ * Parse and extract document from request body with validation
+ */
+export function parseDocumentBody(body, { docType, docLabel }) {
+  if (body == null) {
+    return {};
+  }
+
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (!trimmed) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return extractDocumentPayload(parsed);
+      }
+      throw new InvalidDocPayloadError(
+        docType,
+        `Request body must be a JSON object containing the ${docLabel.toLowerCase()} payload.`
+      );
+    } catch (error) {
+      if (error instanceof InvalidDocPayloadError) {
+        throw error;
+      }
+      throw new InvalidDocPayloadError(
+        docType,
+        `Request body must be valid JSON matching the ${docLabel.toLowerCase()} schema.`,
+        error?.message
+      );
+    }
+  }
+
+  if (typeof body === "object" && !Array.isArray(body)) {
+    return extractDocumentPayload(body);
+  }
+
+  throw new InvalidDocPayloadError(
+    docType,
+    `Request body must be a JSON object containing the ${docLabel.toLowerCase()} payload.`
+  );
 }
 
 /**

@@ -7,13 +7,7 @@ import {
   type ChatProviderProps,
   useChatSession,
 } from "./ChatContext.js";
-
-function createId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
+import { createId } from "../utils/id.js";
 
 function normalizeContent(value: string) {
   return value.replace(/\s+/g, " ").trim();

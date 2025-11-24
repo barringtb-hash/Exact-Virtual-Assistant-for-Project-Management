@@ -5,52 +5,10 @@ import {
   ensureValidationAssets,
   validateDocument,
 } from "../../lib/doc/validation.js";
-
-function normalizeRequestBody(body) {
-  if (body == null) {
-    return {};
-  }
-
-  if (typeof body === "string") {
-    const trimmed = body.trim();
-    if (!trimmed) {
-      return {};
-    }
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-      return {};
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof body === "object" && !Array.isArray(body)) {
-    return body;
-  }
-
-  return {};
-}
-
-function extractDocumentPayload(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return {};
-  }
-
-  const documentCandidate = body.document;
-  if (documentCandidate && typeof documentCandidate === "object" && !Array.isArray(documentCandidate)) {
-    return documentCandidate;
-  }
-
-  const charterCandidate = body.charter;
-  if (charterCandidate && typeof charterCandidate === "object" && !Array.isArray(charterCandidate)) {
-    return charterCandidate;
-  }
-
-  return body;
-}
+import {
+  normalizeRequestBody,
+  extractDocumentPayload,
+} from "../../server/documents/utils/index.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {

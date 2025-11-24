@@ -1,4 +1,5 @@
 import { createStore, useStore } from "../lib/tinyStore.ts";
+import { createId } from "../utils/id.js";
 
 type VoiceStatus = "idle" | "listening" | "transcribing";
 
@@ -13,13 +14,6 @@ type VoiceState = {
   streamId?: string;
   transcripts: VoiceTranscriptEntry[];
 };
-
-function createId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 const voiceStore = createStore<VoiceState>({
   status: "idle",

@@ -5,6 +5,8 @@
  * various data structures before they're used in document extraction.
  */
 
+import { extractMessageText } from "../utils/index.js";
+
 const VALID_TOOL_ROLES = new Set(["user", "assistant", "system", "developer"]);
 
 function isPlainObject(value) {
@@ -12,24 +14,26 @@ function isPlainObject(value) {
 }
 
 /**
- * Extract text content from a message entry
+ * Generic array sanitizer for tool data
+ * @param {Array} data - The array to sanitize
+ * @param {Object} config - Configuration object
+ * @param {Function} config.mapFn - Function to map each item (returns null to filter out)
+ * @param {boolean} config.requireText - If true, items without text are filtered out
+ * @returns {Array} Sanitized array
  */
-function extractMessageText(entry) {
-  if (!entry || typeof entry !== "object") {
-    return "";
+function sanitizeArrayForTool(data, config) {
+  if (!Array.isArray(data)) {
+    return [];
   }
 
-  const candidates = [entry.text, entry.content, entry.message];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const trimmed = candidate.trim();
-      if (trimmed) {
-        return trimmed;
+  return data
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
       }
-    }
-  }
-
-  return "";
+      return config.mapFn(item);
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -93,16 +97,8 @@ export function sanitizeGuidedConfirmation(value) {
  * Sanitize messages array for charter tool usage
  */
 export function sanitizeCharterMessagesForTool(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-
+  return sanitizeArrayForTool(messages, {
+    mapFn: (entry) => {
       const text = extractMessageText(entry);
       if (!text) {
         return null;
@@ -115,24 +111,16 @@ export function sanitizeCharterMessagesForTool(messages) {
       const role = VALID_TOOL_ROLES.has(roleCandidate) ? roleCandidate : "user";
 
       return { role, content: text };
-    })
-    .filter(Boolean);
+    },
+  });
 }
 
 /**
  * Sanitize attachments array for charter tool usage
  */
 export function sanitizeCharterAttachmentsForTool(attachments) {
-  if (!Array.isArray(attachments)) {
-    return [];
-  }
-
-  return attachments
-    .map((attachment) => {
-      if (!attachment || typeof attachment !== "object") {
-        return null;
-      }
-
+  return sanitizeArrayForTool(attachments, {
+    mapFn: (attachment) => {
       const text = typeof attachment.text === "string" ? attachment.text.trim() : "";
       if (!text) {
         return null;
@@ -149,24 +137,16 @@ export function sanitizeCharterAttachmentsForTool(attachments) {
       }
 
       return entry;
-    })
-    .filter(Boolean);
+    },
+  });
 }
 
 /**
  * Sanitize voice events array for charter tool usage
  */
 export function sanitizeCharterVoiceForTool(voiceEvents) {
-  if (!Array.isArray(voiceEvents)) {
-    return [];
-  }
-
-  return voiceEvents
-    .map((event) => {
-      if (!event || typeof event !== "object") {
-        return null;
-      }
-
+  return sanitizeArrayForTool(voiceEvents, {
+    mapFn: (event) => {
       const text = typeof event.text === "string" ? event.text.trim() : "";
       if (!text) {
         return null;
@@ -184,8 +164,8 @@ export function sanitizeCharterVoiceForTool(voiceEvents) {
       }
 
       return entry;
-    })
-    .filter(Boolean);
+    },
+  });
 }
 
 /**
@@ -235,12 +215,8 @@ export function sanitizeCharterSeed(seed) {
  * Sanitize user messages (filters to only user role messages)
  */
 export function sanitizeUserMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages
-    .map((entry) => {
+  return sanitizeArrayForTool(messages, {
+    mapFn: (entry) => {
       const role = typeof entry?.role === "string" ? entry.role.trim() : "user";
       if (role !== "user") {
         return null;
@@ -250,6 +226,6 @@ export function sanitizeUserMessages(messages) {
         return null;
       }
       return { role: "user", content: text, text };
-    })
-    .filter(Boolean);
+    },
+  });
 }

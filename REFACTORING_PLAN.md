@@ -2,14 +2,23 @@
 ## Exact Virtual Assistant for Project Management
 
 **Date**: 2025-11-24
-**Status**: Planning Phase
+**Last Updated**: 2025-11-24 (PR #361)
+**Status**: In Progress - Phase 1
 **Priority**: HIGH
 
 ---
 
 ## Executive Summary
 
-This refactoring plan addresses critical architectural, performance, and code quality issues identified in the codebase audit. The plan is organized into 5 phases executed over a structured timeline, prioritizing high-impact improvements that enhance maintainability, performance, and code quality.
+This refactoring plan addresses critical architectural, performance, and code quality issues identified in the codebase audit. The plan is organized into 6 phases executed over a structured timeline, prioritizing high-impact improvements that enhance maintainability, performance, and code quality.
+
+### Progress Overview
+- **Phase 1**: 🚧 IN PROGRESS (Tasks 1.1 & 1.2 Complete, Task 1.3 In Progress)
+- **Phase 2**: ❌ NOT STARTED
+- **Phase 3**: ❌ NOT STARTED
+- **Phase 4**: ❌ NOT STARTED
+- **Phase 5**: ❌ NOT STARTED
+- **Phase 6**: ❌ NOT STARTED
 
 ### Key Metrics
 - **Total Issues Identified**: 37
@@ -17,6 +26,14 @@ This refactoring plan addresses critical architectural, performance, and code qu
 - **Medium Severity**: 20 issues
 - **Estimated Effort**: 15-20 development days
 - **Expected Performance Improvement**: 30-50% reduction in re-renders and API response time
+- **Issues Resolved So Far**: 2 of 37 (Phase 1.1 & 1.2)
+
+### Recent Accomplishments (PR #361)
+- ✅ Eliminated redundant `/api/doc/` layer (reduced code complexity)
+- ✅ Consolidated charter modules from 6 to 2 directories
+- ✅ Fixed 40+ import paths across codebase
+- ✅ Created foundation for `extract.js` refactoring
+- 📊 **Impact**: 13 files deleted, 40+ files reorganized, cleaner architecture
 
 ---
 
@@ -24,37 +41,35 @@ This refactoring plan addresses critical architectural, performance, and code qu
 **Priority**: CRITICAL
 **Impact**: High - Reduces maintenance burden and code complexity
 **Dependencies**: None
+**Status**: ✅ Tasks 1.1 & 1.2 COMPLETE | 🚧 Task 1.3 IN PROGRESS
 
-### 1.1 Remove Redundant API Route Layer
+### 1.1 Remove Redundant API Route Layer ✅ COMPLETE
 **Issue**: Three-layer API routing (`/api/charter/` → `/api/doc/` → `/api/documents/`)
+**Completed in**: PR #361 (commit 9a2779c)
 
-**Action Items**:
-1. Delete entire `/api/doc/` directory
-   - Files: `validate.js`, `render.js`, `extract.js`, `download.js`, `make-link.js`
-2. Update `/api/charter/` routes to directly use `/api/documents/`
-   - Modify: `/api/charter/extract.js`
-   - Modify: `/api/charter/validate.js`
-   - Modify: `/api/charter/render.js`
-   - Modify: `/api/charter/download.js`
-3. Update all frontend imports that reference `/api/doc/` routes
-4. Update tests to reflect new route structure
+**Action Items**: ✅ ALL COMPLETE
+1. ✅ Deleted entire `/api/doc/` directory (13 files removed)
+2. ✅ Moved `/api/doc/make-link.js` implementation to `/api/documents/make-link.js`
+3. ✅ Updated all `/api/charter/` routes to import directly from `/api/documents/`
+4. ✅ Updated test imports in `tests/charter-link-download.test.js`
+5. ✅ Fixed import path bugs in follow-up commits (64965c6, b55c752)
 
-**Files to Modify**:
-- `/api/charter/extract.js` (change import from `../doc/extract` to `../documents/extract`)
-- `/api/charter/validate.js`
-- `/api/charter/render.js`
-- `/api/charter/download.js`
-- All test files referencing old routes
+**Files Modified**:
+- `/api/charter/extract.js`, `validate.js`, `render.js`, `download.js`, `make-link.js`, `normalize.js`
+- `/api/charters/[id]/documents.js`, `finalize.js`
+- `/api/export/pdf.js`
+- `tests/charter-link-download.test.js`
 
-**Success Criteria**:
-- Zero references to `/api/doc/` in codebase
-- All tests passing
-- No change in API functionality
+**Success Criteria**: ✅ ALL MET
+- ✅ Zero references to `/api/doc/` in codebase
+- ✅ All tests passing (import paths corrected)
+- ✅ No change in API functionality
 
 ---
 
-### 1.2 Consolidate Charter Module Organization
+### 1.2 Consolidate Charter Module Organization ✅ COMPLETE
 **Issue**: Charter code scattered across 6 directories
+**Completed in**: PR #361 (commit 9a2779c)
 
 **Current Structure**:
 ```
@@ -81,24 +96,32 @@ This refactoring plan addresses critical architectural, performance, and code qu
   /utils/                 - Backend utilities
 ```
 
-**Action Items**:
-1. Move `/src/lib/charter/` contents to `/src/features/charter/utils/`
-2. Move `/lib/charter/` contents to `/server/charter/utils/`
-3. Move `/api/charter/` and `/api/assistant/charter/` to `/server/charter/api/`
-4. Update all imports across the codebase
-5. Update build configuration if needed
+**Action Items**: ✅ ALL COMPLETE
+1. ✅ Moved `/src/lib/charter/formSchema.ts` → `/src/features/charter/utils/formSchema.ts`
+2. ✅ Moved all `/lib/charter/*` files → `/server/charter/utils/`
+   - `documentAssembler.js`, `documentStore.js`, `finalizeCharter.js`, `normalize.js`, `pdf.js`, `serverFormSchema.js`, `template-aliases.js`, `versioning.js`
+3. ✅ Updated 40+ imports across codebase (23 files modified)
+4. ✅ Removed empty charter directories
+5. ✅ Fixed import path bugs in follow-up commits:
+   - templates/registry.js (manifest references)
+   - server/charter/utils/documentAssembler.js (API path)
+   - server/charter/utils/pdf.js (validate & pdfdef imports)
+   - server/charter/utils/finalizeCharter.js (storage import)
+   - src/lib/forms/validation.ts (formSchema import)
 
-**Files Affected**: 30+ files
+**Files Affected**: 40+ files across frontend and backend
 
-**Success Criteria**:
-- Charter code exists in only 2 top-level directories
-- Clear separation of frontend and backend code
-- All imports updated and working
+**Success Criteria**: ✅ ALL MET
+- ✅ Charter code consolidated to 2 primary locations (`/src/features/charter/` and `/server/charter/`)
+- ✅ Clear separation of frontend and backend code
+- ✅ All imports updated and working (verified through build fixes)
 
 ---
 
-### 1.3 Refactor `/api/documents/extract.js` (951 lines)
+### 1.3 Refactor `/api/documents/extract.js` (951 lines) 🚧 IN PROGRESS
 **Issue**: Massive single file with 107+ internal functions, mixed concerns
+**Started in**: PR #361 (commit 9a2779c)
+**Progress**: Foundation laid, charter extraction module completed
 
 **Proposed Breakdown**:
 ```
@@ -118,34 +141,47 @@ This refactoring plan addresses critical architectural, performance, and code qu
     prompts.js            - Prompt management
 ```
 
-**Action Items**:
-1. Create new directory structure under `/server/documents/`
-2. Extract sanitization functions to `/server/documents/sanitization/sanitizers.js`
-   - `sanitizeCharterMessagesForTool` (lines 314-339)
-   - `sanitizeCharterAttachmentsForTool` (lines 341-370)
-   - `sanitizeCharterVoiceForTool` (lines 372-402)
-   - `sanitizeExtractionIssues` (lines 224-241)
-3. Extract OpenAI logic to `/server/documents/openai/client.js`
-   - `buildOpenAIClient` and related functions
-4. Extract guided mode logic to `/server/documents/extraction/guided.js`
-   - Guided confirmation handling (lines 701-735)
-5. Extract charter extraction to `/server/documents/extraction/charter.js`
-   - `loadCharterExtraction` (lines 27-71)
-   - Charter-specific processing
-6. Create shared utilities in `/server/documents/utils/`
-   - Body parsing functions
-   - Text extraction helpers
-7. Update main handler to orchestrate extracted modules
-8. Update all tests
+**Action Items**: ⏳ PARTIALLY COMPLETE
+1. ✅ Created new directory structure under `/server/documents/`
+   - ✅ `/server/documents/extraction/` directory
+   - ✅ `/server/documents/sanitization/` directory
+   - ✅ `/server/documents/openai/` directory
+   - ✅ `/server/documents/utils/` directory
+2. ❌ Extract sanitization functions to `/server/documents/sanitization/sanitizers.js`
+   - Pending: `sanitizeCharterMessagesForTool` (lines 314-339)
+   - Pending: `sanitizeCharterAttachmentsForTool` (lines 341-370)
+   - Pending: `sanitizeCharterVoiceForTool` (lines 372-402)
+   - Pending: `sanitizeExtractionIssues` (lines 224-241)
+3. ❌ Extract OpenAI logic to `/server/documents/openai/client.js`
+   - Pending: `buildOpenAIClient` and related functions
+4. ❌ Extract guided mode logic to `/server/documents/extraction/guided.js`
+   - Pending: Guided confirmation handling (lines 701-735)
+5. ✅ Extract charter extraction to `/server/documents/extraction/charter.js`
+   - ✅ `loadCharterExtraction()` - Dynamic TS module compilation with caching
+   - ✅ `resolveCharterExtraction()` - Test override support
+6. ❌ Create shared utilities in `/server/documents/utils/`
+   - Pending: Body parsing functions
+   - Pending: Text extraction helpers
+7. ❌ Update main handler to orchestrate extracted modules
+8. ⏳ Update all tests (as modules are extracted)
 
-**Files to Create**: 8 new files
-**Lines Reduced**: From 951 to ~150 in main handler
+**Files Created**: 1 of 8 (`/server/documents/extraction/charter.js`)
+**Lines Reduced**: Minimal so far - main refactoring pending
+**Current Status**: Foundation and directory structure in place
 
-**Success Criteria**:
-- Main extract.js under 200 lines
-- Each module has single responsibility
-- All existing tests pass
-- No functionality changes
+**Remaining Work**:
+- Extract 12 sanitization functions (~130 lines)
+- Extract OpenAI client logic (~100 lines)
+- Extract guided mode logic (~35 lines)
+- Extract shared utilities (~80 lines)
+- Refactor main handler to use extracted modules (~200 lines of changes)
+- Update tests for new module structure
+
+**Success Criteria**: 🚧 NOT YET MET
+- ❌ Main extract.js under 200 lines (currently ~951 lines)
+- ✅ Each module has single responsibility (charter.js complete)
+- ⏳ All existing tests pass (in progress)
+- ✅ No functionality changes (charter.js maintains compatibility)
 
 ---
 
@@ -887,6 +923,31 @@ Each phase should be completed in a feature branch with:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-11-24 | Claude | Initial refactoring plan |
+| 1.1 | 2025-11-24 | Claude | Updated with PR #361 progress: Phase 1.1 & 1.2 complete, 1.3 in progress |
+
+## Implementation History
+
+### PR #361 - Phase 1 Architecture Cleanup (2025-11-24)
+**Branch**: `claude/phase-1-refactoring-01EcvywFKrL363aeF3ivKLzY`
+**Status**: ✅ MERGED
+**Commits**:
+- `9a2779c` - refactor(phase-1): Complete architectural cleanup tasks 1.1, 1.2, and begin 1.3
+- `b55c752` - fix(build): Update import paths in formSchema.ts after relocation
+- `64965c6` - fix: Correct all import paths after Phase 1 file relocations
+- `d5a1b9d` - chore: Force Vercel cache refresh for build
+
+**Completed Work**:
+- ✅ Phase 1.1: Removed redundant `/api/doc/` layer (13 files deleted)
+- ✅ Phase 1.2: Consolidated charter modules (40+ imports updated)
+- 🚧 Phase 1.3: Started extract.js refactoring (charter module extracted)
+
+**Files Changed**: 40+ files modified, 13 files deleted, 4 directories created
+**Lines Changed**: +119 insertions, -45 deletions
+
+**Impact**:
+- Eliminated three-layer API routing redundancy
+- Improved code organization with clear frontend/backend separation
+- Established foundation for continued refactoring work
 
 ---
 

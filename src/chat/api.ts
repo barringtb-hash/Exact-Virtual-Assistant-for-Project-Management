@@ -374,7 +374,13 @@ export function openChatStreamFetch(
         });
 
         if (!response.ok || !response.body) {
-          throw new Error(`Unexpected response (${response.status}) from chat stream.`);
+          const err = new Error(`Unexpected response (${response.status}) from chat stream.`);
+          (err as any).status = response.status;
+          // Don't retry on rate limits (429) - they need longer waits
+          if (response.status === 429) {
+            (err as any).noRetry = true;
+          }
+          throw err;
         }
 
         onOpen?.();
@@ -438,8 +444,10 @@ export function openChatStreamFetch(
           return;
         }
 
+        // Don't retry if explicitly marked as non-retryable (e.g., 429 rate limits)
+        const shouldNotRetry = (error as any)?.noRetry === true;
         const retryIndex = attempt++;
-        if (retryIndex < retryDelays.length) {
+        if (!shouldNotRetry && retryIndex < retryDelays.length) {
           const delay = retryDelays[retryIndex];
           onRetry?.(retryIndex + 1, delay);
           await new Promise((resolve) => setTimeout(resolve, delay));

@@ -103,8 +103,9 @@ const REMOTE_GUIDED_BACKEND_ENABLED =
   (CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON) && !SAFE_MODE;
 const E2E_FLAG_SAFE_MODE = SAFE_MODE;
 const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED_BACKEND_ON);
-// Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
-const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
+// Debounce extraction to prevent rate limiting while maintaining responsiveness
+// 300ms provides good UX while avoiding excessive API calls
+const CHAT_EXTRACTION_DEBOUNCE_MS = 300;
 
 function sendTelemetryEvent(eventName, { conversationId = null, metadata = {} } = {}) {
   if (typeof fetch !== "function") {

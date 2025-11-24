@@ -58,7 +58,8 @@ function logSyncEvent(kind, event) {
 
 function shouldRetryStatus(status) {
   if (typeof status !== "number") return false;
-  if (status === 408 || status === 425 || status === 429) return true;
+  // Don't retry 429 - rate limits need longer waits, not immediate retries
+  if (status === 408 || status === 425) return true;
   return status >= 500 && status < 600;
 }
 

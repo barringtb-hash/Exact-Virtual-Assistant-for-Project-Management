@@ -48,7 +48,9 @@ if (Number.isFinite(chatMaxDuration) && chatMaxDuration > 0) {
 }
 
 export const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
-export const USES_RESPONSES_PATTERN = /^(gpt-4o)/i;
+// Disabled Responses API - use Chat Completions API for all models to avoid rate limits
+// The Responses API (/v1/responses) has stricter rate limits than Chat Completions (/v1/chat/completions)
+export const USES_RESPONSES_PATTERN = /^$/;
 
 function resolveChatModel() {
   const env = runtimeEnv;

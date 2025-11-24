@@ -21,7 +21,9 @@ const runtimeEnv: Record<string, string | undefined> =
     : {};
 
 const INVALID_CHAT_MODEL_PATTERN = /(realtime|preview|transcribe|stt)/i;
-const USES_RESPONSES_PATTERN = /^(gpt-4o)/i;
+// Disabled Responses API - use Chat Completions API for all models to avoid rate limits
+// The Responses API (/v1/responses) has stricter rate limits than Chat Completions (/v1/chat/completions)
+const USES_RESPONSES_PATTERN = /^$/;
 
 function resolveChatModel(): string {
   const env = runtimeEnv;

@@ -3,7 +3,7 @@
  */
 
 import fs from "fs/promises";
-import { InvalidDocPayloadError } from "../../lib/doc/errors.js";
+import { InvalidDocPayloadError } from "../../../lib/doc/errors.js";
 
 export const ATTACHMENT_CHAR_LIMIT = 20_000;
 export const MIN_TEXT_CONTEXT_LENGTH = 25;

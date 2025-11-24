@@ -324,8 +324,22 @@ export default async function handler(req, res) {
       });
     }
 
-    console.error("doc extract failed", error);
-    res.status(500).json({ error: error?.message || "Unknown error" });
+    // Handle API-related errors with appropriate status codes
+    const statusCode = error?.statusCode || 500;
+    const errorCode = error?.code || "internal_error";
+    const errorMessage = error?.message || "Unknown error";
+
+    console.error("doc extract failed", {
+      statusCode,
+      code: errorCode,
+      message: errorMessage,
+      stack: error?.stack,
+    });
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      code: errorCode,
+    });
   }
 }
 

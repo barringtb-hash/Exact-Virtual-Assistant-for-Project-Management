@@ -3378,9 +3378,13 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  // Show voice charter prompt when realtime goes live and charter wizard is visible
+  // Show voice charter prompt when realtime goes live and charter is active
   useEffect(() => {
-    if (rtcState === "live" && SHOULD_SHOW_CHARTER_WIZARD && dataRef.current) {
+    // Show prompt if voice is live and we're working on a charter
+    // Check for either CharterFieldSession wizard OR guided chat interface
+    const isCharterUIActive = SHOULD_SHOW_CHARTER_WIZARD || isGuidedChatEnabled;
+
+    if (rtcState === "live" && isCharterUIActive && dataRef.current) {
       // Only show prompt if not already active and not already showing
       if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
         // Check if we're working with a charter document type
@@ -3398,7 +3402,7 @@ const resolveDocTypeForManualSync = useCallback(
         voiceCharterService.reset();
       }
     }
-  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt]);
+  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt, isGuidedChatEnabled]);
 
   // Handle voice charter prompt confirmation
   const handleVoiceCharterConfirm = useCallback(() => {
@@ -4438,27 +4442,28 @@ const resolveDocTypeForManualSync = useCallback(
                       ) : null}
                     </div>
                   )}
-                  {SHOULD_SHOW_CHARTER_WIZARD && (
-                    isVoiceCharterActive ? (
-                      <VoiceCharterSession
-                        className="mb-3"
-                        visible={true}
-                        aiSpeaking={aiSpeaking}
-                        onComplete={(values) => {
-                          // Apply captured values to the draft
-                          if (values && Object.keys(values).length > 0) {
-                            applyVoiceExtractionToDraft(values);
-                          }
-                          voiceCharterActions.complete(values);
-                        }}
-                        onExit={() => {
-                          voiceCharterActions.exit();
-                          voiceCharterService.reset();
-                        }}
-                      />
-                    ) : (
-                      <CharterFieldSession className="mb-3" />
-                    )
+                  {/* Voice Charter Session - shown when voice charter is active for any charter UI */}
+                  {isVoiceCharterActive && (
+                    <VoiceCharterSession
+                      className="mb-3"
+                      visible={true}
+                      aiSpeaking={aiSpeaking}
+                      onComplete={(values) => {
+                        // Apply captured values to the draft
+                        if (values && Object.keys(values).length > 0) {
+                          applyVoiceExtractionToDraft(values);
+                        }
+                        voiceCharterActions.complete(values);
+                      }}
+                      onExit={() => {
+                        voiceCharterActions.exit();
+                        voiceCharterService.reset();
+                      }}
+                    />
+                  )}
+                  {/* CharterFieldSession wizard - shown when flag enabled and not in voice mode */}
+                  {SHOULD_SHOW_CHARTER_WIZARD && !isVoiceCharterActive && (
+                    <CharterFieldSession className="mb-3" />
                   )}
                   {SHOULD_SHOW_CHARTER_WIZARD && AUTO_EXTRACTION_ENABLED && (attachments.length > 0 || messages.length > 0) && (
                     <div className="mb-3">

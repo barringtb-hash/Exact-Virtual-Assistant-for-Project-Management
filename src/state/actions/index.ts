@@ -122,11 +122,9 @@ export const coordinatedActions = {
 
     if (options?.addSystemMessage && options?.message) {
       // Add a system/assistant message about the extraction
-      chatSlice.actions.startAssistant(`extraction-${Date.now()}`);
-      chatSlice.actions.endAssistant(
-        `extraction-${Date.now()}`,
-        options.message
-      );
+      const runId = `extraction-${Date.now()}`;
+      chatSlice.actions.startAssistant(runId);
+      chatSlice.actions.endAssistant(runId, options.message);
     }
   },
 

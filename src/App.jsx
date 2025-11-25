@@ -4161,22 +4161,30 @@ const resolveDocTypeForManualSync = useCallback(
   return (
     <div
       data-testid="app-ready"
-      className="min-h-screen w-full font-sans bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100"
+      className="min-h-screen w-full font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
     >
       {/* Top Bar */}
       <header
         data-testid="app-header"
-        className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/50 bg-white/60 border-b border-white/40 dark:supports-[backdrop-filter]:bg-slate-900/60 dark:bg-slate-900/60 dark:border-slate-700/60"
+        className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm dark:bg-slate-900 dark:border-slate-800"
       >
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-indigo-600/90 text-white grid place-items-center font-bold shadow-sm">EX</div>
-            <div className="text-slate-700 font-semibold dark:text-slate-200">Exact Sciences Virtual Assistant for Project Management</div>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 text-white grid place-items-center font-bold text-sm shadow-md dark:from-indigo-500 dark:to-indigo-600">EX</div>
+            <div className="flex flex-col">
+              <span className="text-slate-900 font-semibold text-sm leading-tight dark:text-white">EVA Project Manager</span>
+              <span className="text-slate-500 text-xs leading-tight dark:text-slate-400">Exact Sciences</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <ThemeSelect mode={themeMode} resolvedMode={resolvedTheme} onChange={handleThemeModeChange} />
-            <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm shadow-sm hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400">New Draft</button>
-            <div className="px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-sm shadow-sm dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-100">Guest</div>
+            <button className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors dark:bg-indigo-500 dark:hover:bg-indigo-400">New Draft</button>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-sm text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+              <svg className="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.5-1.632z" />
+              </svg>
+              <span className="font-medium">Guest</span>
+            </div>
           </div>
         </div>
       </header>
@@ -4214,8 +4222,8 @@ const resolveDocTypeForManualSync = useCallback(
               className={chatIsOverlay ? "h-full flex flex-col" : undefined}
             >
               <div
-                className={`flex flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/60 backdrop-blur dark:border-slate-700/60 dark:bg-slate-900/40 ${
-                  chatIsOverlay ? "flex-1 min-h-0" : "h-[480px]"
+                className={`flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900 ${
+                  chatIsOverlay ? "flex-1 min-h-0" : "h-[520px]"
                 }`}
               >
                 {chatIsOverlay && (
@@ -4225,7 +4233,7 @@ const resolveDocTypeForManualSync = useCallback(
                 )}
                 <div
                   ref={messagesContainerRef}
-                  className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3"
+                  className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4 bg-white dark:bg-slate-900"
                 >
                   {visibleMessages.map((m) => (
                     <ChatBubble
@@ -4241,7 +4249,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
-                <div className="border-t border-white/50 p-3 dark:border-slate-700/60">
+                <div className="border-t border-slate-200 p-4 bg-white dark:border-slate-700 dark:bg-slate-800/50">
                   {isGuidedChatEnabled && (
                     <div className="mb-3 space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4250,7 +4258,7 @@ const resolveDocTypeForManualSync = useCallback(
                           data-testid="btn-start-charter"
                           onClick={handleStartGuidedCharter}
                           disabled={!canStartGuided}
-                          className="rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
+                          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                         >
                           {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
                         </button>
@@ -4284,7 +4292,7 @@ const resolveDocTypeForManualSync = useCallback(
                               data-testid={chip.testId}
                               onClick={() => handleGuidedCommandChip(chip.command)}
                               disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
-                              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                             >
                               {chip.label}
                             </button>
@@ -4316,7 +4324,7 @@ const resolveDocTypeForManualSync = useCallback(
                           }
                         }}
                         disabled={isExtracting || manualExtractionTrigger}
-                        className="w-full rounded-lg border border-indigo-500 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                        className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:border-indigo-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
                       >
                         {isExtracting ? "Auto-filling..." : "Auto-fill from uploaded scope"}
                       </button>
@@ -4346,8 +4354,8 @@ const resolveDocTypeForManualSync = useCallback(
                     ) : null}
                   </Composer>
                   {isPreviewSyncing ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600 shadow-sm dark:border-indigo-500/40 dark:bg-indigo-900/40 dark:text-indigo-200">
-                      <span className="h-2 w-2 rounded-full bg-indigo-400 shadow-inner animate-pulse" aria-hidden="true" />
+                    <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                      <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" aria-hidden="true" />
                       Updating preview…
                     </div>
                   ) : null}
@@ -4359,15 +4367,17 @@ const resolveDocTypeForManualSync = useCallback(
                       {files.map((f) => (
                         <span
                           key={f.id}
-                          className="flex items-center gap-2 rounded-lg border border-white/60 bg-white/80 px-2 py-1 text-xs dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100"
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                         >
-                          <IconPaperclip className="h-3 w-3" />
-                          <span className="max-w-[160px] truncate">{f.name}</span>
+                          <IconPaperclip className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                          <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                           <button
                             onClick={() => handleRemoveFile(f.id)}
-                            className="ml-1 text-slate-500 transition hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                            className="ml-1 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600 hover:bg-slate-200 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700"
                           >
-                            ×
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
                           </button>
                         </span>
                       ))}
@@ -4388,18 +4398,18 @@ const resolveDocTypeForManualSync = useCallback(
               title="Document preview"
               right={
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200">
+                  <span className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
                     <span>{docTypeBadgeLabel}</span>
                     {docTypeConfidencePercent != null ? (
-                      <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                        {docTypeConfidencePercent}% confidence
+                      <span className="text-[11px] font-normal text-indigo-500 dark:text-indigo-400">
+                        {docTypeConfidencePercent}%
                       </span>
                     ) : null}
                   </span>
                   <button
                     type="button"
                     onClick={() => setShowDocTypeModal(true)}
-                    className="rounded-xl border border-white/60 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                   >
                     Change
                   </button>
@@ -4407,7 +4417,7 @@ const resolveDocTypeForManualSync = useCallback(
               }
             >
               <div
-                className="rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60"
+                className="rounded-xl bg-slate-50 border border-slate-200 p-4 dark:bg-slate-900 dark:border-slate-700"
                 data-doc-type={templateDocType || undefined}
                 data-doc-schema={activeSchemaId || undefined}
                 data-template-version={activeTemplateVersion || undefined}
@@ -4427,7 +4437,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <button
                       type="button"
                       onClick={() => setShowDocTypeModal(true)}
-                      className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:bg-sky-500 dark:hover:bg-sky-400 dark:focus-visible:ring-offset-slate-900"
+                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-slate-900"
                     >
                       Choose document type
                     </button>
@@ -4468,7 +4478,7 @@ const resolveDocTypeForManualSync = useCallback(
                   Updating preview…
                 </div>
               ) : null}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => exportDocxViaChat(defaultShareBaseName)}
@@ -4479,14 +4489,14 @@ const resolveDocTypeForManualSync = useCallback(
                     isGeneratingExportLinks ||
                     isExportingPdf
                   }
-                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
                     isCharterSyncInFlight ||
                     isExportingDocx ||
                     isGeneratingExportLinks ||
                     isExportingPdf
-                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
-                      : "bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+                      : "bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                   }`}
                 >
                   {isExportingDocx ? "Preparing DOCX…" : "Export DOCX"}
@@ -4501,17 +4511,17 @@ const resolveDocTypeForManualSync = useCallback(
                     isExportingDocx ||
                     isExportingPdf
                   }
-                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
                     isCharterSyncInFlight ||
                     isGeneratingExportLinks ||
                     isExportingDocx ||
                     isExportingPdf
-                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
-                      : "bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+                      : "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                   }`}
                 >
-                  {isGeneratingExportLinks ? "Creating Links…" : "Make Share Links"}
+                  {isGeneratingExportLinks ? "Creating Links…" : "Share Links"}
                 </button>
                 <button
                   type="button"
@@ -4523,26 +4533,26 @@ const resolveDocTypeForManualSync = useCallback(
                     isGeneratingExportLinks ||
                     isExportingDocx
                   }
-                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
                     isCharterSyncInFlight ||
                     isExportingPdf ||
                     isGeneratingExportLinks ||
                     isExportingDocx
-                      ? "bg-slate-300 text-slate-600 cursor-not-allowed dark:bg-slate-700/60 dark:text-slate-400"
-                      : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600"
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+                      : "bg-slate-800 text-white hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600"
                   }`}
                 >
                   {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
                 </button>
               </div>
               {activeCharterError && (
-                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-200">
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
                   {activeCharterError}
                 </div>
               )}
 
-              <div className="mt-4 rounded-2xl bg-white/70 border border-white/60 p-4 dark:bg-slate-900/40 dark:border-slate-700/60">
+              <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-4 dark:bg-slate-900 dark:border-slate-700">
                 <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">{requiredFieldsHeading}</div>
                 {docTypeConfig.type === "charter" ? (
                   <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
@@ -4579,12 +4589,18 @@ function ThemeSelect({ mode, resolvedMode, onChange }) {
   const autoLabel = resolvedMode === "dark" ? "Auto (Dark)" : "Auto (Light)";
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/70 border border-white/50 text-xs shadow-sm dark:bg-slate-800/70 dark:border-slate-600/60">
-      <span className="font-medium text-slate-600 dark:text-slate-200">Theme</span>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
+      <svg className="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        {resolvedMode === "dark" ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+        )}
+      </svg>
       <select
         value={mode}
         onChange={(event) => onChange(event.target.value)}
-        className="bg-transparent text-sm text-slate-700 focus:outline-none dark:text-slate-100"
+        className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none cursor-pointer dark:text-slate-200"
         aria-label="Theme mode"
       >
         <option value="light">Light</option>
@@ -4601,33 +4617,54 @@ function ToastStack({ toasts, onDismiss }) {
   }
 
   const toneStyles = {
-    info: "border-slate-200 bg-white/90 text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/80 dark:text-slate-100",
-    warning: "border-amber-200 bg-amber-100/90 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/80 dark:text-amber-100",
-    error: "border-red-200 bg-red-100/90 text-red-900 dark:border-red-700/60 dark:bg-red-900/80 dark:text-red-100",
-    success: "border-emerald-200 bg-emerald-100/90 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-100",
+    info: "bg-white border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100",
+    warning: "bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-100",
+    error: "bg-red-50 border-red-200 text-red-900 dark:bg-red-950 dark:border-red-800 dark:text-red-100",
+    success: "bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-100",
+  };
+
+  const toneIcons = {
+    info: <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />,
+    warning: <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />,
+    error: <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />,
+    success: <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+  };
+
+  const toneIconColors = {
+    info: "text-slate-500 dark:text-slate-400",
+    warning: "text-amber-600 dark:text-amber-400",
+    error: "text-red-600 dark:text-red-400",
+    success: "text-emerald-600 dark:text-emerald-400",
   };
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-0 z-[60] flex w-full max-w-sm flex-col gap-2 px-4 sm:right-4 sm:px-0">
+    <div className="pointer-events-none fixed bottom-4 right-0 z-[60] flex w-full max-w-md flex-col gap-3 px-4 sm:right-4 sm:px-0">
       {toasts.map((toast) => {
         const key = toast?.tone && toneStyles[toast.tone] ? toast.tone : "info";
         const toneClass = toneStyles[key];
+        const iconPath = toneIcons[key];
+        const iconColor = toneIconColors[key];
         const message = typeof toast?.message === "string" ? toast.message : "";
         if (!message) return null;
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg backdrop-blur ${toneClass}`}
+            className={`pointer-events-auto rounded-xl border px-4 py-3 shadow-lg animate-fade-in-up ${toneClass}`}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 whitespace-pre-line leading-snug">{message}</div>
+            <div className="flex items-start gap-3">
+              <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                {iconPath}
+              </svg>
+              <div className="flex-1 text-sm font-medium leading-snug">{message}</div>
               <button
                 type="button"
                 onClick={() => onDismiss?.(toast.id)}
-                className="text-lg leading-none text-slate-500 transition hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                className="flex-shrink-0 p-0.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700"
                 aria-label="Dismiss notification"
               >
-                ×
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
           </div>
@@ -4640,28 +4677,30 @@ function ToastStack({ toasts, onDismiss }) {
 function Panel({ title, icon, right, children, className = "" }) {
   return (
     <div
-      className={`rounded-2xl border border-white/60 bg-white/50 backdrop-blur shadow-sm p-3 md:p-4 dark:border-slate-700/60 dark:bg-slate-800/40 ${className}`}
+      className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-800/50 ${className}`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-slate-700 font-semibold dark:text-slate-200">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-700/50">
+        <div className="flex items-center gap-2">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
-          <span>{title}</span>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
         </div>
         {right}
       </div>
-      {children}
+      <div className="p-4">
+        {children}
+      </div>
     </div>
   );
 }
 
 function AssistantThinkingIndicator({ status = "thinking" }) {
-  const label = status === "streaming" ? "Assistant is responding…" : "Assistant is thinking…";
+  const label = status === "streaming" ? "EVA is responding…" : "EVA is thinking…";
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-2 rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/70 dark:text-slate-200">
-        <span className="relative inline-flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400/80 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+      <div className="inline-flex items-center gap-2.5 rounded-xl bg-slate-100 px-4 py-2.5 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-75" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-600 dark:bg-indigo-400" />
         </span>
         <span className="font-medium">{label}</span>
       </div>
@@ -4674,15 +4713,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
   const safeText = typeof text === "string" ? text : text != null ? String(text) : "";
   const sections = useAssistantFeedbackSections(!isUser ? safeText : null);
   const testId = isUser ? "user-message" : "assistant-message";
-  const baseBubbleClasses = FLAGS.READABILITY_V1
-    ? "max-w-[70ch] rounded-2xl px-4 py-3 text-base leading-relaxed shadow-sm border transition-colors"
-    : "max-w-[85%] rounded-2xl px-3 py-2 text-[15px] leading-6 shadow-sm border";
-  const assistantBubbleClasses = FLAGS.READABILITY_V1
-    ? "bg-slate-50 border-slate-200 text-slate-800 shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100 dark:shadow-[0_12px_32px_rgba(15,23,42,0.45)]"
-    : "bg-white/70 border-white/60 text-slate-800 dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100";
-  const userBubbleClasses = FLAGS.READABILITY_V1
-    ? "bg-slate-900 text-white border-slate-900 shadow-[0_8px_24px_rgba(15,23,42,0.25)] dark:bg-indigo-500 dark:border-indigo-400 dark:shadow-[0_10px_28px_rgba(37,99,235,0.35)]"
-    : "bg-slate-900 text-white border-slate-900 dark:bg-indigo-500 dark:border-indigo-400";
+
   const { structuredSections, hasStructuredContent } = useMemo(() => {
     if (!Array.isArray(sections)) {
       return { structuredSections: [], hasStructuredContent: false };
@@ -4708,19 +4739,27 @@ function ChatBubble({ role, text, hideEmptySections }) {
 
     return { structuredSections: filteredSections, hasStructuredContent: containsStructuredContent };
   }, [sections]);
+
   const showStructured =
     !isUser &&
     Array.isArray(sections) &&
     (hasStructuredContent || hideEmptySections === false);
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`} data-testid={testId}>
-      <div className={`${baseBubbleClasses} ${isUser ? userBubbleClasses : assistantBubbleClasses}`}>
-        {isUser || !showStructured ? (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`} data-testid={testId}>
+      {isUser ? (
+        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-br-md px-4 py-3 text-[15px] leading-relaxed bg-indigo-600 text-white shadow-md dark:bg-indigo-500">
           <span className="whitespace-pre-wrap">{safeText}</span>
-        ) : (
-          <AssistantFeedbackTemplate sections={structuredSections} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-bl-md px-4 py-3 text-[15px] leading-relaxed bg-white border border-slate-200 text-slate-800 shadow-sm dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100">
+          {!showStructured ? (
+            <span className="whitespace-pre-wrap">{safeText}</span>
+          ) : (
+            <AssistantFeedbackTemplate sections={structuredSections} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

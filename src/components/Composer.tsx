@@ -60,13 +60,13 @@ export interface ComposerProps {
 
 const rtcStateClasses: Record<RtcState, string> = {
   idle:
-    "bg-white/80 border-white/60 text-slate-600 dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200",
+    "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700",
   connecting:
-    "bg-amber-50 border-amber-200 text-amber-600 animate-pulse dark:bg-amber-900 dark:border-amber-700 dark:text-amber-200",
+    "bg-amber-100 border-amber-300 text-amber-700 animate-pulse dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300",
   live:
-    "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-700 dark:text-emerald-200",
+    "bg-emerald-100 border-emerald-300 text-emerald-700 dark:bg-emerald-900/50 dark:border-emerald-700 dark:text-emerald-300",
   error:
-    "bg-red-50 border-red-200 text-red-600 dark:bg-red-900 dark:border-red-700 dark:text-red-200",
+    "bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300",
 };
 
 const Composer: React.FC<ComposerProps> = ({
@@ -198,8 +198,8 @@ const Composer: React.FC<ComposerProps> = ({
   }, [rtcState, startRealtime, stopRealtime, micLevel]);
 
   const micButtonClasses = recording
-    ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100/80 dark:bg-red-900 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-800/60"
-    : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60";
+    ? "bg-red-100 border-red-300 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/70"
+    : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700";
 
   const realtimeVoiceStatus: VoiceStatus = useMemo(() => {
     if (rtcState === "live") return "recording";
@@ -222,7 +222,7 @@ const Composer: React.FC<ComposerProps> = ({
 
   return (
     <div className="sticky bottom-0 left-0 right-0 z-40" data-testid="composer-root">
-      <div className="rounded-3xl border border-white/60 bg-white/80 px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-indigo-300 dark:border-slate-700/60 dark:bg-slate-900/50 dark:focus-within:ring-indigo-500">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all dark:border-slate-700 dark:bg-slate-800 dark:focus-within:ring-indigo-500/30 dark:focus-within:border-indigo-500">
         <label htmlFor={textareaId} className="sr-only">
           Message composer
         </label>
@@ -239,7 +239,7 @@ const Composer: React.FC<ComposerProps> = ({
           disabled={resolvedDraftDisabled}
           data-testid="composer-input"
           data-legacy-testid="composer-textarea"
-          className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
+          className="w-full min-h-[3.25rem] max-h-40 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -248,10 +248,10 @@ const Composer: React.FC<ComposerProps> = ({
               type="button"
               onClick={onUploadClick}
               disabled={uploadDisabled}
-              className={`shrink-0 rounded-xl border p-2 transition ${
+              className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
                 uploadDisabled
-                  ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
-                  : "bg-white/80 border-white/60 text-slate-600 hover:bg-white dark:bg-slate-800/70 dark:border-slate-600/60 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                  ? "cursor-not-allowed bg-slate-50 text-slate-300 border-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-600"
+                  : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 hover:text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
               }`}
               title="Attach files"
             >
@@ -263,7 +263,7 @@ const Composer: React.FC<ComposerProps> = ({
                   type="button"
                   onClick={handleRealtimeClick}
                   disabled={!startRealtime && !stopRealtime}
-                  className={`shrink-0 rounded-xl border p-2 transition ${rtcStateClasses[rtcState]}`}
+                  className={`shrink-0 rounded-lg border p-2.5 transition-colors ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
                   data-testid="mic-button"
@@ -275,7 +275,7 @@ const Composer: React.FC<ComposerProps> = ({
                   <button
                     type="button"
                     onClick={() => (rtcReset ?? stopRealtime)?.()}
-                    className="rounded-lg border bg-white/80 px-2 py-1 text-xs transition hover:bg-white dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                    className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                     title="Reset realtime call"
                   >
                     Reset
@@ -287,9 +287,9 @@ const Composer: React.FC<ComposerProps> = ({
                 type="button"
                 onClick={handleMicClick}
                 disabled={micDisabled}
-                className={`shrink-0 rounded-xl border p-2 transition ${
+                className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
                   micDisabled
-                    ? "cursor-not-allowed bg-white/50 text-slate-400 border-white/50 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-slate-500"
+                    ? "cursor-not-allowed bg-slate-50 text-slate-300 border-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-600"
                     : micButtonClasses
                 }`}
                 title={recording ? "Stop recording" : "Voice input (mock)"}
@@ -316,12 +316,12 @@ const Composer: React.FC<ComposerProps> = ({
               type="button"
               onClick={onSend}
               disabled={resolvedSendDisabled}
-              className={`shrink-0 rounded-xl p-2 shadow-sm transition ${
+              className={`shrink-0 rounded-lg p-2.5 shadow-sm transition-all ${
                 resolvedSendDisabled
-                  ? "cursor-not-allowed bg-slate-500/70 text-white/80 opacity-60 dark:bg-indigo-300/60 dark:text-slate-200"
-                  : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                  ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg dark:bg-indigo-500 dark:hover:bg-indigo-400"
               }`}
-              title={resolvedSendDisabled ? "Assistant is responding…" : "Send"}
+              title={resolvedSendDisabled ? "EVA is responding…" : "Send message"}
               data-testid="composer-send"
             >
               <IconSend className="h-5 w-5" />

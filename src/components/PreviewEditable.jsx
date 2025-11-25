@@ -297,26 +297,16 @@ function FieldHeader({ label, locked, description, meta, highlighted = false }) 
   const updatedAt = meta?.updatedAt;
   const pending = Boolean(meta?.pending);
 
-  // Conditionally apply readability v1 styles
-  const containerClasses = FLAGS.READABILITY_V1
-    ? `mb-2 text-sm text-gray-600 transition-colors dark:text-gray-300 ${
-        highlighted ? "rounded-lg bg-sky-50/80 px-2 py-1 dark:bg-sky-900/30" : ""
-      }`
-    : `mb-1 text-xs text-slate-500 transition-colors dark:text-slate-400 ${
-        highlighted ? "rounded-lg bg-sky-50/80 px-2 py-1 dark:bg-sky-900/30" : ""
-      }`;
+  const containerClasses = `mb-2 transition-colors ${
+    highlighted ? "rounded-md bg-indigo-50 px-2 py-1.5 dark:bg-indigo-950/30" : ""
+  }`;
 
-  const labelClasses = FLAGS.READABILITY_V1
-    ? "font-medium text-gray-700 dark:text-gray-200"
-    : "font-medium text-slate-600 dark:text-slate-200";
-
-  const descriptionClasses = FLAGS.READABILITY_V1
-    ? "text-xs text-gray-500 dark:text-gray-400"
-    : "text-[11px] text-slate-400 dark:text-slate-500";
+  const labelClasses = "text-sm font-medium text-slate-700 dark:text-slate-200";
+  const descriptionClasses = "text-xs text-slate-500 dark:text-slate-400";
 
   return (
     <div className={containerClasses}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className={labelClasses}>{label}</span>
         <div className="flex items-center gap-2">
           {description ? <span className={descriptionClasses}>{description}</span> : null}
@@ -344,12 +334,11 @@ function ScalarInput({
   highlighted = false,
   dataTestId,
 }) {
-  const baseClass = FLAGS.READABILITY_V1
-    ? "w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
-    : "w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500";
-  const highlightClasses = highlighted
-    ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
-    : "";
+  const baseClass = "w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-all duration-150 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-indigo-500/30 dark:focus:border-indigo-400 dark:disabled:bg-slate-900";
+  const normalBorder = "border-slate-200 dark:border-slate-700";
+  const highlightBorder = "border-indigo-400 bg-indigo-50/50 ring-2 ring-indigo-500/10 dark:border-indigo-500 dark:bg-indigo-950/30 dark:ring-indigo-500/20";
+  const borderClass = highlighted ? highlightBorder : normalBorder;
+
   const baseProps = {
     value,
     onChange: (event) => {
@@ -358,7 +347,7 @@ function ScalarInput({
     },
     placeholder,
     disabled,
-    className: `${baseClass}${highlightClasses}`,
+    className: `${baseClass} ${borderClass}`,
   };
 
   return (
@@ -397,10 +386,10 @@ function StringArrayEditor({
 }) {
   const safeItems = Array.isArray(items) ? items : [];
   const highlightPath = typeof isHighlighted === "function" ? isHighlighted(path) : false;
-  const highlightInputClasses = (highlighted) =>
-    highlighted
-      ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
-      : "";
+
+  const inputBaseClass = "flex-1 rounded-lg border bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-all duration-150 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-indigo-500/30 dark:focus:border-indigo-400";
+  const normalBorder = "border-slate-200 dark:border-slate-700";
+  const highlightBorder = "border-indigo-400 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/30";
 
   return (
     <div data-testid={dataTestId}>
@@ -411,7 +400,7 @@ function StringArrayEditor({
         description={description}
         highlighted={highlightPath}
       />
-      <div className={FLAGS.READABILITY_V1 ? "space-y-3" : "space-y-2"}>
+      <div className="space-y-3">
         {safeItems.map((item, index) => {
           const itemPath = `${path}.${index}`;
           const currentMeta = itemMeta?.[itemPath];
@@ -431,10 +420,7 @@ function StringArrayEditor({
                   onLock(itemPath);
                   onLock(path);
                 }}
-                className={`flex-1 ${FLAGS.READABILITY_V1
-                  ? "rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
-                  : "rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
-                }${highlightInputClasses(itemHighlighted)}`}
+                className={`${inputBaseClass} ${itemHighlighted ? highlightBorder : normalBorder}`}
               />
               <button
                 type="button"
@@ -444,10 +430,7 @@ function StringArrayEditor({
                   onLock(path);
                 }}
                 disabled={disabled}
-                className={FLAGS.READABILITY_V1
-                  ? "rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-                  : "rounded-xl border border-white/60 px-2 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
-                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 Remove
               </button>
@@ -465,11 +448,11 @@ function StringArrayEditor({
             onLock(path);
           }}
           disabled={disabled}
-          className={FLAGS.READABILITY_V1
-            ? "rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-            : "rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
-          }
+          className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800"
         >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
           {addLabel}
         </button>
       </div>
@@ -493,10 +476,10 @@ function ObjectArrayEditor({
   isHighlighted = () => false,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
-  const highlightInputClasses = (highlighted) =>
-    highlighted
-      ? " border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.35)] focus:ring-sky-300 dark:border-sky-500/70 dark:bg-sky-900/40 dark:focus:ring-sky-400"
-      : "";
+
+  const inputBaseClass = "w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-all duration-150 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-indigo-500/30 dark:focus:border-indigo-400";
+  const normalBorder = "border-slate-200 dark:border-slate-700";
+  const highlightBorder = "border-indigo-400 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/30";
 
   return (
     <div>
@@ -517,15 +500,13 @@ function ObjectArrayEditor({
           return (
             <div
               key={basePath}
-              className={`${FLAGS.READABILITY_V1 ? "rounded-lg" : "rounded-xl"} border p-3 transition-colors ${
+              className={`rounded-lg border p-4 transition-colors ${
                 baseHighlighted
-                  ? "border-sky-300 bg-sky-50/80 shadow-[0_0_0_1px_rgba(56,189,248,0.25)] dark:border-sky-500/70 dark:bg-sky-900/40"
-                  : FLAGS.READABILITY_V1
-                    ? "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/50"
-                    : "border-white/70 bg-white/80 dark:border-slate-600/60 dark:bg-slate-800/50"
+                  ? "border-indigo-300 bg-indigo-50/50 dark:border-indigo-500/50 dark:bg-indigo-950/30"
+                  : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50"
               }`}
             >
-              <div className={FLAGS.READABILITY_V1 ? "space-y-3" : "space-y-2"}>
+              <div className="space-y-3">
                 {fields.map((field) => {
                   const fieldPath = `${basePath}.${field.key}`;
                   const currentMeta = fieldMeta?.[fieldPath];
@@ -555,16 +536,13 @@ function ObjectArrayEditor({
                           onLock(fieldPath);
                           onLock(basePath);
                         }}
-                        className={`w-full ${FLAGS.READABILITY_V1
-                          ? "rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-800 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-indigo-500"
-                          : "rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-100 dark:focus:ring-indigo-500"
-                        }${highlightInputClasses(fieldHighlighted)}`}
+                        className={`${inputBaseClass} ${fieldHighlighted ? highlightBorder : normalBorder}`}
                       />
                     </label>
                   );
                 })}
               </div>
-              <div className="mt-2 flex items-center justify-between">
+              <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-700">
                 <div className="flex flex-col gap-1">
                   <LockBadge locked={isLocked(basePath)} />
                   {baseMeta ? (
@@ -579,10 +557,7 @@ function ObjectArrayEditor({
                     onLock(path);
                   }}
                   disabled={disabled}
-                  className={FLAGS.READABILITY_V1
-                    ? "rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-                    : "rounded-xl border border-white/60 px-3 py-1 text-xs text-slate-500 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
-                  }
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                 >
                   Remove
                 </button>
@@ -602,11 +577,11 @@ function ObjectArrayEditor({
           onLock(path);
         }}
         disabled={disabled}
-        className={FLAGS.READABILITY_V1
-          ? "mt-2 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          : "mt-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800/60"
-        }
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800"
       >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
         {addLabel}
       </button>
     </div>

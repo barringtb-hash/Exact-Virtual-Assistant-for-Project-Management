@@ -17,7 +17,8 @@ import {
 } from "./utils/chatDocTypeCommands.js";
 import { isDocTypeConfirmed, normalizeDocTypeSuggestion } from "./utils/docTypeRouter";
 import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
-import { useDocTemplate } from "./state/docTemplateStore.js";
+import { useDocTemplate, getDocTemplateFormState } from "./state/docTemplateStore.js";
+import { normalizeCharterFormSchema } from "./features/charter/utils/formSchema.ts";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
@@ -54,7 +55,7 @@ import {
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import VoiceCharterSession from "./components/VoiceCharterSession.tsx";
 import VoiceCharterPrompt from "./components/VoiceCharterPrompt.tsx";
-import { conversationActions, useConversationState, useConversationSchema } from "./state/conversationStore.ts";
+import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 import {
   voiceCharterActions,
   useVoiceCharterMode,
@@ -839,7 +840,6 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
-  const conversationSchema = useConversationSchema();
   const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
   const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
@@ -3383,8 +3383,8 @@ const resolveDocTypeForManualSync = useCallback(
     if (rtcState === "live" && SHOULD_SHOW_CHARTER_WIZARD && dataRef.current) {
       // Only show prompt if not already active and not already showing
       if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
-        const schema = conversationSchema;
-        if (schema && schema.document_type === "charter") {
+        // Check if we're working with a charter document type
+        if (templateDocType === "charter") {
           setShowVoiceCharterPrompt(true);
         }
       }
@@ -3398,14 +3398,29 @@ const resolveDocTypeForManualSync = useCallback(
         voiceCharterService.reset();
       }
     }
-  }, [rtcState, voiceCharterMode, conversationSchema, showVoiceCharterPrompt]);
+  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt]);
 
   // Handle voice charter prompt confirmation
   const handleVoiceCharterConfirm = useCallback(() => {
     setShowVoiceCharterPrompt(false);
 
-    const schema = conversationSchema;
-    if (!schema || !dataRef.current) {
+    if (!dataRef.current) {
+      return;
+    }
+
+    // Get the schema from docTemplateStore
+    const { form } = getDocTemplateFormState();
+    if (!form) {
+      console.warn("[VoiceCharter] No form schema available");
+      return;
+    }
+
+    // Normalize the form into a CharterFormSchema
+    let schema;
+    try {
+      schema = normalizeCharterFormSchema(form);
+    } catch (error) {
+      console.error("[VoiceCharter] Failed to normalize schema:", error);
       return;
     }
 
@@ -3433,7 +3448,7 @@ const resolveDocTypeForManualSync = useCallback(
         voiceCharterService.start();
       }, 500);
     }
-  }, [conversationSchema]);
+  }, []);
 
   // Handle voice charter prompt decline (just use regular transcription)
   const handleVoiceCharterDecline = useCallback(() => {

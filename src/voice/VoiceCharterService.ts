@@ -330,6 +330,65 @@ function capitalizeName(name: string): string {
 const NAME_FIELDS = ["sponsor", "project_lead"];
 
 /**
+ * Patterns that indicate the transcript is from AI speech, not user input.
+ * AI responses get transcribed by Whisper and fed back through processTranscript,
+ * so we need to detect and skip them.
+ */
+const AI_RESPONSE_PATTERNS = [
+  // AI acknowledgment patterns (start of AI responses)
+  /^(?:got it|perfect|great|excellent|wonderful|okay|alright|sure|right)[.!,]?\s/i,
+  /^(?:thanks|thank you)[.!,]?\s/i,
+  /^(?:sounds good|that's great|that works)[.!,]?\s/i,
+  // AI question patterns (AI asking about fields)
+  /what(?:'s| is| would be) (?:the|your)/i,
+  /when (?:does|is|will|would) (?:the|your|this)/i,
+  /who (?:is|will be|would be) (?:the|your)/i,
+  /can you (?:tell me|give me|describe)/i,
+  /(?:tell me|describe) (?:the|your|about)/i,
+  // AI transitional phrases
+  /let(?:'s| us) (?:move on|continue|go to|start|create)/i,
+  /(?:moving|going) (?:on|forward) to/i,
+  /(?:now|next)[,.]?\s+(?:let's|what|tell)/i,
+  // AI instructional phrases
+  /this (?:is|field is) (?:a |an )?(?:required|optional)/i,
+  /you can (?:say|skip|tell)/i,
+  // Combined acknowledgment + question (most common AI pattern)
+  /^(?:got it|perfect|great|okay)[.!,]?\s+(?:and\s+)?(?:what|when|who|how|tell|can)/i,
+];
+
+/**
+ * Detects if a transcript appears to be from AI speech rather than user input.
+ * This prevents AI responses from being processed as field values.
+ *
+ * @param transcript - The transcript to check
+ * @returns true if the transcript looks like AI speech
+ */
+function isAIResponse(transcript: string): boolean {
+  const normalized = transcript.trim();
+
+  // Very short responses are unlikely to be AI speech
+  if (normalized.length < 10) {
+    return false;
+  }
+
+  // Check if transcript matches AI response patterns
+  for (const pattern of AI_RESPONSE_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+
+  // AI responses often contain multiple sentences with questions
+  const hasQuestion = /\?/.test(normalized);
+  const hasAcknowledgment = /^(?:got it|perfect|great|okay|sure|right|thanks)/i.test(normalized);
+  if (hasQuestion && hasAcknowledgment) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Extracts the relevant field value from a conversational response.
  * Strips common fillers like "That'll be", "It's", "Um", etc.
  * For date fields, attempts to parse spoken dates into proper format.
@@ -596,6 +655,13 @@ export class VoiceCharterService {
    */
   processTranscript(transcript: string): void {
     if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    // Skip AI responses that got transcribed
+    // (AI speech goes through Whisper and comes back as transcripts)
+    if (isAIResponse(transcript)) {
+      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
       return;
     }
 

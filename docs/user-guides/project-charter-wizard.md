@@ -33,6 +33,30 @@ The command chips under the prompt map directly to wizard events:
 - **Finalize** – Selecting **Finalize charter** records the completion timestamp, locks the session into the `finalized` step, and emits telemetry so downstream systems can capture the state change.【F:src/state/conversationMachine.ts†L915-L919】【F:src/chat/CharterFieldSession.tsx†L284-L305】
 - **Re-open review** – Even after finalization, you can reopen review from the summary panel to spot-check captured data before exporting or to document post-finalization adjustments.【F:src/chat/CharterFieldSession.tsx†L310-L325】
 
+## Voice mode
+
+When you activate the microphone while creating a charter, a prompt asks "Would you like to create your charter using voice?" This enables a fully conversational experience using the OpenAI Realtime API.
+
+### Voice commands
+
+In voice mode, you can navigate hands-free using these spoken commands:
+
+- **"go back"** or **"previous"** – Returns to the previous field to update your answer.
+- **"skip"** – Skips the current field and moves to the next one.
+- **"review"** – Asks the AI to summarize all captured values so far.
+- **"done"** – Finalizes the voice charter session when all fields are complete.
+
+### Voice UI indicators
+
+- **Pulsing microphone** – The AI is listening for your response.
+- **Speaker icon** – The AI is currently speaking.
+- **Progress bar** – Shows how many fields have been captured.
+- **Captured values** – Preview of values collected during the session.
+
+### Exiting voice mode
+
+You can exit voice mode at any time by clicking the microphone button again or saying "exit". Your captured values are preserved and can be continued via text input.
+
 ## Exporting the charter
 
 Finalizing the session unlocks downstream export actions (DOCX, PDF, or copy-to-clipboard) just as in the standard preview pane. The wizard keeps the normalized values aligned with the charter template so the generated document reflects exactly what you confirmed in review.【F:src/state/conversationMachine.ts†L915-L919】【F:src/lib/forms/validation.ts†L445-L505】

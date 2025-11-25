@@ -26,7 +26,12 @@ The application uses a unified tinyStore-based state management pattern with the
 - `chat.ts` – Chat messages, streaming state, and message history
 - `draft.ts` – Draft document content and merge status
 - `voice.ts` – Voice recording status and transcripts
+- `voiceCharter.ts` – Voice charter mode, AI speaking state, and captured values
 - `docType.ts` – Document type selection
+
+### Voice (`src/voice/`)
+- `realtimeEvents.ts` – OpenAI Realtime API event helpers for sending session updates, conversation items, and response triggers via WebRTC data channel
+- `VoiceCharterService.ts` – Service managing voice-guided charter creation flow, including system prompt generation, field navigation, transcript processing, and value capture
 
 ### Core Infrastructure
 - `src/lib/tinyStore.ts` – Lightweight store implementation with React integration

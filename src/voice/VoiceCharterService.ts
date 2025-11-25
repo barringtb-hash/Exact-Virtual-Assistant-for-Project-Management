@@ -105,13 +105,13 @@ The user can say these commands at any time:
 4. If the user wants to change something, they will edit the field directly or say "go back"
 
 ## Long-Form Content (Vision, Problem, Description)
-For these narrative fields, REFORMULATE the user's input into professional, cohesive statements:
+For these narrative fields, you MUST reformulate the user's input into professional language.
+When responding, you MUST say: "CAPTURE: [your professional reformulation]" before moving to the next field.
 - Take their rough notes or conversational input
-- Transform it into polished, professional language
+- Transform it into polished, professional language suitable for a formal project charter
 - Maintain their intent and key points
-- Make it suitable for a formal project charter document
 Example: User says "we want to test blood for cancer detection"
-→ Capture as: "Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis"
+→ You respond: "CAPTURE: Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis. Now, what problem does this project address?"
 
 ## List Fields (Scope In/Out, Risks, Assumptions, Milestones, Team)
 For list-type fields:
@@ -344,6 +344,19 @@ function capitalizeName(name: string): string {
  * Fields that contain names and should have proper capitalization.
  */
 const NAME_FIELDS = ["sponsor", "project_lead"];
+
+/**
+ * Long-form fields that require AI reformulation into professional language.
+ * For these fields, we wait for the AI to say "CAPTURE: [text]" instead of
+ * capturing the raw user transcript directly.
+ */
+const LONG_FORM_FIELDS = ["vision", "problem", "description"];
+
+/**
+ * Pattern to detect AI reformulation capture.
+ * The AI should say "CAPTURE: [professional text]" for long-form fields.
+ */
+const AI_CAPTURE_PATTERN = /CAPTURE:\s*(.+?)(?:\.|$)/i;
 
 /**
  * String list fields that should be converted to arrays for the draft store.
@@ -631,6 +644,12 @@ export class VoiceCharterService {
    * Transcripts arriving within this window are assumed to be AI speech.
    */
   private static readonly AI_RESPONSE_COOLDOWN_MS = 3000;
+  /**
+   * For long-form fields (vision, problem, description), we don't capture
+   * the raw user input. Instead, we wait for the AI to reformulate it.
+   * This tracks the field ID that's waiting for AI reformulation.
+   */
+  private pendingReformulationFieldId: string | null = null;
 
   constructor() {
     this.state = this.createInitialState();
@@ -878,6 +897,7 @@ export class VoiceCharterService {
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
       step: this.state.step,
+      pendingReformulationFieldId: this.pendingReformulationFieldId,
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -886,6 +906,33 @@ export class VoiceCharterService {
     }
 
     const normalizedTranscript = transcript.toLowerCase().trim();
+
+    // PRIORITY 0: Check for AI reformulation capture (CAPTURE: [text])
+    // This MUST be checked BEFORE filtering AI responses, as the AI uses this to
+    // submit reformulated text for long-form fields like vision, problem, description.
+    if (this.pendingReformulationFieldId) {
+      const captureMatch = transcript.match(AI_CAPTURE_PATTERN);
+      if (captureMatch) {
+        const reformulatedValue = captureMatch[1].trim();
+        console.log("[VoiceCharterService] processTranscript: AI reformulation captured", {
+          fieldId: this.pendingReformulationFieldId,
+          reformulatedValue: reformulatedValue.substring(0, 80),
+        });
+
+        // Capture the AI's reformulated value
+        this.captureValue(this.pendingReformulationFieldId, reformulatedValue);
+
+        // Clear the pending state and advance
+        this.pendingReformulationFieldId = null;
+        this.advanceAskingField();
+
+        this.updateState({
+          step: "listening",
+          pendingValue: reformulatedValue,
+        });
+        return;
+      }
+    }
 
     // PRIORITY 1: Check for navigation commands FIRST (before any filtering)
     // User intents like "go back" or "previous" should always be processed
@@ -956,6 +1003,23 @@ export class VoiceCharterService {
     const targetFieldId = this.askingFieldId;
     console.log("[VoiceCharterService] processTranscript: targetFieldId =", targetFieldId);
     if (targetFieldId) {
+      // For long-form fields, don't capture user's raw input directly.
+      // Instead, wait for the AI to reformulate it and say "CAPTURE: [text]"
+      if (LONG_FORM_FIELDS.includes(targetFieldId)) {
+        console.log("[VoiceCharterService] processTranscript: Long-form field, waiting for AI reformulation", {
+          targetFieldId,
+          rawTranscript: transcript.substring(0, 50),
+        });
+        this.pendingReformulationFieldId = targetFieldId;
+
+        // Don't advance yet - wait for AI to say "CAPTURE: [text]"
+        this.updateState({
+          step: "listening",
+          pendingValue: transcript,
+        });
+        return;
+      }
+
       // Extract the relevant value from the conversational response
       const extractedValue = extractFieldValue(transcript, targetFieldId);
       console.log("[VoiceCharterService] processTranscript: Capturing value", {
@@ -1581,6 +1645,7 @@ export class VoiceCharterService {
     this.isInternalUpdate = false;
     this.askingFieldId = null;
     this.lastAIPromptTime = 0;
+    this.pendingReformulationFieldId = null;
     this.emit({ type: "state_changed", state: this.getState() });
   }
 

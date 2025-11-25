@@ -527,6 +527,10 @@ export class VoiceCharterService {
    * Records the timestamp for filtering purposes.
    */
   private sendAIPrompt(message: string): void {
+    console.log("[VoiceCharterService] sendAIPrompt:", {
+      message: message.substring(0, 80),
+      askingFieldId: this.askingFieldId,
+    });
     if (!this.dataChannel) return;
     sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", message));
     sendRealtimeEvent(this.dataChannel, createResponseEvent());
@@ -666,14 +670,25 @@ export class VoiceCharterService {
    * Start the voice charter conversation.
    */
   start(): boolean {
+    console.log("[VoiceCharterService] start called:", {
+      hasDataChannel: !!this.dataChannel,
+      hasSchema: !!this.schema,
+      currentFieldIndex: this.state.currentFieldIndex,
+      currentFieldId: this.state.currentFieldId,
+    });
+
     if (!this.dataChannel || !this.schema) {
+      console.log("[VoiceCharterService] start: Missing dataChannel or schema");
       return false;
     }
 
     const firstField = this.getCurrentField();
     if (!firstField) {
+      console.log("[VoiceCharterService] start: No first field found");
       return false;
     }
+
+    console.log("[VoiceCharterService] start: Setting askingFieldId to", firstField.id);
 
     // Track which field we're asking about
     this.askingFieldId = firstField.id;
@@ -707,7 +722,16 @@ export class VoiceCharterService {
    * Process a transcript from the user's voice input.
    */
   processTranscript(transcript: string): void {
+    console.log("[VoiceCharterService] processTranscript called:", {
+      transcript: transcript.substring(0, 80),
+      askingFieldId: this.askingFieldId,
+      currentFieldId: this.state.currentFieldId,
+      currentFieldIndex: this.state.currentFieldIndex,
+      step: this.state.step,
+    });
+
     if (!this.schema || !this.dataChannel) {
+      console.log("[VoiceCharterService] processTranscript: No schema or dataChannel, returning");
       return;
     }
 
@@ -773,9 +797,15 @@ export class VoiceCharterService {
     // Use askingFieldId to ensure we capture to the correct field
     // (the one the AI was asking about, not the current field which may have changed)
     const targetFieldId = this.askingFieldId;
+    console.log("[VoiceCharterService] processTranscript: targetFieldId =", targetFieldId);
     if (targetFieldId) {
       // Extract the relevant value from the conversational response
       const extractedValue = extractFieldValue(transcript, targetFieldId);
+      console.log("[VoiceCharterService] processTranscript: Capturing value", {
+        targetFieldId,
+        rawTranscript: transcript.substring(0, 50),
+        extractedValue: extractedValue.substring(0, 50),
+      });
 
       // Capture the cleaned value to the form
       this.captureValue(targetFieldId, extractedValue);
@@ -783,6 +813,8 @@ export class VoiceCharterService {
       // Advance to the next field so subsequent transcripts go to the right place
       // (The AI will ask about the next field in its spoken response)
       this.advanceAskingField();
+    } else {
+      console.log("[VoiceCharterService] processTranscript: No targetFieldId, skipping capture");
     }
 
     this.updateState({
@@ -801,15 +833,19 @@ export class VoiceCharterService {
       return;
     }
 
+    const previousFieldId = this.askingFieldId;
     const nextIndex = this.state.currentFieldIndex + 1;
     if (nextIndex >= this.schema.fields.length) {
       // All fields done
       this.askingFieldId = null;
+      console.log("[VoiceCharterService] All fields complete, askingFieldId set to null");
       return;
     }
 
     const nextField = this.schema.fields[nextIndex];
     this.askingFieldId = nextField.id;
+
+    console.log(`[VoiceCharterService] advanceAskingField: ${previousFieldId} -> ${nextField.id} (index ${nextIndex})`);
 
     this.updateState({
       step: "asking",
@@ -828,10 +864,16 @@ export class VoiceCharterService {
    * This updates the UI's "Working on: X" indicator and field highlighting.
    */
   private syncCurrentFieldToStore(fieldId: string): void {
+    console.log("[VoiceCharterService] syncCurrentFieldToStore:", {
+      fieldId,
+      askingFieldId: this.askingFieldId,
+      currentFieldId: this.state.currentFieldId,
+    });
     try {
       this.isInternalUpdate = true;
       // Dispatch ASK event to update the conversation store's current field
       conversationActions.dispatch({ type: "ASK", fieldId });
+      console.log("[VoiceCharterService] syncCurrentFieldToStore: ASK dispatched for", fieldId);
     } catch (error) {
       console.error("[VoiceCharterService] Failed to sync current field to store:", error);
     } finally {
@@ -843,12 +885,15 @@ export class VoiceCharterService {
    * Handle navigation commands.
    */
   private handleNavigationCommand(transcript: string): boolean {
+    console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
+
     // Go back / previous
     if (
       transcript.includes("go back") ||
       transcript.includes("previous") ||
       transcript.includes("back one")
     ) {
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back'");
       this.goToPreviousField();
       return true;
     }
@@ -885,6 +930,8 @@ export class VoiceCharterService {
    * These patterns indicate the user wants to correct a previously captured field.
    */
   private handleCorrectionCommand(transcript: string): boolean {
+    console.log("[VoiceCharterService] handleCorrectionCommand:", transcript.substring(0, 50));
+
     if (!this.schema || !this.dataChannel) {
       return false;
     }
@@ -922,6 +969,12 @@ export class VoiceCharterService {
         if (targetField) {
           // Extract clean value (apply filler removal)
           const cleanValue = extractFieldValue(valuePart, targetField.id);
+          console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected", {
+            targetFieldId: targetField.id,
+            originalValue: valuePart,
+            cleanValue: cleanValue,
+            currentAskingFieldId: this.askingFieldId,
+          });
 
           // Capture the corrected value to the target field
           this.captureValue(targetField.id, cleanValue);
@@ -944,17 +997,26 @@ export class VoiceCharterService {
    * Move to the next field.
    */
   goToNextField(): void {
+    console.log("[VoiceCharterService] goToNextField called:", {
+      currentFieldIndex: this.state.currentFieldIndex,
+      currentFieldId: this.state.currentFieldId,
+      askingFieldId: this.askingFieldId,
+    });
+
     if (!this.schema || !this.dataChannel) {
+      console.log("[VoiceCharterService] goToNextField: No schema or dataChannel");
       return;
     }
 
     const nextIndex = this.state.currentFieldIndex + 1;
     if (nextIndex >= this.schema.fields.length) {
+      console.log("[VoiceCharterService] goToNextField: All fields complete");
       this.complete();
       return;
     }
 
     const nextField = this.schema.fields[nextIndex];
+    console.log("[VoiceCharterService] goToNextField: Moving to", nextField.id, "at index", nextIndex);
 
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = nextField.id;
@@ -984,19 +1046,28 @@ export class VoiceCharterService {
    * Move to the previous field.
    */
   goToPreviousField(): void {
+    console.log("[VoiceCharterService] goToPreviousField called:", {
+      currentFieldIndex: this.state.currentFieldIndex,
+      currentFieldId: this.state.currentFieldId,
+      askingFieldId: this.askingFieldId,
+    });
+
     if (!this.schema || !this.dataChannel) {
+      console.log("[VoiceCharterService] goToPreviousField: No schema or dataChannel");
       return;
     }
 
     const prevIndex = this.state.currentFieldIndex - 1;
     if (prevIndex < 0) {
       // Already at first field, tell the user
+      console.log("[VoiceCharterService] goToPreviousField: Already at first field");
       this.sendAIPrompt("[User wants to go back but we're at the first field] Tell the user we're already at the first field.");
       return;
     }
 
     const prevField = this.schema.fields[prevIndex];
     const existingValue = this.state.capturedValues.get(prevField.id);
+    console.log("[VoiceCharterService] goToPreviousField: Moving to", prevField.id, "at index", prevIndex);
 
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = prevField.id;
@@ -1032,17 +1103,27 @@ export class VoiceCharterService {
    * Jump to a specific field.
    */
   goToField(fieldId: string): void {
+    console.log("[VoiceCharterService] goToField called:", {
+      targetFieldId: fieldId,
+      currentFieldIndex: this.state.currentFieldIndex,
+      currentFieldId: this.state.currentFieldId,
+      askingFieldId: this.askingFieldId,
+    });
+
     if (!this.schema || !this.dataChannel) {
+      console.log("[VoiceCharterService] goToField: No schema or dataChannel");
       return;
     }
 
     const fieldIndex = this.schema.fields.findIndex((f) => f.id === fieldId);
     if (fieldIndex < 0) {
+      console.log("[VoiceCharterService] goToField: Field not found:", fieldId);
       return;
     }
 
     const field = this.schema.fields[fieldIndex];
     const existingValue = this.state.capturedValues.get(fieldId);
+    console.log("[VoiceCharterService] goToField: Moving to", field.id, "at index", fieldIndex);
 
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = fieldId;
@@ -1093,6 +1174,14 @@ export class VoiceCharterService {
    * Also syncs the value to the conversation store for real-time form updates.
    */
   captureValue(fieldId: string, value: string): void {
+    console.log("[VoiceCharterService] captureValue:", {
+      fieldId,
+      value: value.substring(0, 50),
+      currentAskingFieldId: this.askingFieldId,
+      currentFieldId: this.state.currentFieldId,
+      currentFieldIndex: this.state.currentFieldIndex,
+    });
+
     const captured: CapturedFieldValue = {
       fieldId,
       value,
@@ -1111,6 +1200,7 @@ export class VoiceCharterService {
     this.syncToConversationStore(fieldId, value);
 
     this.emit({ type: "field_captured", fieldId, value });
+    console.log("[VoiceCharterService] captureValue complete:", fieldId);
   }
 
   /**
@@ -1118,6 +1208,10 @@ export class VoiceCharterService {
    * This updates the CharterFieldSession form fields in real-time.
    */
   private syncToConversationStore(fieldId: string, value: string): void {
+    console.log("[VoiceCharterService] syncToConversationStore:", {
+      fieldId,
+      value: value.substring(0, 50),
+    });
     try {
       // Mark as internal update to avoid feedback loops
       this.isInternalUpdate = true;
@@ -1129,6 +1223,7 @@ export class VoiceCharterService {
 
       // Dispatch capture event to update the form field
       conversationActions.dispatch({ type: "CAPTURE", fieldId, value });
+      console.log("[VoiceCharterService] syncToConversationStore: CAPTURE dispatched for", fieldId);
 
       // Validate the field (for visual feedback)
       conversationActions.dispatch({ type: "VALIDATE", fieldId });
@@ -1195,6 +1290,13 @@ export class VoiceCharterService {
    * Updates the internal state and optionally informs the AI.
    */
   private handleExternalFieldChange(fieldId: string, value: string): void {
+    console.log("[VoiceCharterService] handleExternalFieldChange:", {
+      fieldId,
+      value: value.substring(0, 50),
+      currentAskingFieldId: this.askingFieldId,
+      currentFieldId: this.state.currentFieldId,
+    });
+
     // Update internal captured values
     const captured: CapturedFieldValue = {
       fieldId,

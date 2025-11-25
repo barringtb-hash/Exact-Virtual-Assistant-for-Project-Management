@@ -1429,10 +1429,16 @@ export default function ExactVirtualAssistantPM() {
       ? legacyDraftSnapshot.highlightedPaths
       : new Set();
   const locks = useMemo(() => pointerMapToPathObject(pointerLocks), [pointerLocks]);
-  const highlightedPaths = useMemo(
-    () => pointerSetToPathSet(pointerHighlights),
-    [pointerHighlights]
-  );
+  const highlightedPaths = useMemo(() => {
+    const baseSet = pointerSetToPathSet(pointerHighlights);
+    // Include the current field from conversation state for voice charter highlighting
+    if (conversationState?.currentFieldId) {
+      const newSet = new Set(baseSet);
+      newSet.add(conversationState.currentFieldId);
+      return newSet;
+    }
+    return baseSet;
+  }, [pointerHighlights, conversationState?.currentFieldId]);
   const aiMetadataByPath = useMemo(
     () => pointerMapToPathMap(pointerMetadata),
     [pointerMetadata]

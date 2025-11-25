@@ -678,6 +678,9 @@ export class VoiceCharterService {
     // Track which field we're asking about
     this.askingFieldId = firstField.id;
 
+    // Sync to conversation store for UI highlighting
+    this.syncCurrentFieldToStore(firstField.id);
+
     // Build context with any existing values
     let context = "Starting voice charter session.\n";
     if (this.state.capturedValues.size > 0) {
@@ -814,6 +817,26 @@ export class VoiceCharterService {
       currentFieldId: nextField.id,
       pendingValue: null,
     });
+
+    // Sync the current field to the conversation store so the UI updates
+    // This ensures "Working on: X" display matches the voice service's current field
+    this.syncCurrentFieldToStore(nextField.id);
+  }
+
+  /**
+   * Sync the current field to the conversation store.
+   * This updates the UI's "Working on: X" indicator and field highlighting.
+   */
+  private syncCurrentFieldToStore(fieldId: string): void {
+    try {
+      this.isInternalUpdate = true;
+      // Dispatch ASK event to update the conversation store's current field
+      conversationActions.dispatch({ type: "ASK", fieldId });
+    } catch (error) {
+      console.error("[VoiceCharterService] Failed to sync current field to store:", error);
+    } finally {
+      this.isInternalUpdate = false;
+    }
   }
 
   /**
@@ -943,6 +966,9 @@ export class VoiceCharterService {
       pendingValue: null,
     });
 
+    // Sync to conversation store for UI highlighting
+    this.syncCurrentFieldToStore(nextField.id);
+
     // Prompt AI to ask about next field
     const prompt = generateFieldPrompt(nextField, false);
     this.sendAIPrompt(`[Move to next field: ${nextField.label}] ${prompt}`);
@@ -981,6 +1007,9 @@ export class VoiceCharterService {
       currentFieldId: prevField.id,
       pendingValue: null,
     });
+
+    // Sync to conversation store for UI highlighting
+    this.syncCurrentFieldToStore(prevField.id);
 
     // Prompt AI to ask about previous field, mentioning existing value if any
     let prompt = `[Going back to previous field: ${prevField.label}]`;
@@ -1024,6 +1053,9 @@ export class VoiceCharterService {
       currentFieldId: fieldId,
       pendingValue: null,
     });
+
+    // Sync to conversation store for UI highlighting
+    this.syncCurrentFieldToStore(fieldId);
 
     let prompt = `[Jumping to field: ${field.label}]`;
     if (existingValue) {

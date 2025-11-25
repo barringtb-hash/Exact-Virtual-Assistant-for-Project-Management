@@ -205,9 +205,12 @@ body {
     bottom: 1rem;
     right: 1rem;
     left: auto;
-    width: 420px;
-    height: 60vh;
-    max-height: 75vh;
+    /* Fluid width: scales down on smaller viewports, caps at 420px */
+    width: min(420px, calc(100vw - 2rem));
+    /* Fluid height: scales with viewport, leaves room for header */
+    height: min(60vh, calc(100vh - 8rem));
+    max-height: min(75vh, 600px);
+    min-height: 280px;
     z-index: 50;
   }
 }

@@ -784,21 +784,29 @@ export class VoiceCharterService {
       return;
     }
 
-    // Skip AI responses that got transcribed
-    // (AI speech goes through Whisper and comes back as transcripts)
-    if (isAIResponse(transcript)) {
-      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
+    const normalizedTranscript = transcript.toLowerCase().trim();
+
+    // PRIORITY 1: Check for navigation commands FIRST (before any filtering)
+    // User intents like "go back" or "previous" should always be processed
+    if (this.handleNavigationCommand(normalizedTranscript)) {
       return;
     }
 
-    // Skip noise (short acknowledgments, farewells, etc.)
+    // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
     if (isNoiseTranscript(transcript)) {
       console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
       return;
     }
 
-    // Extra safeguard: if we just sent an AI prompt, be very skeptical
-    // of any transcript that arrives. It's almost certainly the AI speaking.
+    // PRIORITY 3: Skip AI responses that got transcribed
+    // (AI speech goes through Whisper and comes back as transcripts)
+    // But do this AFTER navigation/correction checks so user commands aren't blocked
+    if (isAIResponse(transcript)) {
+      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
+      return;
+    }
+
+    // PRIORITY 4: Extra safeguard for AI cooldown period
     if (this.isWithinAICooldown()) {
       // Only process if it's clearly a short user response (name, date, etc.)
       // Long transcripts during cooldown are likely AI speech that slipped through
@@ -809,13 +817,6 @@ export class VoiceCharterService {
         console.log("[VoiceCharterService] Skipping transcript during AI cooldown:", transcript.substring(0, 50));
         return;
       }
-    }
-
-    const normalizedTranscript = transcript.toLowerCase().trim();
-
-    // Check for navigation commands
-    if (this.handleNavigationCommand(normalizedTranscript)) {
-      return;
     }
 
     // Check for skip command
@@ -942,7 +943,25 @@ export class VoiceCharterService {
   private handleNavigationCommand(transcript: string): boolean {
     console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
 
-    // Go back / previous
+    // Check for "go back to [field]" pattern first - navigate to specific field
+    // E.g., "go back to the title", "can we go back to the title"
+    const goBackToMatch = transcript.match(/(?:go back|return)\s+to\s+(?:the\s+)?(.+?)(?:\s*\?|$)/i);
+    if (goBackToMatch) {
+      const fieldName = goBackToMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back to' field:", fieldName);
+      const field = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(fieldName) ||
+          f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+          fieldName.includes(f.label.toLowerCase())
+      );
+      if (field) {
+        this.goToField(field.id);
+        return true;
+      }
+    }
+
+    // Go back / previous (without specific field)
     if (
       transcript.includes("go back") ||
       transcript.includes("previous") ||
@@ -954,7 +973,7 @@ export class VoiceCharterService {
     }
 
     // Check for correction patterns like "No, project title should be X"
-    // or "Actually, the sponsor is Y"
+    // or "Actually, the sponsor is Y" or "The title should be X"
     const correctionHandled = this.handleCorrectionCommand(transcript);
     if (correctionHandled) {
       return true;
@@ -993,12 +1012,15 @@ export class VoiceCharterService {
       return false;
     }
 
-    // Patterns for corrections - these REQUIRE a correction indicator word
-    // (no, actually, wait, sorry, oops, change, update, set, make, put)
+    // Patterns for corrections - explicit indicator OR field mention (when different from current)
+    // The key is: if user mentions a different field, it's a correction even without "no" or "actually"
     const correctionPatterns = [
+      // Explicit correction indicators: "No, the title should be X"
       /^(?:no|actually|wait|sorry|oops)[,.]?\s+(?:the\s+)?(.+?)\s+(?:should be|should have been|is|was|needs to be)\s+(.+)$/i,
       /^(?:change|update|set)\s+(?:the\s+)?(.+?)\s+to\s+(.+)$/i,
       /^(?:make|put)\s+(?:the\s+)?(.+?)\s+(?:as\s+)?(.+)$/i,
+      // Field mention without indicator: "The title should be X" (only treated as correction if different field)
+      /^(?:the\s+)?(.+?)\s+(?:should be|needs to be)\s+(.+)$/i,
     ];
 
     for (const pattern of correctionPatterns) {

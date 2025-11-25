@@ -4687,11 +4687,11 @@ function Panel({ title, icon, right, children, className = "" }) {
     <div
       className={`rounded-xl border shadow-sm ${
         isOverlay
-          ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
+          ? "flex flex-col border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
           : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-800/50"
       } ${className}`}
     >
-      <div className={`flex items-center justify-between px-4 py-3 border-b ${
+      <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
         isOverlay
           ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"
           : "border-slate-100 dark:border-slate-700/50"
@@ -4702,9 +4702,11 @@ function Panel({ title, icon, right, children, className = "" }) {
         </div>
         {right}
       </div>
-      <div className={isOverlay ? "flex-1 flex flex-col min-h-0 overflow-hidden" : "p-4"}>
-        {children}
-      </div>
+      {isOverlay ? (
+        children
+      ) : (
+        <div className="p-4">{children}</div>
+      )}
     </div>
   );
 }

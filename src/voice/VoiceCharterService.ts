@@ -183,6 +183,58 @@ function generateFieldPrompt(field: CharterFormField, isFirst: boolean): string 
 }
 
 /**
+ * Common conversational filler patterns to strip from voice input.
+ * These patterns capture phrases users naturally say when responding.
+ */
+const CONVERSATIONAL_FILLERS = [
+  // Direct answers with fillers
+  /^(?:that(?:'s|'ll| will| would) be\s+)/i,
+  /^(?:it(?:'s|'ll| will| would) be\s+)/i,
+  /^(?:the (?:name|title|project|sponsor|lead) (?:is|will be|would be)\s+)/i,
+  /^(?:(?:i(?:'d| would) (?:say|call it|name it))\s+)/i,
+  /^(?:(?:let(?:'s| me) (?:call it|go with|say))\s+)/i,
+  /^(?:(?:we(?:'re| are) (?:calling it|going with))\s+)/i,
+  // Simple fillers at start
+  /^(?:um+|uh+|so+|well+|okay+|oh+|hmm+)[,.]?\s*/i,
+  /^(?:yeah|yes|sure|right)[,.]?\s*/i,
+  // Trailing fillers
+  /[,.]?\s*(?:i think|i guess|i suppose|probably|maybe)\.?$/i,
+  /[,.]?\s*(?:that's it|that's all|nothing else)\.?$/i,
+];
+
+/**
+ * Extracts the relevant field value from a conversational response.
+ * Strips common fillers like "That'll be", "It's", "Um", etc.
+ *
+ * @param transcript - The raw voice transcript
+ * @param fieldId - The field being populated (for context-aware parsing)
+ * @returns The cleaned value suitable for the field
+ */
+function extractFieldValue(transcript: string, fieldId: string): string {
+  let value = transcript.trim();
+
+  // Apply filler patterns
+  for (const pattern of CONVERSATIONAL_FILLERS) {
+    value = value.replace(pattern, "");
+  }
+
+  // Trim any remaining whitespace and punctuation
+  value = value.trim();
+
+  // Remove trailing period if it looks like conversational ending
+  if (value.endsWith(".") && !value.includes(". ")) {
+    value = value.slice(0, -1).trim();
+  }
+
+  // If we stripped too much (empty result), fall back to original
+  if (!value) {
+    return transcript.trim();
+  }
+
+  return value;
+}
+
+/**
  * Service class managing voice charter sessions.
  */
 export class VoiceCharterService {
@@ -192,6 +244,12 @@ export class VoiceCharterService {
   private listeners: Set<EventListener> = new Set();
   private conversationStoreUnsubscribe: (() => void) | null = null;
   private isInternalUpdate: boolean = false;
+  /**
+   * Tracks which field we're currently waiting for a response on.
+   * This is separate from currentFieldId because the AI may move to the next
+   * field before the transcript is fully processed.
+   */
+  private askingFieldId: string | null = null;
 
   constructor() {
     this.state = this.createInitialState();
@@ -296,6 +354,10 @@ export class VoiceCharterService {
     }
 
     const firstField = schema.fields[0];
+
+    // Set the initial asking field
+    this.askingFieldId = firstField?.id ?? null;
+
     this.updateState({
       step: "initializing",
       currentFieldIndex: 0,
@@ -362,6 +424,9 @@ export class VoiceCharterService {
     if (!firstField) {
       return false;
     }
+
+    // Track which field we're asking about
+    this.askingFieldId = firstField.id;
 
     // Build context with any existing values
     let context = "Starting voice charter session.\n";
@@ -432,11 +497,15 @@ export class VoiceCharterService {
       return;
     }
 
-    // Treat as field value input - capture immediately for real-time display
-    const currentField = this.getCurrentField();
-    if (currentField) {
-      // Capture the value immediately so it appears in the form
-      this.captureValue(currentField.id, transcript);
+    // Use askingFieldId to ensure we capture to the correct field
+    // (the one the AI was asking about, not the current field which may have changed)
+    const targetFieldId = this.askingFieldId;
+    if (targetFieldId) {
+      // Extract the relevant value from the conversational response
+      const extractedValue = extractFieldValue(transcript, targetFieldId);
+
+      // Capture the cleaned value to the form
+      this.captureValue(targetFieldId, extractedValue);
     }
 
     this.updateState({
@@ -494,6 +563,10 @@ export class VoiceCharterService {
     }
 
     const nextField = this.schema.fields[nextIndex];
+
+    // Update askingFieldId BEFORE changing state so transcripts go to the right field
+    this.askingFieldId = nextField.id;
+
     this.updateState({
       step: "asking",
       currentFieldIndex: nextIndex,
@@ -541,6 +614,9 @@ export class VoiceCharterService {
     const prevField = this.schema.fields[prevIndex];
     const existingValue = this.state.capturedValues.get(prevField.id);
 
+    // Update askingFieldId BEFORE changing state so transcripts go to the right field
+    this.askingFieldId = prevField.id;
+
     this.updateState({
       step: "asking",
       currentFieldIndex: prevIndex,
@@ -581,6 +657,9 @@ export class VoiceCharterService {
 
     const field = this.schema.fields[fieldIndex];
     const existingValue = this.state.capturedValues.get(fieldId);
+
+    // Update askingFieldId BEFORE changing state so transcripts go to the right field
+    this.askingFieldId = fieldId;
 
     this.updateState({
       step: "asking",
@@ -841,6 +920,7 @@ export class VoiceCharterService {
     this.schema = null;
     this.dataChannel = null;
     this.isInternalUpdate = false;
+    this.askingFieldId = null;
     this.emit({ type: "state_changed", state: this.getState() });
   }
 

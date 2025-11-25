@@ -769,14 +769,14 @@ export class VoiceCharterService {
 
     let previousState = conversationStoreApi.getState().state;
 
-    this.conversationStoreUnsubscribe = conversationStoreApi.subscribe((store) => {
+    this.conversationStoreUnsubscribe = conversationStoreApi.subscribe(() => {
       // Skip if this is an internal update from voice capture
       if (this.isInternalUpdate) {
-        previousState = store.state;
+        previousState = conversationStoreApi.getState().state;
         return;
       }
 
-      const currentState = store.state;
+      const currentState = conversationStoreApi.getState().state;
       if (!currentState || !previousState || !this.schema) {
         previousState = currentState;
         return;

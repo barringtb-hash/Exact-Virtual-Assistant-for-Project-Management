@@ -646,7 +646,14 @@ export class VoiceCharterService {
       return true;
     }
 
-    // Edit specific field
+    // Check for correction patterns like "No, project title should be X"
+    // or "Actually, the sponsor is Y"
+    const correctionHandled = this.handleCorrectionCommand(transcript);
+    if (correctionHandled) {
+      return true;
+    }
+
+    // Edit specific field (without value)
     const editMatch = transcript.match(/edit\s+(.+)/i);
     if (editMatch) {
       const fieldName = editMatch[1].toLowerCase();
@@ -658,6 +665,73 @@ export class VoiceCharterService {
       if (field) {
         this.goToField(field.id);
         return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Handle correction commands like "No, project title should be X"
+   * or "Actually, the sponsor is Y".
+   *
+   * These patterns indicate the user wants to correct a previously captured field.
+   */
+  private handleCorrectionCommand(transcript: string): boolean {
+    if (!this.schema || !this.dataChannel) {
+      return false;
+    }
+
+    // Patterns for corrections:
+    // "No, [field] should be [value]"
+    // "Actually, [field] is [value]"
+    // "Wait, [field] should be [value]"
+    // "Sorry, [field] is [value]"
+    // "[field] should be [value]"
+    // "The [field] is [value]"
+    // "Change [field] to [value]"
+    const correctionPatterns = [
+      /^(?:no|actually|wait|sorry|oops)[,.]?\s+(?:the\s+)?(.+?)\s+(?:should be|should have been|is|was|needs to be)\s+(.+)$/i,
+      /^(?:the\s+)?(.+?)\s+(?:should be|should have been|is actually|was actually)\s+(.+)$/i,
+      /^(?:change|update|set)\s+(?:the\s+)?(.+?)\s+to\s+(.+)$/i,
+      /^(?:make|put)\s+(?:the\s+)?(.+?)\s+(?:as\s+)?(.+)$/i,
+    ];
+
+    for (const pattern of correctionPatterns) {
+      const match = transcript.match(pattern);
+      if (match) {
+        const fieldNamePart = match[1].toLowerCase().trim();
+        const valuePart = match[2].trim();
+
+        // Find the field being referenced
+        const targetField = this.schema.fields.find(
+          (f) =>
+            f.label.toLowerCase().includes(fieldNamePart) ||
+            f.id.toLowerCase().includes(fieldNamePart.replace(/\s+/g, "_")) ||
+            fieldNamePart.includes(f.label.toLowerCase()) ||
+            fieldNamePart.includes(f.id.toLowerCase().replace(/_/g, " "))
+        );
+
+        if (targetField) {
+          // Extract clean value (apply filler removal)
+          const cleanValue = extractFieldValue(valuePart, targetField.id);
+
+          // Capture the corrected value to the target field
+          this.captureValue(targetField.id, cleanValue);
+
+          // Inform the AI about the correction
+          sendRealtimeEvent(
+            this.dataChannel,
+            createConversationItemEvent(
+              "user",
+              `[User corrected ${targetField.label} to: "${cleanValue}"] Acknowledge the correction briefly and continue asking about the current field.`
+            )
+          );
+          sendRealtimeEvent(this.dataChannel, createResponseEvent());
+
+          // Don't advance - stay on current field
+          return true;
+        }
       }
     }
 

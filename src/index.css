@@ -199,16 +199,38 @@ body {
   z-index: 50;
 }
 
+/* Floating card responsive scaling for Chat Assistant */
 @media (min-width: 768px) {
   .floating-card {
     position: fixed;
+    bottom: 0.75rem;
+    right: 0.75rem;
+    left: auto;
+    width: min(380px, calc(100vw - 1.5rem));
+    height: 50vh;
+    max-height: 60vh;
+    min-height: 320px;
+    z-index: 50;
+  }
+}
+
+/* Larger screens - medium laptops (1024px+) */
+@media (min-width: 1024px) {
+  .floating-card {
     bottom: 1rem;
     right: 1rem;
-    left: auto;
+    width: min(400px, calc(100vw - 2rem));
+    height: 55vh;
+    max-height: 70vh;
+  }
+}
+
+/* Large screens - desktops (1280px+) */
+@media (min-width: 1280px) {
+  .floating-card {
     width: 420px;
     height: 60vh;
     max-height: 75vh;
-    z-index: 50;
   }
 }
 

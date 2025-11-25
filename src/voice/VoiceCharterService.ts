@@ -346,9 +346,10 @@ const AI_RESPONSE_PATTERNS = [
   /who (?:is|will be|would be) (?:the|your)/i,
   /can you (?:tell me|give me|describe)/i,
   /(?:tell me|describe) (?:the|your|about)/i,
-  // AI field introduction patterns (e.g., "A project lead should be...")
-  // These catch when AI starts asking about a new field
-  /^(?:a|the)\s+(?:project\s+)?(?:name|title|sponsor|lead|date|vision|problem|description|scope|risk|assumption|milestone|metric|team)\s+(?:should|would|could|will|is)/i,
+  // AI field introduction patterns - only match "should/would/could/will" NOT "is"
+  // "The project title is X" = user declaring value (ALLOW)
+  // "A project lead should be..." = AI asking about field (BLOCK)
+  /^(?:a|the)\s+(?:project\s+)?(?:name|title|sponsor|lead|date|vision|problem|description|scope|risk|assumption|milestone|metric|team)\s+(?:should|would|could|will)\s+be/i,
   /^(?:and\s+)?(?:the\s+)?(?:project\s+)?(?:lead|sponsor|title|name)\s+(?:should|would|could|will)\s+be/i,
   // AI transitional phrases
   /let(?:'s| us) (?:move on|continue|go to|start|create)/i,
@@ -374,8 +375,6 @@ const AI_RESPONSE_PATTERNS = [
   /(?:shall|should) (?:i|we) (?:change|update)/i,
   /what would you like (?:to\s+)?(?:change|update)/i,
   /what(?:'s| is) the new/i,
-  // Field mention patterns (AI mentioning specific field names)
-  /(?:for|about|on)\s+(?:the\s+)?(?:project\s+)?(?:name|title|sponsor|lead|date|vision|problem|description|scope|risk|assumption|milestone|metric|team)/i,
   // AI offering help patterns
   /(?:i(?:'ll| will)|let me)\s+(?:help|assist|update|change)/i,
   /(?:happy|glad) to (?:help|assist|change)/i,

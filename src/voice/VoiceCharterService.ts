@@ -346,6 +346,10 @@ const AI_RESPONSE_PATTERNS = [
   /who (?:is|will be|would be) (?:the|your)/i,
   /can you (?:tell me|give me|describe)/i,
   /(?:tell me|describe) (?:the|your|about)/i,
+  // AI field introduction patterns (e.g., "A project lead should be...")
+  // These catch when AI starts asking about a new field
+  /^(?:a|the)\s+(?:project\s+)?(?:name|title|sponsor|lead|date|vision|problem|description|scope|risk|assumption|milestone|metric|team)\s+(?:should|would|could|will|is)/i,
+  /^(?:and\s+)?(?:the\s+)?(?:project\s+)?(?:lead|sponsor|title|name)\s+(?:should|would|could|will)\s+be/i,
   // AI transitional phrases
   /let(?:'s| us) (?:move on|continue|go to|start|create)/i,
   /(?:moving|going) (?:on|forward) to/i,
@@ -375,7 +379,53 @@ const AI_RESPONSE_PATTERNS = [
   // AI offering help patterns
   /(?:i(?:'ll| will)|let me)\s+(?:help|assist|update|change)/i,
   /(?:happy|glad) to (?:help|assist|change)/i,
+  // AI incomplete sentence patterns (trailing ellipsis or cut-off)
+  /should be\.{2,}$/i,
+  /would be\.{2,}$/i,
+  /will be\.{2,}$/i,
 ];
+
+/**
+ * Short words/phrases that should be ignored as noise.
+ * These are either user acknowledgments, farewells, or clipped AI speech.
+ */
+const NOISE_WORDS = [
+  /^bye\.?$/i,
+  /^goodbye\.?$/i,
+  /^thanks\.?$/i,
+  /^thank you\.?$/i,
+  /^okay\.?$/i,
+  /^ok\.?$/i,
+  /^yes\.?$/i,
+  /^no\.?$/i,
+  /^yep\.?$/i,
+  /^nope\.?$/i,
+  /^sure\.?$/i,
+  /^right\.?$/i,
+  /^got it\.?$/i,
+  /^uh huh\.?$/i,
+  /^mm hmm\.?$/i,
+  /^hmm\.?$/i,
+];
+
+/**
+ * Detects if a transcript is just noise (short acknowledgments, farewells, etc.)
+ * that should not be captured as field values.
+ *
+ * @param transcript - The transcript to check
+ * @returns true if the transcript is noise
+ */
+function isNoiseTranscript(transcript: string): boolean {
+  const normalized = transcript.trim();
+
+  for (const pattern of NOISE_WORDS) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 /**
  * Detects if a transcript appears to be from AI speech rather than user input.
@@ -742,6 +792,12 @@ export class VoiceCharterService {
       return;
     }
 
+    // Skip noise (short acknowledgments, farewells, etc.)
+    if (isNoiseTranscript(transcript)) {
+      console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
+      return;
+    }
+
     // Extra safeguard: if we just sent an AI prompt, be very skeptical
     // of any transcript that arrives. It's almost certainly the AI speaking.
     if (this.isWithinAICooldown()) {
@@ -928,6 +984,8 @@ export class VoiceCharterService {
    * or "Actually, the sponsor is Y".
    *
    * These patterns indicate the user wants to correct a previously captured field.
+   * IMPORTANT: If the field being referenced is the SAME as the current asking field,
+   * this is NOT a correction - it's a normal response.
    */
   private handleCorrectionCommand(transcript: string): boolean {
     console.log("[VoiceCharterService] handleCorrectionCommand:", transcript.substring(0, 50));
@@ -936,17 +994,10 @@ export class VoiceCharterService {
       return false;
     }
 
-    // Patterns for corrections:
-    // "No, [field] should be [value]"
-    // "Actually, [field] is [value]"
-    // "Wait, [field] should be [value]"
-    // "Sorry, [field] is [value]"
-    // "[field] should be [value]"
-    // "The [field] is [value]"
-    // "Change [field] to [value]"
+    // Patterns for corrections - these REQUIRE a correction indicator word
+    // (no, actually, wait, sorry, oops, change, update, set, make, put)
     const correctionPatterns = [
       /^(?:no|actually|wait|sorry|oops)[,.]?\s+(?:the\s+)?(.+?)\s+(?:should be|should have been|is|was|needs to be)\s+(.+)$/i,
-      /^(?:the\s+)?(.+?)\s+(?:should be|should have been|is actually|was actually)\s+(.+)$/i,
       /^(?:change|update|set)\s+(?:the\s+)?(.+?)\s+to\s+(.+)$/i,
       /^(?:make|put)\s+(?:the\s+)?(.+?)\s+(?:as\s+)?(.+)$/i,
     ];
@@ -967,6 +1018,13 @@ export class VoiceCharterService {
         );
 
         if (targetField) {
+          // If the target field is the SAME as the current asking field,
+          // this is NOT a correction - it's a normal response. Skip it.
+          if (targetField.id === this.askingFieldId) {
+            console.log("[VoiceCharterService] handleCorrectionCommand: Field matches askingFieldId, treating as normal response");
+            return false;
+          }
+
           // Extract clean value (apply filler removal)
           const cleanValue = extractFieldValue(valuePart, targetField.id);
           console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected", {

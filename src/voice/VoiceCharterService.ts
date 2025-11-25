@@ -187,24 +187,104 @@ function generateFieldPrompt(field: CharterFormField, isFirst: boolean): string 
  * These patterns capture phrases users naturally say when responding.
  */
 const CONVERSATIONAL_FILLERS = [
-  // Direct answers with fillers
-  /^(?:that(?:'s|'ll| will| would) be\s+)/i,
-  /^(?:it(?:'s|'ll| will| would) be\s+)/i,
-  /^(?:the (?:name|title|project|sponsor|lead) (?:is|will be|would be)\s+)/i,
-  /^(?:(?:i(?:'d| would) (?:say|call it|name it))\s+)/i,
-  /^(?:(?:let(?:'s| me) (?:call it|go with|say))\s+)/i,
-  /^(?:(?:we(?:'re| are) (?:calling it|going with))\s+)/i,
-  // Simple fillers at start
-  /^(?:um+|uh+|so+|well+|okay+|oh+|hmm+)[,.]?\s*/i,
-  /^(?:yeah|yes|sure|right)[,.]?\s*/i,
+  // Starting fillers and hedges
+  /^(?:i think|i guess|i suppose|i believe|i'd say)\s+/i,
+  /^(?:now,?|so,?|well,?|okay,?|oh,?|and,?|but,?)\s+/i,
+  /^(?:um+|uh+|hmm+|ah+|er+)[,.]?\s*/i,
+  /^(?:yeah|yes|sure|right|okay)[,.]?\s*/i,
+  // "It is/It's" patterns
+  /^(?:it\s*(?:is|'s|'ll|will|would)\s*(?:be\s*)?)/i,
+  // "That is/That's" patterns
+  /^(?:that\s*(?:is|'s|'ll|will|would)\s*(?:be\s*)?)/i,
+  // "The X is" patterns
+  /^(?:the\s+(?:name|title|project|sponsor|lead|date|answer)\s+(?:is|will be|would be)\s*)/i,
+  // "I'd say/call it" patterns
+  /^(?:i(?:'d| would)\s+(?:say|call it|name it|go with)\s*)/i,
+  // "Let's/Let me" patterns
+  /^(?:let(?:'s| me)\s+(?:call it|go with|say)\s*)/i,
+  // "We're calling it" patterns
+  /^(?:we(?:'re| are)\s+(?:calling it|going with)\s*)/i,
   // Trailing fillers
   /[,.]?\s*(?:i think|i guess|i suppose|probably|maybe)\.?$/i,
-  /[,.]?\s*(?:that's it|that's all|nothing else)\.?$/i,
+  /[,.]?\s*(?:that's it|that's all|nothing else|i believe)\.?$/i,
 ];
+
+/**
+ * Month name to number mapping for date parsing.
+ */
+const MONTH_MAP: Record<string, number> = {
+  january: 1, jan: 1,
+  february: 2, feb: 2,
+  march: 3, mar: 3,
+  april: 4, apr: 4,
+  may: 5,
+  june: 6, jun: 6,
+  july: 7, jul: 7,
+  august: 8, aug: 8,
+  september: 9, sep: 9, sept: 9,
+  october: 10, oct: 10,
+  november: 11, nov: 11,
+  december: 12, dec: 12,
+};
+
+/**
+ * Attempts to parse a spoken date into MM/DD/YYYY format.
+ * Handles formats like:
+ * - "January 15, 2025" or "January 15th 2025"
+ * - "15 January 2025"
+ * - "1/15/2025" or "01-15-2025"
+ *
+ * @param text - The spoken date text
+ * @returns Parsed date in YYYY-MM-DD format (for date inputs) or original text if parsing fails
+ */
+function parseSpokenDate(text: string): string {
+  const cleaned = text.toLowerCase().trim();
+
+  // Try "Month Day, Year" format (e.g., "January 15, 2025" or "January 15th 2025")
+  const monthDayYear = cleaned.match(
+    /^(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})$/
+  );
+  if (monthDayYear) {
+    const month = MONTH_MAP[monthDayYear[1]];
+    const day = parseInt(monthDayYear[2], 10);
+    const year = parseInt(monthDayYear[3], 10);
+    if (month && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try "Day Month Year" format (e.g., "15 January 2025")
+  const dayMonthYear = cleaned.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?\s+(\w+),?\s*(\d{4})$/
+  );
+  if (dayMonthYear) {
+    const day = parseInt(dayMonthYear[1], 10);
+    const month = MONTH_MAP[dayMonthYear[2]];
+    const year = parseInt(dayMonthYear[3], 10);
+    if (month && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try numeric formats like "1/15/2025" or "01-15-2025"
+  const numericDate = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (numericDate) {
+    const month = parseInt(numericDate[1], 10);
+    const day = parseInt(numericDate[2], 10);
+    const year = parseInt(numericDate[3], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Return original if no pattern matched
+  return text;
+}
 
 /**
  * Extracts the relevant field value from a conversational response.
  * Strips common fillers like "That'll be", "It's", "Um", etc.
+ * For date fields, attempts to parse spoken dates into proper format.
  *
  * @param transcript - The raw voice transcript
  * @param fieldId - The field being populated (for context-aware parsing)
@@ -213,13 +293,14 @@ const CONVERSATIONAL_FILLERS = [
 function extractFieldValue(transcript: string, fieldId: string): string {
   let value = transcript.trim();
 
-  // Apply filler patterns
-  for (const pattern of CONVERSATIONAL_FILLERS) {
-    value = value.replace(pattern, "");
+  // Apply filler patterns repeatedly until no more matches
+  let previousValue = "";
+  while (previousValue !== value) {
+    previousValue = value;
+    for (const pattern of CONVERSATIONAL_FILLERS) {
+      value = value.replace(pattern, "").trim();
+    }
   }
-
-  // Trim any remaining whitespace and punctuation
-  value = value.trim();
 
   // Remove trailing period if it looks like conversational ending
   if (value.endsWith(".") && !value.includes(". ")) {
@@ -229,6 +310,11 @@ function extractFieldValue(transcript: string, fieldId: string): string {
   // If we stripped too much (empty result), fall back to original
   if (!value) {
     return transcript.trim();
+  }
+
+  // For date fields, try to parse spoken dates
+  if (fieldId === "start_date" || fieldId === "end_date") {
+    value = parseSpokenDate(value);
   }
 
   return value;

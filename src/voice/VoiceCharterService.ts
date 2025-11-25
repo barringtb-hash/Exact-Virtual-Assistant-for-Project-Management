@@ -506,14 +506,44 @@ export class VoiceCharterService {
 
       // Capture the cleaned value to the form
       this.captureValue(targetFieldId, extractedValue);
+
+      // Advance to the next field so subsequent transcripts go to the right place
+      // (The AI will ask about the next field in its spoken response)
+      this.advanceAskingField();
     }
 
     this.updateState({
       step: "listening",
       pendingValue: transcript,
     });
+  }
 
-    // The AI will briefly acknowledge and move to the next field
+  /**
+   * Advance askingFieldId to the next field without sending AI messages.
+   * This is called after capturing a value so the next transcript goes to the right field.
+   * The AI handles asking about the next field in its spoken response.
+   */
+  private advanceAskingField(): void {
+    if (!this.schema) {
+      return;
+    }
+
+    const nextIndex = this.state.currentFieldIndex + 1;
+    if (nextIndex >= this.schema.fields.length) {
+      // All fields done
+      this.askingFieldId = null;
+      return;
+    }
+
+    const nextField = this.schema.fields[nextIndex];
+    this.askingFieldId = nextField.id;
+
+    this.updateState({
+      step: "asking",
+      currentFieldIndex: nextIndex,
+      currentFieldId: nextField.id,
+      pendingValue: null,
+    });
   }
 
   /**

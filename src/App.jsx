@@ -3329,9 +3329,11 @@ const resolveDocTypeForManualSync = useCallback(
 
         // If voice charter is active, let the service handle field-specific processing
         // Otherwise, use the default voice transcript handling
-        await handleVoiceTranscriptMessage(normalized.text, {
-          isFinal: normalized.isFinal,
-        });
+        if (voiceCharterService.getState().step === "idle") {
+          await handleVoiceTranscriptMessage(normalized.text, {
+            isFinal: normalized.isFinal,
+          });
+        }
       };
 
       dataChannel.onopen = () => {

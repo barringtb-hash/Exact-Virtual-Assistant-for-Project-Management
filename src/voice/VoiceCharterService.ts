@@ -19,6 +19,7 @@ import {
   conversationActions,
   conversationStoreApi,
 } from "../state/conversationStore";
+import { draftActions } from "../state/draftStore";
 
 /**
  * Voice charter session state.
@@ -103,12 +104,27 @@ The user can say these commands at any time:
 3. IMMEDIATELY move to the next field - the user can see the captured value on screen for visual confirmation
 4. If the user wants to change something, they will edit the field directly or say "go back"
 
+## Long-Form Content (Vision, Problem, Description)
+For these narrative fields, REFORMULATE the user's input into professional, cohesive statements:
+- Take their rough notes or conversational input
+- Transform it into polished, professional language
+- Maintain their intent and key points
+- Make it suitable for a formal project charter document
+Example: User says "we want to test blood for cancer detection"
+→ Capture as: "Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis"
+
+## List Fields (Scope In/Out, Risks, Assumptions, Milestones, Team)
+For list-type fields:
+- Ask the user to provide items one at a time OR as a comma-separated list
+- Format each item clearly
+- After capturing items, ask "Would you like to add more, or shall we move on?"
+- Format the response as a bulleted list separated by newlines
+
 ## Important Rules
 - Keep responses VERY short (1 sentence max) - NO verbal confirmation needed
 - The user sees all captured values in real-time on the form - they can visually confirm
 - Move quickly through fields - just acknowledge and ask the next question
 - For dates, briefly clarify format only if needed
-- For list fields (risks, assumptions, etc.), ask if they want to add more items
 - Trust that the user will correct any mistakes using the visual form
 
 ## Current State
@@ -330,6 +346,82 @@ function capitalizeName(name: string): string {
 const NAME_FIELDS = ["sponsor", "project_lead"];
 
 /**
+ * String list fields that should be converted to arrays for the draft store.
+ */
+const STRING_LIST_FIELDS = ["scope_in", "scope_out", "risks", "assumptions"];
+
+/**
+ * Object list fields that have structured entries.
+ */
+const OBJECT_LIST_FIELDS = ["milestones", "success_metrics", "core_team"];
+
+/**
+ * Child field IDs for each object list field.
+ */
+const OBJECT_LIST_CHILD_FIELDS: Record<string, string[]> = {
+  milestones: ["phase", "deliverable", "date"],
+  success_metrics: ["benefit", "metric", "system_of_measurement"],
+  core_team: ["name", "role", "responsibilities"],
+};
+
+/**
+ * Converts a voice transcript value to the appropriate format for the draft store.
+ * String list fields are split into arrays, object list fields are parsed.
+ *
+ * @param fieldId - The field being populated
+ * @param value - The voice transcript value
+ * @returns The value formatted for the draft store
+ */
+function formatValueForDraft(fieldId: string, value: string): unknown {
+  // For string list fields, split by newlines or commas
+  if (STRING_LIST_FIELDS.includes(fieldId)) {
+    // Split by newlines, commas, or bullet points
+    const items = value
+      .split(/[\r\n]+|,|•|[-*]\s/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return items.length > 0 ? items : [value.trim()].filter(Boolean);
+  }
+
+  // For object list fields, try to parse structured entries
+  if (OBJECT_LIST_FIELDS.includes(fieldId)) {
+    const childFields = OBJECT_LIST_CHILD_FIELDS[fieldId] || [];
+    // Split by newlines for separate entries
+    const lines = value.split(/[\r\n]+/).map((line) => line.trim()).filter(Boolean);
+
+    if (lines.length === 0) {
+      return [];
+    }
+
+    // Try to parse each line as an object entry
+    const entries = lines.map((line) => {
+      // Try splitting by "/" or "|" or ":" for structured fields
+      const parts = line.split(/\s*[/|]\s*|\s*:\s+/).map((p) => p.trim()).filter(Boolean);
+      const entry: Record<string, string> = {};
+
+      // Map parts to child fields
+      childFields.forEach((field, index) => {
+        if (parts[index]) {
+          entry[field] = parts[index];
+        }
+      });
+
+      // If we didn't get any structured mapping, use the first child field
+      if (Object.keys(entry).length === 0 && childFields[0]) {
+        entry[childFields[0]] = line;
+      }
+
+      return entry;
+    });
+
+    return entries.filter((e) => Object.keys(e).length > 0);
+  }
+
+  // For other fields, return as-is
+  return value;
+}
+
+/**
  * Patterns that indicate the transcript is from AI speech, not user input.
  * AI responses get transcribed by Whisper and fed back through processTranscript,
  * so we need to detect and skip them.
@@ -405,6 +497,15 @@ const NOISE_WORDS = [
   /^uh huh\.?$/i,
   /^mm hmm\.?$/i,
   /^hmm\.?$/i,
+  // Filler sounds and hesitations
+  /^uh+\.{0,3}$/i,
+  /^um+\.{0,3}$/i,
+  /^er+\.{0,3}$/i,
+  /^ah+\.{0,3}$/i,
+  /^oh+\.{0,3}$/i,
+  /^hm+\.{0,3}$/i,
+  /^\.{1,3}$/,  // Just dots/ellipsis
+  /^[.…]+$/,    // Ellipsis characters
 ];
 
 /**
@@ -1283,8 +1384,8 @@ export class VoiceCharterService {
   }
 
   /**
-   * Sync a captured value to the conversation store.
-   * This updates the CharterFieldSession form fields in real-time.
+   * Sync a captured value to the conversation store and draft store.
+   * This updates both the CharterFieldSession and PreviewEditable form fields in real-time.
    */
   private syncToConversationStore(fieldId: string, value: string): void {
     console.log("[VoiceCharterService] syncToConversationStore:", {
@@ -1306,6 +1407,15 @@ export class VoiceCharterService {
 
       // Validate the field (for visual feedback)
       conversationActions.dispatch({ type: "VALIDATE", fieldId });
+
+      // Also sync to draft store for PreviewEditable UI
+      // Format the value appropriately for list fields
+      const draftValue = formatValueForDraft(fieldId, value);
+      draftActions.mergeDraft({ [fieldId]: draftValue });
+      console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
+        isArray: Array.isArray(draftValue),
+        valueType: typeof draftValue,
+      });
     } catch (error) {
       console.error("[VoiceCharterService] Failed to sync to conversation store:", error);
     } finally {

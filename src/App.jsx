@@ -4849,10 +4849,10 @@ function Panel({ title, icon, right, children, className = "" }) {
 
   return (
     <div
-      className={`rounded-xl border shadow-sm ${
+      className={`border shadow-sm ${
         isOverlay
-          ? "flex flex-col border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
-          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-800/50"
+          ? "flex flex-col overflow-hidden rounded-2xl border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
+          : "rounded-xl border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-800/50"
       } ${className}`}
     >
       <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${

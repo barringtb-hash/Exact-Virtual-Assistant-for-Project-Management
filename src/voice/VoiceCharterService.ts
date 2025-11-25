@@ -339,6 +339,7 @@ const AI_RESPONSE_PATTERNS = [
   /^(?:got it|perfect|great|excellent|wonderful|okay|alright|sure|right)[.!,]?\s/i,
   /^(?:thanks|thank you)[.!,]?\s/i,
   /^(?:sounds good|that's great|that works)[.!,]?\s/i,
+  /^(?:absolutely|certainly|of course|no problem|noted|understood)[.!,]?\s/i,
   // AI question patterns (AI asking about fields)
   /what(?:'s| is| would be) (?:the|your)/i,
   /when (?:does|is|will|would) (?:the|your|this)/i,
@@ -354,6 +355,26 @@ const AI_RESPONSE_PATTERNS = [
   /you can (?:say|skip|tell)/i,
   // Combined acknowledgment + question (most common AI pattern)
   /^(?:got it|perfect|great|okay)[.!,]?\s+(?:and\s+)?(?:what|when|who|how|tell|can)/i,
+  // Navigation acknowledgment patterns (AI responding to "go back", etc.)
+  /(?:going|go) back to/i,
+  /(?:returning|return) to/i,
+  /let(?:'s| me) (?:go back|return|take you back)/i,
+  /back to (?:the\s+)?(?:previous|last)/i,
+  // Current value patterns (AI stating current field value)
+  /(?:the\s+)?current(?:ly|\s+value)?\s+(?:is|set to|reads)/i,
+  /it(?:'s| is) (?:currently|set to|now)/i,
+  /(?:that|this) (?:field\s+)?(?:is\s+)?(?:currently|set to)/i,
+  // Change/update question patterns (AI asking if user wants to change)
+  /(?:would|do) you (?:like|want) to (?:change|update|modify|edit)/i,
+  /(?:want|like) to (?:change|update|modify|edit)/i,
+  /(?:shall|should) (?:i|we) (?:change|update)/i,
+  /what would you like (?:to\s+)?(?:change|update)/i,
+  /what(?:'s| is) the new/i,
+  // Field mention patterns (AI mentioning specific field names)
+  /(?:for|about|on)\s+(?:the\s+)?(?:project\s+)?(?:name|title|sponsor|lead|date|vision|problem|description|scope|risk|assumption|milestone|metric|team)/i,
+  // AI offering help patterns
+  /(?:i(?:'ll| will)|let me)\s+(?:help|assist|update|change)/i,
+  /(?:happy|glad) to (?:help|assist|change)/i,
 ];
 
 /**
@@ -449,6 +470,17 @@ export class VoiceCharterService {
    * field before the transcript is fully processed.
    */
   private askingFieldId: string | null = null;
+  /**
+   * Timestamp of when we last sent an AI prompt.
+   * Used to be more aggressive in filtering transcripts that arrive
+   * shortly after (which are likely the AI's response, not user input).
+   */
+  private lastAIPromptTime: number = 0;
+  /**
+   * Cooldown period (in ms) after sending an AI prompt.
+   * Transcripts arriving within this window are assumed to be AI speech.
+   */
+  private static readonly AI_RESPONSE_COOLDOWN_MS = 3000;
 
   constructor() {
     this.state = this.createInitialState();
@@ -488,6 +520,25 @@ export class VoiceCharterService {
   private updateState(updates: Partial<VoiceCharterState>): void {
     this.state = { ...this.state, ...updates };
     this.emit({ type: "state_changed", state: this.getState() });
+  }
+
+  /**
+   * Send a prompt to the AI and trigger a response.
+   * Records the timestamp for filtering purposes.
+   */
+  private sendAIPrompt(message: string): void {
+    if (!this.dataChannel) return;
+    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", message));
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.lastAIPromptTime = Date.now();
+  }
+
+  /**
+   * Check if we're within the cooldown period after sending an AI prompt.
+   * Used to be more aggressive in filtering transcripts.
+   */
+  private isWithinAICooldown(): boolean {
+    return Date.now() - this.lastAIPromptTime < VoiceCharterService.AI_RESPONSE_COOLDOWN_MS;
   }
 
   /**
@@ -643,8 +694,7 @@ export class VoiceCharterService {
     context += generateFieldPrompt(firstField, true);
 
     // Send context and trigger AI to speak
-    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", context));
-    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.sendAIPrompt(context);
 
     this.updateState({ step: "asking" });
     return true;
@@ -663,6 +713,20 @@ export class VoiceCharterService {
     if (isAIResponse(transcript)) {
       console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
       return;
+    }
+
+    // Extra safeguard: if we just sent an AI prompt, be very skeptical
+    // of any transcript that arrives. It's almost certainly the AI speaking.
+    if (this.isWithinAICooldown()) {
+      // Only process if it's clearly a short user response (name, date, etc.)
+      // Long transcripts during cooldown are likely AI speech that slipped through
+      const isShortResponse = transcript.trim().length < 50;
+      const looksLikeValue = /^[\w\s\-'.,]+$/.test(transcript.trim());
+
+      if (!isShortResponse || !looksLikeValue) {
+        console.log("[VoiceCharterService] Skipping transcript during AI cooldown:", transcript.substring(0, 50));
+        return;
+      }
     }
 
     const normalizedTranscript = transcript.toLowerCase().trim();
@@ -840,14 +904,9 @@ export class VoiceCharterService {
           this.captureValue(targetField.id, cleanValue);
 
           // Inform the AI about the correction
-          sendRealtimeEvent(
-            this.dataChannel,
-            createConversationItemEvent(
-              "user",
-              `[User corrected ${targetField.label} to: "${cleanValue}"] Acknowledge the correction briefly and continue asking about the current field.`
-            )
+          this.sendAIPrompt(
+            `[User corrected ${targetField.label} to: "${cleanValue}"] Acknowledge the correction briefly and continue asking about the current field.`
           );
-          sendRealtimeEvent(this.dataChannel, createResponseEvent());
 
           // Don't advance - stay on current field
           return true;
@@ -886,11 +945,7 @@ export class VoiceCharterService {
 
     // Prompt AI to ask about next field
     const prompt = generateFieldPrompt(nextField, false);
-    sendRealtimeEvent(
-      this.dataChannel,
-      createConversationItemEvent("user", `[Move to next field: ${nextField.label}] ${prompt}`)
-    );
-    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.sendAIPrompt(`[Move to next field: ${nextField.label}] ${prompt}`);
 
     this.emit({
       type: "navigation",
@@ -910,14 +965,7 @@ export class VoiceCharterService {
     const prevIndex = this.state.currentFieldIndex - 1;
     if (prevIndex < 0) {
       // Already at first field, tell the user
-      sendRealtimeEvent(
-        this.dataChannel,
-        createConversationItemEvent(
-          "user",
-          "[User wants to go back but we're at the first field] Tell the user we're already at the first field."
-        )
-      );
-      sendRealtimeEvent(this.dataChannel, createResponseEvent());
+      this.sendAIPrompt("[User wants to go back but we're at the first field] Tell the user we're already at the first field.");
       return;
     }
 
@@ -942,8 +990,7 @@ export class VoiceCharterService {
       prompt += ` ${generateFieldPrompt(prevField, false)}`;
     }
 
-    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", prompt));
-    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.sendAIPrompt(prompt);
 
     this.emit({
       type: "navigation",
@@ -985,8 +1032,7 @@ export class VoiceCharterService {
       prompt += ` ${generateFieldPrompt(field, false)}`;
     }
 
-    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", prompt));
-    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.sendAIPrompt(prompt);
   }
 
   /**
@@ -1000,16 +1046,9 @@ export class VoiceCharterService {
 
     if (currentField.required) {
       // Can't skip required fields
-      if (this.dataChannel) {
-        sendRealtimeEvent(
-          this.dataChannel,
-          createConversationItemEvent(
-            "user",
-            `[User tried to skip ${currentField.label} but it's required] Tell the user this field is required and ask for the value.`
-          )
-        );
-        sendRealtimeEvent(this.dataChannel, createResponseEvent());
-      }
+      this.sendAIPrompt(
+        `[User tried to skip ${currentField.label} but it's required] Tell the user this field is required and ask for the value.`
+      );
       return;
     }
 
@@ -1145,14 +1184,9 @@ export class VoiceCharterService {
     if (this.dataChannel && this.state.step !== "idle" && this.state.step !== "completed") {
       const field = this.schema?.fields.find((f) => f.id === fieldId);
       if (field) {
-        sendRealtimeEvent(
-          this.dataChannel,
-          createConversationItemEvent(
-            "user",
-            `[User manually updated ${field.label} to: "${value}"] Acknowledge this update briefly and continue with the current field.`
-          )
+        this.sendAIPrompt(
+          `[User manually updated ${field.label} to: "${value}"] Acknowledge this update briefly and continue with the current field.`
         );
-        sendRealtimeEvent(this.dataChannel, createResponseEvent());
       }
     }
   }
@@ -1186,8 +1220,7 @@ export class VoiceCharterService {
     summary += `\nWe're currently on: ${this.getCurrentField()?.label ?? "unknown"}`;
     summary += "\nRead this summary to the user, then ask if they want to continue or edit any field.";
 
-    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", summary));
-    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    this.sendAIPrompt(summary);
   }
 
   /**
@@ -1196,16 +1229,9 @@ export class VoiceCharterService {
   complete(): void {
     this.updateState({ step: "completed" });
 
-    if (this.dataChannel) {
-      sendRealtimeEvent(
-        this.dataChannel,
-        createConversationItemEvent(
-          "user",
-          "[Charter complete] Thank the user and let them know their charter is ready for review. Keep it brief!"
-        )
-      );
-      sendRealtimeEvent(this.dataChannel, createResponseEvent());
-    }
+    this.sendAIPrompt(
+      "[Charter complete] Thank the user and let them know their charter is ready for review. Keep it brief!"
+    );
 
     this.emit({ type: "completed" });
   }
@@ -1231,6 +1257,7 @@ export class VoiceCharterService {
     this.dataChannel = null;
     this.isInternalUpdate = false;
     this.askingFieldId = null;
+    this.lastAIPromptTime = 0;
     this.emit({ type: "state_changed", state: this.getState() });
   }
 

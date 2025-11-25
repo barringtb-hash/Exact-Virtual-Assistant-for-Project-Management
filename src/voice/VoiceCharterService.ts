@@ -196,14 +196,22 @@ const CONVERSATIONAL_FILLERS = [
   /^(?:it\s*(?:is|'s|'ll|will|would)\s*(?:be\s*)?)/i,
   // "That is/That's" patterns
   /^(?:that\s*(?:is|'s|'ll|will|would)\s*(?:be\s*)?)/i,
-  // "The X is" patterns
-  /^(?:the\s+(?:name|title|project|sponsor|lead|date|answer)\s+(?:is|will be|would be)\s*)/i,
+  // "The [field] is" patterns - handle multi-word field names
+  /^(?:the\s+)?(?:project\s+)?(?:title|name)\s+(?:is|will be|would be|should be)\s*/i,
+  /^(?:the\s+)?(?:project\s+)?(?:sponsor)\s+(?:is|will be|would be|should be)\s*/i,
+  /^(?:the\s+)?(?:project\s+)?(?:lead)\s+(?:is|will be|would be|should be)\s*/i,
+  /^(?:the\s+)?(?:start|end)\s+(?:date)\s+(?:is|will be|would be|should be)\s*/i,
+  /^(?:the\s+)?(?:vision|problem|description)\s+(?:is|will be|would be|should be)\s*/i,
+  // Generic "the X is" for any remaining cases
+  /^the\s+\w+\s+(?:is|will be|would be)\s*/i,
   // "I'd say/call it" patterns
   /^(?:i(?:'d| would)\s+(?:say|call it|name it|go with)\s*)/i,
   // "Let's/Let me" patterns
   /^(?:let(?:'s| me)\s+(?:call it|go with|say)\s*)/i,
   // "We're calling it" patterns
   /^(?:we(?:'re| are)\s+(?:calling it|going with)\s*)/i,
+  // "For the X" patterns
+  /^(?:for\s+(?:the\s+)?(?:project\s+)?(?:title|name|sponsor|lead|date|vision|problem|description)[,]?\s*)/i,
   // Trailing fillers
   /[,.]?\s*(?:i think|i guess|i suppose|probably|maybe)\.?$/i,
   /[,.]?\s*(?:that's it|that's all|nothing else|i believe)\.?$/i,
@@ -282,9 +290,50 @@ function parseSpokenDate(text: string): string {
 }
 
 /**
+ * Capitalizes a name properly (e.g., "john doe" -> "John Doe").
+ * Handles common name patterns and edge cases.
+ *
+ * @param name - The name to capitalize
+ * @returns The properly capitalized name
+ */
+function capitalizeName(name: string): string {
+  if (!name) return name;
+
+  // Split by spaces and capitalize each word
+  return name
+    .split(/\s+/)
+    .map((word) => {
+      if (!word) return word;
+      // Handle hyphenated names (e.g., "mary-jane" -> "Mary-Jane")
+      if (word.includes("-")) {
+        return word
+          .split("-")
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join("-");
+      }
+      // Handle apostrophes in names (e.g., "o'brien" -> "O'Brien")
+      if (word.includes("'")) {
+        const parts = word.split("'");
+        return parts
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join("'");
+      }
+      // Standard capitalization
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+/**
+ * Fields that contain names and should have proper capitalization.
+ */
+const NAME_FIELDS = ["sponsor", "project_lead"];
+
+/**
  * Extracts the relevant field value from a conversational response.
  * Strips common fillers like "That'll be", "It's", "Um", etc.
  * For date fields, attempts to parse spoken dates into proper format.
+ * For name fields, applies proper capitalization.
  *
  * @param transcript - The raw voice transcript
  * @param fieldId - The field being populated (for context-aware parsing)
@@ -315,6 +364,11 @@ function extractFieldValue(transcript: string, fieldId: string): string {
   // For date fields, try to parse spoken dates
   if (fieldId === "start_date" || fieldId === "end_date") {
     value = parseSpokenDate(value);
+  }
+
+  // For name fields, apply proper capitalization
+  if (NAME_FIELDS.includes(fieldId)) {
+    value = capitalizeName(value);
   }
 
   return value;

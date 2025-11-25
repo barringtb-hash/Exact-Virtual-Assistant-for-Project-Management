@@ -1,10 +1,11 @@
 {
   "document_type": "charter",
-  "version": "2024.10",
+  "version": "2024.11",
   "fields": [
     {
       "id": "project_name",
       "label": "Project Title",
+      "question": "What's the official name of this project?",
       "help_text": "Use the user-provided project title or the first heading from the uploaded scope document.",
       "required": true,
       "type": "string",
@@ -17,6 +18,7 @@
     {
       "id": "sponsor",
       "label": "Sponsor",
+      "question": "Who is sponsoring this project?",
       "help_text": "Identify the primary project sponsor responsible for funding or approvals.",
       "required": true,
       "type": "string",
@@ -29,6 +31,7 @@
     {
       "id": "project_lead",
       "label": "Project Lead",
+      "question": "Who is leading the project day to day?",
       "help_text": "Capture the name of the project lead (usually the logged-in PM).",
       "required": true,
       "type": "string",
@@ -41,6 +44,7 @@
     {
       "id": "start_date",
       "label": "Start Date",
+      "question": "When does the project start? Use YYYY-MM-DD.",
       "help_text": "Parse the project start date in ISO format (YYYY-MM-DD).",
       "required": true,
       "type": "date",
@@ -53,6 +57,7 @@
     {
       "id": "end_date",
       "label": "End Date",
+      "question": "When should the project wrap up? Use YYYY-MM-DD.",
       "help_text": "Parse the project end date in ISO format (YYYY-MM-DD).",
       "required": true,
       "type": "date",
@@ -65,6 +70,7 @@
     {
       "id": "vision",
       "label": "Vision",
+      "question": "What vision or objective should this project achieve?",
       "help_text": "Summarize the high-level vision or objectives of the project.",
       "required": true,
       "type": "textarea",
@@ -77,6 +83,7 @@
     {
       "id": "problem",
       "label": "Problem",
+      "question": "Which problem or opportunity is the project addressing?",
       "help_text": "Describe the problem or opportunity addressed by the project.",
       "required": true,
       "type": "textarea",
@@ -89,6 +96,7 @@
     {
       "id": "description",
       "label": "Project Description",
+      "question": "Provide a short narrative that explains the project scope and goals.",
       "help_text": "Provide a brief narrative description of the project including context and goals.",
       "required": true,
       "type": "textarea",
@@ -101,6 +109,7 @@
     {
       "id": "scope_in",
       "label": "Scope In",
+      "question": "List the items that fall in scope. Separate entries with commas or new lines.",
       "help_text": "List the items explicitly included in scope.",
       "required": false,
       "type": "string_list",
@@ -113,6 +122,7 @@
     {
       "id": "scope_out",
       "label": "Scope Out",
+      "question": "List the items that are explicitly out of scope.",
       "help_text": "List the items explicitly excluded from scope.",
       "required": false,
       "type": "string_list",
@@ -125,6 +135,7 @@
     {
       "id": "risks",
       "label": "Risks",
+      "question": "Call out any known risks the project team is tracking.",
       "help_text": "Capture the known project risks.",
       "required": false,
       "type": "string_list",
@@ -137,6 +148,7 @@
     {
       "id": "assumptions",
       "label": "Assumptions",
+      "question": "Document the key assumptions you are making.",
       "help_text": "Capture any project assumptions.",
       "required": false,
       "type": "string_list",
@@ -149,6 +161,7 @@
     {
       "id": "milestones",
       "label": "Milestones",
+      "question": "Outline major milestones including the phase, deliverable, and target date for each entry.",
       "help_text": "List project milestones with associated phases, deliverables, and target dates.",
       "required": false,
       "type": "object_list",
@@ -181,6 +194,7 @@
     {
       "id": "success_metrics",
       "label": "Success Metrics",
+      "question": "Describe the success metrics, pairing the benefit, the metric, and the measurement system.",
       "help_text": "List success metrics with benefit, metric, and system of measurement.",
       "required": false,
       "type": "object_list",
@@ -213,6 +227,7 @@
     {
       "id": "core_team",
       "label": "Core Team",
+      "question": "List the core team members along with their role and responsibilities.",
       "help_text": "Create one entry per team member with name, role, and optional responsibilities.",
       "required": false,
       "type": "object_list",

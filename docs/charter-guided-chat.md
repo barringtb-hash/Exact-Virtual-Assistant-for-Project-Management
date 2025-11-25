@@ -33,5 +33,31 @@ Typing `done` after a completion summary hands control back to the base chat loo
 ## Validation behaviour
 User responses are validated before confirmation. `handleAnswer()` calls `validateField()` for the active schema entry, surfaces error messages from the validator, and only confirms the field once validation succeeds. Required prompts enforce non-empty answers, date fields check for ISO `YYYY-MM-DD` values, and longer text fields respect their `maxLength`. 【F:src/features/charter/guidedOrchestrator.ts†L380-L423】【F:src/features/charter/validate.ts†L1-L70】
 
+## Voice mode
+When the user activates voice input (via the microphone button) while the charter UI is active, a prompt appears asking "Would you like to create your charter using voice?" Confirming switches to voice charter mode, which uses the OpenAI Realtime API for a fully conversational experience.
+
+### Voice charter flow
+1. **Activation** – Clicking the mic while charter is active triggers `VoiceCharterPrompt`. Confirming initializes `VoiceCharterService` with the charter schema.
+2. **Conversation** – The AI asks for each field via speech. The user responds verbally, and transcripts are processed to capture field values.
+3. **Navigation** – Voice commands like "go back", "skip", "review", and "done" control navigation without buttons.
+4. **Completion** – After all fields are captured, the AI summarizes and asks for confirmation. Saying "done" finalizes the voice charter session.
+
+### Voice UI components
+- `VoiceCharterSession` – Voice-only overlay with pulsing mic indicator, speaker icon when AI speaks, progress bar, and captured values preview.
+- `VoiceCharterPrompt` – Modal asking whether to use voice mode for charter creation.
+
+### Voice state management
+The `voiceCharter` slice (`src/state/slices/voiceCharter.ts`) tracks:
+- `mode` – "inactive", "active", or "completed"
+- `aiSpeaking` – Whether the AI is currently speaking
+- `capturedValues` – Values captured during the voice session
+
+### Realtime API integration
+`VoiceCharterService` (`src/voice/VoiceCharterService.ts`) manages the conversation flow:
+- Generates system prompts with field context and examples
+- Processes transcripts to extract field values
+- Sends Realtime API events via `realtimeEvents.ts` helpers
+- Tracks current field index and captured values
+
 ## Cypress coverage
-`npm run e2e:guided` builds the app with the guided chat flags and executes the Cypress suite against the conversational flow. `npm run e2e:wizard` flips the wizard flags back on for regression coverage. Both scripts enable `VITE_CYPRESS_SAFE_MODE` so local storage persistence is disabled during test runs, keeping Cypress’ strict test isolation from leaking data between specs. The guided test (`cypress/e2e/charter_guided_chat.cy.ts`) exercises the start flow, validation message, navigation commands, and review summary. 【F:package.json†L9-L23】【F:cypress.config.ts†L8-L15】【F:src/utils/storage.js†L1-L63】【F:cypress/e2e/charter_guided_chat.cy.ts†L1-L115】
+`npm run e2e:guided` builds the app with the guided chat flags and executes the Cypress suite against the conversational flow. `npm run e2e:wizard` flips the wizard flags back on for regression coverage. Both scripts enable `VITE_CYPRESS_SAFE_MODE` so local storage persistence is disabled during test runs, keeping Cypress' strict test isolation from leaking data between specs. The guided test (`cypress/e2e/charter_guided_chat.cy.ts`) exercises the start flow, validation message, navigation commands, and review summary. 【F:package.json†L9-L23】【F:cypress.config.ts†L8-L15】【F:src/utils/storage.js†L1-L63】【F:cypress/e2e/charter_guided_chat.cy.ts†L1-L115】

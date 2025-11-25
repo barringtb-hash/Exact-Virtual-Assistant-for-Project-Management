@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] – Voice Charter Integration
+- **Feature:** Added voice-guided charter creation using OpenAI Realtime API for fully conversational experience.
+- **Feature:** When activating voice mode during charter creation, a prompt asks "Would you like to create your charter using voice?"
+- **Feature:** Voice charter mode enables hands-free field-by-field data collection with AI asking questions via speech.
+- **Feature:** Voice navigation commands: "go back", "skip", "review", "done" for hands-free navigation.
+- **Feature:** Visual feedback showing AI speaking state and listening state with animated indicators.
+- **Components:** Added `VoiceCharterSession` component for voice-only UI during charter creation.
+- **Components:** Added `VoiceCharterPrompt` modal for voice mode opt-in confirmation.
+- **Services:** Added `VoiceCharterService` to manage conversational charter flow via Realtime API.
+- **State:** Added `voiceCharter` slice for tracking voice charter mode and AI speaking state.
+- **Utilities:** Added `realtimeEvents.ts` helpers for sending OpenAI Realtime API events via data channel.
+
 ## [Unreleased] – Hide Charter Wizard; Guided Chat by Default
 - **Feature:** Charter Wizard UI is now hidden by default; users interact via guided chat (line-by-line field collection).
 - **Feature:** Added explicit "Auto-fill from uploaded scope" button that only appears when wizard mode is enabled.

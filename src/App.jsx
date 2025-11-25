@@ -4209,12 +4209,12 @@ const resolveDocTypeForManualSync = useCallback(
                       aria-pressed={chatOverlayPinned ? "true" : "false"}
                       aria-label={chatOverlayPinned ? "Dock chat" : "Pop out chat"}
                       onClick={() => setChatOverlayPinned((value) => !value)}
-                      className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200"
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-colors dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
                     >
-                      <span className="text-xs">{chatOverlayPinned ? "Dock" : "Pop out"}</span>
+                      {chatOverlayPinned ? "Dock" : "Pop out"}
                     </button>
                   )}
-                  <button className="p-1.5 rounded-lg hover:bg-white/60 border border-white/50 dark:hover:bg-slate-700/60 dark:border-slate-600/60 dark:text-slate-200">
+                  <button className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
                     <IconPlus className="h-4 w-4" />
                   </button>
                 </div>
@@ -4222,18 +4222,24 @@ const resolveDocTypeForManualSync = useCallback(
               className={chatIsOverlay ? "h-full flex flex-col" : undefined}
             >
               <div
-                className={`flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900 ${
-                  chatIsOverlay ? "flex-1 min-h-0" : "h-[520px]"
+                className={`flex flex-col overflow-hidden ${
+                  chatIsOverlay
+                    ? "flex-1 min-h-0"
+                    : "h-[520px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
                 }`}
               >
                 {chatIsOverlay && (
-                  <div className="md:hidden flex justify-center pt-2 pb-1">
-                    <div className="h-1.5 w-12 rounded-full bg-slate-300/80 dark:bg-slate-600/80" />
+                  <div className="md:hidden flex justify-center pt-2 pb-1 bg-slate-100 dark:bg-slate-800">
+                    <div className="h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-600" />
                   </div>
                 )}
                 <div
                   ref={messagesContainerRef}
-                  className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4 bg-white dark:bg-slate-900"
+                  className={`flex-1 overflow-y-auto min-h-0 p-4 space-y-4 ${
+                    chatIsOverlay
+                      ? "bg-slate-50 dark:bg-slate-900"
+                      : "bg-white dark:bg-slate-900"
+                  }`}
                 >
                   {visibleMessages.map((m) => (
                     <ChatBubble
@@ -4249,7 +4255,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
-                <div className="border-t border-slate-200 p-4 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+                <div className="border-t border-slate-200 p-4 bg-white dark:border-slate-700 dark:bg-slate-800">
                   {isGuidedChatEnabled && (
                     <div className="mb-3 space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4263,11 +4269,11 @@ const resolveDocTypeForManualSync = useCallback(
                           {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
                         </button>
                         {isGuidedSessionActive && guidedCurrentField ? (
-                          <span className="text-xs text-slate-500 dark:text-slate-300">
-                            Working on: {guidedCurrentField.label}
+                          <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                            Working on: <span className="text-indigo-600 dark:text-indigo-400">{guidedCurrentField.label}</span>
                             {guidedCurrentField.question
-                              ? ` — ${guidedCurrentField.question}`
-                              : ""}
+                              ? <span className="text-slate-500 dark:text-slate-400"> — {guidedCurrentField.question}</span>
+                              : null}
                           </span>
                         ) : null}
                       </div>
@@ -4675,18 +4681,28 @@ function ToastStack({ toasts, onDismiss }) {
 }
 
 function Panel({ title, icon, right, children, className = "" }) {
+  const isOverlay = className?.includes("h-full");
+
   return (
     <div
-      className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-800/50 ${className}`}
+      className={`rounded-xl border shadow-sm ${
+        isOverlay
+          ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
+          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-800/50"
+      } ${className}`}
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-700/50">
+      <div className={`flex items-center justify-between px-4 py-3 border-b ${
+        isOverlay
+          ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"
+          : "border-slate-100 dark:border-slate-700/50"
+      }`}>
         <div className="flex items-center gap-2">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
         </div>
         {right}
       </div>
-      <div className="p-4">
+      <div className={isOverlay ? "flex-1 flex flex-col min-h-0 overflow-hidden" : "p-4"}>
         {children}
       </div>
     </div>
@@ -4748,11 +4764,11 @@ function ChatBubble({ role, text, hideEmptySections }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`} data-testid={testId}>
       {isUser ? (
-        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-br-md px-4 py-3 text-[15px] leading-relaxed bg-indigo-600 text-white shadow-md dark:bg-indigo-500">
+        <div className="max-w-[90%] md:max-w-[75%] rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white shadow-md dark:bg-indigo-500">
           <span className="whitespace-pre-wrap">{safeText}</span>
         </div>
       ) : (
-        <div className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-bl-md px-4 py-3 text-[15px] leading-relaxed bg-white border border-slate-200 text-slate-800 shadow-sm dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100">
+        <div className="max-w-[90%] md:max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed bg-white border border-slate-200 text-slate-700 shadow-sm dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
           {!showStructured ? (
             <span className="whitespace-pre-wrap">{safeText}</span>
           ) : (

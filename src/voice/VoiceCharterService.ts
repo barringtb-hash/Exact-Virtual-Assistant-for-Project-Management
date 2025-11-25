@@ -359,8 +359,9 @@ const LONG_FORM_FIELDS = ["vision", "problem", "description"];
  */
 const AI_CAPTURE_PATTERNS = [
   /CAPTURE:\s*(.+?)(?:\.(?:\s|$)|$)/i,
-  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?[:\s]+[""]?([^""]+)[""]?/i,
-  /(?:Captured|Recording|Saving|Noted)(?: as)?[:\s]+[""]?([^""]+)[""]?/i,
+  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?:\s*[""]?([^""]+)[""]?/i,
+  // Require colon after Captured/Noted to avoid matching conversational "I captured the vision from your input"
+  /(?:Captured|Recording|Saving|Noted):\s*[""]?([^""]+)[""]?/i,
 ];
 
 /**
@@ -932,7 +933,12 @@ export class VoiceCharterService {
     // PRIORITY 0: Check for AI reformulation capture (CAPTURE: [text])
     // This MUST be checked BEFORE filtering AI responses, as the AI uses this to
     // submit reformulated text for long-form fields like vision, problem, description.
-    if (this.pendingReformulationFieldId) {
+    // Check if we're waiting for reformulation OR if current field is a long-form field
+    // (the AI might proactively provide CAPTURE based on context before user input)
+    const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
+    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+
+    if (shouldCheckForCapture) {
       // Try all capture patterns to find the reformulated text
       let reformulatedValue: string | null = null;
       for (const pattern of AI_CAPTURE_PATTERNS) {
@@ -944,48 +950,56 @@ export class VoiceCharterService {
       }
 
       if (reformulatedValue) {
+        // Determine which field to capture to: pending field takes priority, then current asking field
+        const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+
         console.log("[VoiceCharterService] processTranscript: AI reformulation captured", {
-          fieldId: this.pendingReformulationFieldId,
+          fieldId: targetFieldId,
           reformulatedValue: reformulatedValue.substring(0, 80),
+          hadPendingField: !!this.pendingReformulationFieldId,
         });
 
-        // Capture the AI's reformulated value
-        this.captureValue(this.pendingReformulationFieldId, reformulatedValue);
+        if (targetFieldId) {
+          // Capture the AI's reformulated value
+          this.captureValue(targetFieldId, reformulatedValue);
 
-        // Clear the pending state and advance
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.advanceAskingField();
+          // Clear the pending state and advance
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.advanceAskingField();
 
-        this.updateState({
-          step: "listening",
-          pendingValue: reformulatedValue,
-        });
-        return;
+          this.updateState({
+            step: "listening",
+            pendingValue: reformulatedValue,
+          });
+          return;
+        }
       }
 
       // Check if AI has moved on to the next field without providing CAPTURE
-      // If so, use the raw user input as fallback
-      const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((pattern) => pattern.test(transcript));
-      if (aiMovedOn && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] processTranscript: AI moved on without CAPTURE, using raw input as fallback", {
-          fieldId: this.pendingReformulationFieldId,
-          rawValue: this.pendingReformulationRawValue.substring(0, 80),
-        });
+      // If so, use the raw user input as fallback (only if we had pending reformulation)
+      if (this.pendingReformulationFieldId) {
+        const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((pattern) => pattern.test(transcript));
+        if (aiMovedOn && this.pendingReformulationRawValue) {
+          console.log("[VoiceCharterService] processTranscript: AI moved on without CAPTURE, using raw input as fallback", {
+            fieldId: this.pendingReformulationFieldId,
+            rawValue: this.pendingReformulationRawValue.substring(0, 80),
+          });
 
-        // Capture the raw user input as fallback
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+          // Capture the raw user input as fallback
+          this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
 
-        // Clear the pending state and advance
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.advanceAskingField();
+          // Clear the pending state and advance
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.advanceAskingField();
 
-        this.updateState({
-          step: "listening",
-          pendingValue: transcript,
-        });
-        return;
+          this.updateState({
+            step: "listening",
+            pendingValue: transcript,
+          });
+          return;
+        }
       }
     }
 

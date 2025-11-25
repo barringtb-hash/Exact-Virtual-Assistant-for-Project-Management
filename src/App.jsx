@@ -3319,6 +3319,16 @@ const resolveDocTypeForManualSync = useCallback(
             voiceCharterActions.setAiSpeaking(false);
           }
 
+          // Handle AI transcript completion in voice charter mode
+          // This is needed to detect CAPTURE: patterns for long-form field reformulation
+          if (rawEvent.type === "response.audio_transcript.done" && voiceCharterService.getState().step !== "idle") {
+            const aiTranscript = rawEvent.transcript || "";
+            if (aiTranscript.trim()) {
+              console.log("[App] Processing AI transcript for CAPTURE detection:", aiTranscript.substring(0, 80));
+              voiceCharterService.processTranscript(aiTranscript);
+            }
+          }
+
           // Handle user transcript in voice charter mode
           if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
             const transcript = rawEvent.transcript || "";

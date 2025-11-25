@@ -1073,13 +1073,27 @@ export class VoiceCharterService {
       if (LONG_FORM_FIELDS.includes(targetFieldId)) {
         // Extract the value from the user's response (strip conversational fillers)
         const rawValue = extractFieldValue(transcript, targetFieldId);
-        console.log("[VoiceCharterService] processTranscript: Long-form field, waiting for AI reformulation", {
-          targetFieldId,
-          rawTranscript: transcript.substring(0, 50),
-          extractedRawValue: rawValue.substring(0, 50),
-        });
-        this.pendingReformulationFieldId = targetFieldId;
-        this.pendingReformulationRawValue = rawValue;
+
+        // Accumulate transcript chunks if we're still waiting for the same field
+        // (user may speak in multiple sentences/phrases)
+        if (this.pendingReformulationFieldId === targetFieldId && this.pendingReformulationRawValue) {
+          // Append new chunk to existing value with a space separator
+          this.pendingReformulationRawValue = this.pendingReformulationRawValue + " " + rawValue;
+          console.log("[VoiceCharterService] processTranscript: Long-form field, accumulating transcript", {
+            targetFieldId,
+            newChunk: rawValue.substring(0, 50),
+            accumulatedValue: this.pendingReformulationRawValue.substring(0, 80),
+          });
+        } else {
+          // First chunk for this field
+          this.pendingReformulationFieldId = targetFieldId;
+          this.pendingReformulationRawValue = rawValue;
+          console.log("[VoiceCharterService] processTranscript: Long-form field, waiting for AI reformulation", {
+            targetFieldId,
+            rawTranscript: transcript.substring(0, 50),
+            extractedRawValue: rawValue.substring(0, 50),
+          });
+        }
 
         // Don't advance yet - wait for AI to say "CAPTURE: [text]"
         this.updateState({

@@ -15,6 +15,10 @@ import {
   sendRealtimeEvent,
   type SessionConfig,
 } from "./realtimeEvents";
+import {
+  conversationActions,
+  conversationStoreApi,
+} from "../state/conversationStore";
 
 /**
  * Voice charter session state.
@@ -78,7 +82,7 @@ function generateSystemPrompt(schema: CharterFormSchema): string {
 
 ## Your Role
 - Ask ONE question at a time for each charter field
-- Listen to the user's response and confirm what you heard
+- Listen to the user's response and acknowledge it briefly
 - Be conversational, natural, and concise
 - Keep your responses SHORT - this is a voice conversation
 
@@ -95,16 +99,17 @@ The user can say these commands at any time:
 
 ## Conversation Flow
 1. Ask for the current field value in a friendly, conversational way
-2. When the user responds, repeat back what you heard for confirmation
-3. If confirmed, move to the next field
-4. If the user wants to change it, ask them to provide the correct value
+2. When the user responds, briefly acknowledge (e.g., "Got it!" or "Perfect!")
+3. IMMEDIATELY move to the next field - the user can see the captured value on screen for visual confirmation
+4. If the user wants to change something, they will edit the field directly or say "go back"
 
 ## Important Rules
-- Keep responses under 2-3 sentences
-- Always confirm values before moving on
-- For dates, clarify the format (Month Day, Year works)
+- Keep responses VERY short (1 sentence max) - NO verbal confirmation needed
+- The user sees all captured values in real-time on the form - they can visually confirm
+- Move quickly through fields - just acknowledge and ask the next question
+- For dates, briefly clarify format only if needed
 - For list fields (risks, assumptions, etc.), ask if they want to add more items
-- Be patient and helpful if the user needs to correct something
+- Trust that the user will correct any mistakes using the visual form
 
 ## Current State
 You will receive context about the current field and any previously captured values.
@@ -185,6 +190,8 @@ export class VoiceCharterService {
   private dataChannel: RTCDataChannel | null = null;
   private state: VoiceCharterState;
   private listeners: Set<EventListener> = new Set();
+  private conversationStoreUnsubscribe: (() => void) | null = null;
+  private isInternalUpdate: boolean = false;
 
   constructor() {
     this.state = this.createInitialState();
@@ -298,6 +305,24 @@ export class VoiceCharterService {
       error: null,
     });
 
+    // Ensure conversation store session exists and sync existing values
+    conversationActions.ensureSession(schema);
+    if (existingValues) {
+      for (const [fieldId, value] of Object.entries(existingValues)) {
+        if (value) {
+          this.isInternalUpdate = true;
+          try {
+            conversationActions.dispatch({ type: "CAPTURE", fieldId, value });
+          } finally {
+            this.isInternalUpdate = false;
+          }
+        }
+      }
+    }
+
+    // Subscribe to conversation store for two-way sync
+    this.subscribeToConversationStore();
+
     // Configure the Realtime session with voice charter instructions
     const config: SessionConfig = {
       instructions: generateSystemPrompt(schema),
@@ -407,13 +432,19 @@ export class VoiceCharterService {
       return;
     }
 
-    // Otherwise, treat as field value input
+    // Treat as field value input - capture immediately for real-time display
+    const currentField = this.getCurrentField();
+    if (currentField) {
+      // Capture the value immediately so it appears in the form
+      this.captureValue(currentField.id, transcript);
+    }
+
     this.updateState({
       step: "listening",
       pendingValue: transcript,
     });
 
-    // The AI will handle confirmation via its conversational flow
+    // The AI will briefly acknowledge and move to the next field
   }
 
   /**
@@ -599,6 +630,7 @@ export class VoiceCharterService {
 
   /**
    * Capture and confirm a field value.
+   * Also syncs the value to the conversation store for real-time form updates.
    */
   captureValue(fieldId: string, value: string): void {
     const captured: CapturedFieldValue = {
@@ -615,7 +647,125 @@ export class VoiceCharterService {
       pendingValue: null,
     });
 
+    // Sync to conversation store for real-time form field updates
+    this.syncToConversationStore(fieldId, value);
+
     this.emit({ type: "field_captured", fieldId, value });
+  }
+
+  /**
+   * Sync a captured value to the conversation store.
+   * This updates the CharterFieldSession form fields in real-time.
+   */
+  private syncToConversationStore(fieldId: string, value: string): void {
+    try {
+      // Mark as internal update to avoid feedback loops
+      this.isInternalUpdate = true;
+
+      // Ensure session exists with current schema
+      if (this.schema) {
+        conversationActions.ensureSession(this.schema);
+      }
+
+      // Dispatch capture event to update the form field
+      conversationActions.dispatch({ type: "CAPTURE", fieldId, value });
+
+      // Validate the field (for visual feedback)
+      conversationActions.dispatch({ type: "VALIDATE", fieldId });
+    } catch (error) {
+      console.error("[VoiceCharterService] Failed to sync to conversation store:", error);
+    } finally {
+      this.isInternalUpdate = false;
+    }
+  }
+
+  /**
+   * Subscribe to conversation store changes for two-way sync.
+   * When the user manually edits a field in CharterFieldSession,
+   * the voice charter service is informed.
+   */
+  private subscribeToConversationStore(): void {
+    // Unsubscribe from any existing subscription
+    this.unsubscribeFromConversationStore();
+
+    let previousState = conversationStoreApi.getState().state;
+
+    this.conversationStoreUnsubscribe = conversationStoreApi.subscribe((store) => {
+      // Skip if this is an internal update from voice capture
+      if (this.isInternalUpdate) {
+        previousState = store.state;
+        return;
+      }
+
+      const currentState = store.state;
+      if (!currentState || !previousState || !this.schema) {
+        previousState = currentState;
+        return;
+      }
+
+      // Check for field value changes
+      for (const fieldId of currentState.fieldOrder) {
+        const prevField = previousState.fields[fieldId];
+        const currField = currentState.fields[fieldId];
+
+        if (!prevField || !currField) continue;
+
+        // Detect if the value changed externally (user manual edit)
+        if (currField.value !== prevField.value && currField.value) {
+          this.handleExternalFieldChange(fieldId, currField.value);
+        }
+      }
+
+      previousState = currentState;
+    });
+  }
+
+  /**
+   * Unsubscribe from conversation store.
+   */
+  private unsubscribeFromConversationStore(): void {
+    if (this.conversationStoreUnsubscribe) {
+      this.conversationStoreUnsubscribe();
+      this.conversationStoreUnsubscribe = null;
+    }
+  }
+
+  /**
+   * Handle external field changes (from user editing the form directly).
+   * Updates the internal state and optionally informs the AI.
+   */
+  private handleExternalFieldChange(fieldId: string, value: string): void {
+    // Update internal captured values
+    const captured: CapturedFieldValue = {
+      fieldId,
+      value,
+      confirmedAt: Date.now(),
+    };
+
+    const newCapturedValues = new Map(this.state.capturedValues);
+    newCapturedValues.set(fieldId, captured);
+
+    this.updateState({
+      capturedValues: newCapturedValues,
+    });
+
+    // Emit event for external change
+    this.emit({ type: "field_captured", fieldId, value });
+
+    // Inform the AI about the manual edit if we're in an active session
+    if (this.dataChannel && this.state.step !== "idle" && this.state.step !== "completed") {
+      const field = this.schema?.fields.find((f) => f.id === fieldId);
+      if (field) {
+        sendRealtimeEvent(
+          this.dataChannel,
+          createConversationItemEvent(
+            "user",
+            `[User manually updated ${field.label} to: "${value}"] Acknowledge this update briefly and continue with the current field.`
+          )
+        );
+        sendRealtimeEvent(this.dataChannel, createResponseEvent());
+      }
+    }
   }
 
   /**
@@ -686,9 +836,11 @@ export class VoiceCharterService {
    * Reset the service state.
    */
   reset(): void {
+    this.unsubscribeFromConversationStore();
     this.state = this.createInitialState();
     this.schema = null;
     this.dataChannel = null;
+    this.isInternalUpdate = false;
     this.emit({ type: "state_changed", state: this.getState() });
   }
 
@@ -696,6 +848,7 @@ export class VoiceCharterService {
    * Clean up resources.
    */
   destroy(): void {
+    this.unsubscribeFromConversationStore();
     this.reset();
     this.listeners.clear();
   }

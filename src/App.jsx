@@ -52,7 +52,15 @@ import {
   pointerSetToPathSet,
 } from "./utils/jsonPointer.js";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
-import { conversationActions, useConversationState } from "./state/conversationStore.ts";
+import VoiceCharterSession from "./components/VoiceCharterSession.tsx";
+import { conversationActions, useConversationState, useConversationSchema } from "./state/conversationStore.ts";
+import {
+  voiceCharterActions,
+  useVoiceCharterMode,
+  useAiSpeaking,
+} from "./state/slices/voiceCharter.ts";
+import { voiceCharterService } from "./voice/VoiceCharterService.ts";
+import { sendRealtimeEvent, createSessionUpdateEvent, createConversationItemEvent, createResponseEvent } from "./voice/realtimeEvents.ts";
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 import { createInitialGuidedState } from "./features/charter/guidedState.ts";
 import { SYSTEM_PROMPT as CHARTER_GUIDED_SYSTEM_PROMPT } from "./features/charter/prompts.ts";
@@ -830,6 +838,7 @@ export default function ExactVirtualAssistantPM() {
   const voiceTranscripts = useTranscript();
   const listening = voiceStatus === "listening";
   const conversationState = useConversationState();
+  const conversationSchema = useConversationSchema();
   const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
   const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
@@ -1398,6 +1407,9 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rtcState, setRtcState] = useState("idle");
+  const voiceCharterMode = useVoiceCharterMode();
+  const aiSpeaking = useAiSpeaking();
+  const isVoiceCharterActive = voiceCharterMode === "active";
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3288,10 +3300,33 @@ const resolveDocTypeForManualSync = useCallback(
       dataRef.current = dataChannel;
 
       dataChannel.onmessage = async (event) => {
+        // Parse the raw event to detect event types
+        const rawEvent = parseRealtimeEvent(event?.data);
+
+        // Handle AI speaking state detection
+        if (rawEvent?.type) {
+          if (rawEvent.type === "response.audio.delta" || rawEvent.type === "response.audio_transcript.delta") {
+            voiceCharterActions.setAiSpeaking(true);
+          } else if (rawEvent.type === "response.audio.done" || rawEvent.type === "response.audio_transcript.done" || rawEvent.type === "response.done") {
+            voiceCharterActions.setAiSpeaking(false);
+          }
+
+          // Handle user transcript in voice charter mode
+          if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
+            const transcript = rawEvent.transcript || "";
+            if (transcript.trim()) {
+              voiceCharterService.processTranscript(transcript);
+            }
+          }
+        }
+
         const normalized = normalizeRealtimeTranscriptEvent(event?.data);
         if (!normalized || !normalized.text) {
           return;
         }
+
+        // If voice charter is active, let the service handle field-specific processing
+        // Otherwise, use the default voice transcript handling
         await handleVoiceTranscriptMessage(normalized.text, {
           isFinal: normalized.isFinal,
         });
@@ -3341,7 +3376,63 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  
+  // Start voice charter mode when realtime goes live and charter wizard is visible
+  useEffect(() => {
+    if (rtcState === "live" && SHOULD_SHOW_CHARTER_WIZARD && dataRef.current) {
+      // Only start if not already active
+      if (voiceCharterMode === "inactive") {
+        const schema = conversationSchema;
+        if (schema && schema.document_type === "charter") {
+          // Get existing draft values to seed the voice charter
+          const existingValues = {};
+          if (charterDraftRef.current) {
+            for (const [key, value] of Object.entries(charterDraftRef.current)) {
+              if (typeof value === "string" && value.trim()) {
+                existingValues[key] = value;
+              }
+            }
+          }
+
+          // Initialize and start voice charter service
+          const initialized = voiceCharterService.initialize(
+            schema,
+            dataRef.current,
+            existingValues
+          );
+
+          if (initialized) {
+            voiceCharterActions.start();
+            // Small delay to let the session configure before starting
+            setTimeout(() => {
+              voiceCharterService.start();
+            }, 500);
+          }
+        }
+      }
+    }
+
+    // Clean up voice charter when realtime disconnects
+    if (rtcState !== "live" && voiceCharterMode === "active") {
+      voiceCharterActions.exit();
+      voiceCharterService.reset();
+    }
+  }, [rtcState, voiceCharterMode, conversationSchema]);
+
+  // Subscribe to voice charter events for field capture
+  useEffect(() => {
+    const unsubscribe = voiceCharterService.subscribe((event) => {
+      if (event.type === "field_confirmed" || event.type === "field_captured") {
+        // Update the draft with the captured value
+        const values = { [event.fieldId]: event.value };
+        applyVoiceExtractionToDraft(values);
+        voiceCharterActions.mergeCapturedValues(values);
+      }
+    });
+
+    return unsubscribe;
+  }, [applyVoiceExtractionToDraft]);
+
+
   const handleCommandFromText = useCallback(
     async (
       rawText,
@@ -4309,7 +4400,28 @@ const resolveDocTypeForManualSync = useCallback(
                       ) : null}
                     </div>
                   )}
-                  {SHOULD_SHOW_CHARTER_WIZARD && <CharterFieldSession className="mb-3" />}
+                  {SHOULD_SHOW_CHARTER_WIZARD && (
+                    isVoiceCharterActive ? (
+                      <VoiceCharterSession
+                        className="mb-3"
+                        visible={true}
+                        aiSpeaking={aiSpeaking}
+                        onComplete={(values) => {
+                          // Apply captured values to the draft
+                          if (values && Object.keys(values).length > 0) {
+                            applyVoiceExtractionToDraft(values);
+                          }
+                          voiceCharterActions.complete(values);
+                        }}
+                        onExit={() => {
+                          voiceCharterActions.exit();
+                          voiceCharterService.reset();
+                        }}
+                      />
+                    ) : (
+                      <CharterFieldSession className="mb-3" />
+                    )
+                  )}
                   {SHOULD_SHOW_CHARTER_WIZARD && AUTO_EXTRACTION_ENABLED && (attachments.length > 0 || messages.length > 0) && (
                     <div className="mb-3">
                       <button
@@ -4865,6 +4977,59 @@ async function callLLM(
   }
 }
 
+
+/**
+ * Parse a raw Realtime API event to extract the event type and data.
+ * This is used for detecting AI speaking state and routing events.
+ */
+function parseRealtimeEvent(rawPayload) {
+  if (rawPayload == null) {
+    return null;
+  }
+
+  let payload = rawPayload;
+
+  // Handle nested data property
+  if (typeof payload === "object" && payload !== null && "data" in payload && typeof payload.data === "string") {
+    payload = payload.data;
+  }
+
+  // Handle ArrayBuffer
+  if (payload instanceof ArrayBuffer) {
+    try {
+      payload = new TextDecoder().decode(payload);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Skip Blob payloads
+  if (typeof Blob !== "undefined" && payload instanceof Blob) {
+    return null;
+  }
+
+  // Try to parse as JSON
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  // Already an object
+  if (typeof payload === "object" && payload !== null) {
+    return payload;
+  }
+
+  return null;
+}
 
 function normalizeRealtimeTranscriptEvent(rawPayload) {
   if (rawPayload == null) {

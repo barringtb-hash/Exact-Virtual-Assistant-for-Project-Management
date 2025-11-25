@@ -1,0 +1,705 @@
+/**
+ * VoiceCharterService - Manages voice-based charter conversation flow.
+ *
+ * This service coordinates between the OpenAI Realtime API and the charter
+ * form, enabling a fully conversational voice-first charter creation experience.
+ *
+ * @module voice/VoiceCharterService
+ */
+
+import type { CharterFormField, CharterFormSchema } from "../features/charter/utils/formSchema";
+import {
+  createSessionUpdateEvent,
+  createConversationItemEvent,
+  createResponseEvent,
+  sendRealtimeEvent,
+  type SessionConfig,
+} from "./realtimeEvents";
+
+/**
+ * Voice charter session state.
+ */
+export type VoiceCharterStep =
+  | "idle"
+  | "initializing"
+  | "asking"
+  | "listening"
+  | "confirming"
+  | "navigating"
+  | "completed";
+
+/**
+ * Captured field value from voice input.
+ */
+export interface CapturedFieldValue {
+  fieldId: string;
+  value: string;
+  confirmedAt?: number;
+}
+
+/**
+ * Voice charter session state.
+ */
+export interface VoiceCharterState {
+  step: VoiceCharterStep;
+  currentFieldIndex: number;
+  currentFieldId: string | null;
+  capturedValues: Map<string, CapturedFieldValue>;
+  pendingValue: string | null;
+  error: string | null;
+}
+
+/**
+ * Event emitted by the service.
+ */
+export type VoiceCharterEvent =
+  | { type: "state_changed"; state: VoiceCharterState }
+  | { type: "field_captured"; fieldId: string; value: string }
+  | { type: "field_confirmed"; fieldId: string; value: string }
+  | { type: "navigation"; direction: "next" | "previous"; fieldId: string }
+  | { type: "completed" }
+  | { type: "error"; message: string };
+
+type EventListener = (event: VoiceCharterEvent) => void;
+
+/**
+ * Generates the system prompt for the voice charter assistant.
+ */
+function generateSystemPrompt(schema: CharterFormSchema): string {
+  const fieldDescriptions = schema.fields
+    .map((field, index) => {
+      const required = field.required ? "(required)" : "(optional)";
+      const example = field.example ? `Example: "${field.example}"` : "";
+      return `${index + 1}. ${field.label} ${required}: ${field.help_text || ""}. ${example}`;
+    })
+    .join("\n");
+
+  return `You are a helpful project charter assistant guiding the user through creating a project charter via voice conversation.
+
+## Your Role
+- Ask ONE question at a time for each charter field
+- Listen to the user's response and confirm what you heard
+- Be conversational, natural, and concise
+- Keep your responses SHORT - this is a voice conversation
+
+## Charter Fields (in order)
+${fieldDescriptions}
+
+## Navigation Commands
+The user can say these commands at any time:
+- "Go back" or "Previous field" - Return to the previous field
+- "Edit [field name]" - Jump to a specific field (e.g., "Edit project title")
+- "Skip" or "Skip this field" - Skip the current field (only for optional fields)
+- "Review" or "Show progress" - List all captured values
+- "Done" or "Finish" - Complete the charter
+
+## Conversation Flow
+1. Ask for the current field value in a friendly, conversational way
+2. When the user responds, repeat back what you heard for confirmation
+3. If confirmed, move to the next field
+4. If the user wants to change it, ask them to provide the correct value
+
+## Important Rules
+- Keep responses under 2-3 sentences
+- Always confirm values before moving on
+- For dates, clarify the format (Month Day, Year works)
+- For list fields (risks, assumptions, etc.), ask if they want to add more items
+- Be patient and helpful if the user needs to correct something
+
+## Current State
+You will receive context about the current field and any previously captured values.
+Start by greeting the user briefly, then ask about the first field.`;
+}
+
+/**
+ * Generates a prompt to ask about a specific field.
+ */
+function generateFieldPrompt(field: CharterFormField, isFirst: boolean): string {
+  const greeting = isFirst
+    ? "Let's create your project charter. "
+    : "";
+
+  const required = field.required
+    ? "This is a required field."
+    : "This field is optional - you can skip it if you'd like.";
+
+  let question = "";
+  switch (field.id) {
+    case "project_name":
+      question = "What's the name of your project?";
+      break;
+    case "sponsor":
+      question = "Who is the project sponsor?";
+      break;
+    case "project_lead":
+      question = "Who is the project lead?";
+      break;
+    case "start_date":
+      question = "When does the project start? You can say something like January fifteenth, twenty twenty-five.";
+      break;
+    case "end_date":
+      question = "And when is the target end date?";
+      break;
+    case "vision":
+      question = "What's the vision for this project? What do you hope to achieve?";
+      break;
+    case "problem":
+      question = "What problem or opportunity does this project address?";
+      break;
+    case "description":
+      question = "Can you give me a brief description of the project?";
+      break;
+    case "scope_in":
+      question = "What's included in the project scope? Tell me the key items.";
+      break;
+    case "scope_out":
+      question = "Is there anything explicitly out of scope?";
+      break;
+    case "risks":
+      question = "What are the main risks you see for this project?";
+      break;
+    case "assumptions":
+      question = "What assumptions are you making for this project?";
+      break;
+    case "milestones":
+      question = "What are the key milestones? Tell me the phase, deliverable, and target date for each.";
+      break;
+    case "success_metrics":
+      question = "How will you measure success? What are the key metrics?";
+      break;
+    case "core_team":
+      question = "Who's on the core team? Tell me their names and roles.";
+      break;
+    default:
+      question = `What would you like to enter for ${field.label}?`;
+  }
+
+  return `${greeting}${question} ${required}`;
+}
+
+/**
+ * Service class managing voice charter sessions.
+ */
+export class VoiceCharterService {
+  private schema: CharterFormSchema | null = null;
+  private dataChannel: RTCDataChannel | null = null;
+  private state: VoiceCharterState;
+  private listeners: Set<EventListener> = new Set();
+
+  constructor() {
+    this.state = this.createInitialState();
+  }
+
+  private createInitialState(): VoiceCharterState {
+    return {
+      step: "idle",
+      currentFieldIndex: 0,
+      currentFieldId: null,
+      capturedValues: new Map(),
+      pendingValue: null,
+      error: null,
+    };
+  }
+
+  /**
+   * Subscribe to service events.
+   */
+  subscribe(listener: EventListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emit(event: VoiceCharterEvent): void {
+    this.listeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("[VoiceCharterService] Listener error:", error);
+      }
+    });
+  }
+
+  private updateState(updates: Partial<VoiceCharterState>): void {
+    this.state = { ...this.state, ...updates };
+    this.emit({ type: "state_changed", state: this.getState() });
+  }
+
+  /**
+   * Get current state (immutable copy).
+   */
+  getState(): VoiceCharterState {
+    return {
+      ...this.state,
+      capturedValues: new Map(this.state.capturedValues),
+    };
+  }
+
+  /**
+   * Get the current field being asked about.
+   */
+  getCurrentField(): CharterFormField | null {
+    if (!this.schema || this.state.currentFieldIndex < 0) {
+      return null;
+    }
+    return this.schema.fields[this.state.currentFieldIndex] ?? null;
+  }
+
+  /**
+   * Get all fields from the schema.
+   */
+  getFields(): CharterFormField[] {
+    return this.schema?.fields ?? [];
+  }
+
+  /**
+   * Get progress info.
+   */
+  getProgress(): { current: number; total: number; percent: number } {
+    const total = this.schema?.fields.length ?? 0;
+    const current = this.state.currentFieldIndex + 1;
+    const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+    return { current, total, percent };
+  }
+
+  /**
+   * Initialize a voice charter session.
+   */
+  initialize(
+    schema: CharterFormSchema,
+    dataChannel: RTCDataChannel,
+    existingValues?: Record<string, string>
+  ): boolean {
+    this.schema = schema;
+    this.dataChannel = dataChannel;
+
+    // Initialize captured values from existing values
+    const capturedValues = new Map<string, CapturedFieldValue>();
+    if (existingValues) {
+      for (const [fieldId, value] of Object.entries(existingValues)) {
+        if (value) {
+          capturedValues.set(fieldId, {
+            fieldId,
+            value,
+            confirmedAt: Date.now(),
+          });
+        }
+      }
+    }
+
+    const firstField = schema.fields[0];
+    this.updateState({
+      step: "initializing",
+      currentFieldIndex: 0,
+      currentFieldId: firstField?.id ?? null,
+      capturedValues,
+      pendingValue: null,
+      error: null,
+    });
+
+    // Configure the Realtime session with voice charter instructions
+    const config: SessionConfig = {
+      instructions: generateSystemPrompt(schema),
+      voice: "alloy",
+      inputAudioTranscription: {
+        model: "whisper-1",
+      },
+      turnDetection: {
+        type: "server_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 800, // Slightly longer pause detection for thinking
+      },
+    };
+
+    const configSent = sendRealtimeEvent(dataChannel, createSessionUpdateEvent(config));
+    if (!configSent) {
+      this.updateState({
+        step: "idle",
+        error: "Failed to configure voice session",
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Start the voice charter conversation.
+   */
+  start(): boolean {
+    if (!this.dataChannel || !this.schema) {
+      return false;
+    }
+
+    const firstField = this.getCurrentField();
+    if (!firstField) {
+      return false;
+    }
+
+    // Build context with any existing values
+    let context = "Starting voice charter session.\n";
+    if (this.state.capturedValues.size > 0) {
+      context += "Previously captured values:\n";
+      for (const [fieldId, captured] of this.state.capturedValues) {
+        const field = this.schema.fields.find((f) => f.id === fieldId);
+        if (field) {
+          context += `- ${field.label}: ${captured.value}\n`;
+        }
+      }
+      context += "\n";
+    }
+    context += `Current field to ask about: ${firstField.label}\n`;
+    context += generateFieldPrompt(firstField, true);
+
+    // Send context and trigger AI to speak
+    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", context));
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+
+    this.updateState({ step: "asking" });
+    return true;
+  }
+
+  /**
+   * Process a transcript from the user's voice input.
+   */
+  processTranscript(transcript: string): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const normalizedTranscript = transcript.toLowerCase().trim();
+
+    // Check for navigation commands
+    if (this.handleNavigationCommand(normalizedTranscript)) {
+      return;
+    }
+
+    // Check for skip command
+    if (
+      normalizedTranscript.includes("skip") &&
+      (normalizedTranscript.includes("this") ||
+        normalizedTranscript.includes("field") ||
+        normalizedTranscript === "skip")
+    ) {
+      this.skipCurrentField();
+      return;
+    }
+
+    // Check for completion command
+    if (
+      normalizedTranscript.includes("done") ||
+      normalizedTranscript.includes("finish") ||
+      normalizedTranscript.includes("complete")
+    ) {
+      this.complete();
+      return;
+    }
+
+    // Check for review command
+    if (
+      normalizedTranscript.includes("review") ||
+      normalizedTranscript.includes("show progress") ||
+      normalizedTranscript.includes("what do i have")
+    ) {
+      this.reviewProgress();
+      return;
+    }
+
+    // Otherwise, treat as field value input
+    this.updateState({
+      step: "listening",
+      pendingValue: transcript,
+    });
+
+    // The AI will handle confirmation via its conversational flow
+  }
+
+  /**
+   * Handle navigation commands.
+   */
+  private handleNavigationCommand(transcript: string): boolean {
+    // Go back / previous
+    if (
+      transcript.includes("go back") ||
+      transcript.includes("previous") ||
+      transcript.includes("back one")
+    ) {
+      this.goToPreviousField();
+      return true;
+    }
+
+    // Edit specific field
+    const editMatch = transcript.match(/edit\s+(.+)/i);
+    if (editMatch) {
+      const fieldName = editMatch[1].toLowerCase();
+      const field = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(fieldName) ||
+          f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_"))
+      );
+      if (field) {
+        this.goToField(field.id);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Move to the next field.
+   */
+  goToNextField(): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const nextIndex = this.state.currentFieldIndex + 1;
+    if (nextIndex >= this.schema.fields.length) {
+      this.complete();
+      return;
+    }
+
+    const nextField = this.schema.fields[nextIndex];
+    this.updateState({
+      step: "asking",
+      currentFieldIndex: nextIndex,
+      currentFieldId: nextField.id,
+      pendingValue: null,
+    });
+
+    // Prompt AI to ask about next field
+    const prompt = generateFieldPrompt(nextField, false);
+    sendRealtimeEvent(
+      this.dataChannel,
+      createConversationItemEvent("user", `[Move to next field: ${nextField.label}] ${prompt}`)
+    );
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+
+    this.emit({
+      type: "navigation",
+      direction: "next",
+      fieldId: nextField.id,
+    });
+  }
+
+  /**
+   * Move to the previous field.
+   */
+  goToPreviousField(): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const prevIndex = this.state.currentFieldIndex - 1;
+    if (prevIndex < 0) {
+      // Already at first field, tell the user
+      sendRealtimeEvent(
+        this.dataChannel,
+        createConversationItemEvent(
+          "user",
+          "[User wants to go back but we're at the first field] Tell the user we're already at the first field."
+        )
+      );
+      sendRealtimeEvent(this.dataChannel, createResponseEvent());
+      return;
+    }
+
+    const prevField = this.schema.fields[prevIndex];
+    const existingValue = this.state.capturedValues.get(prevField.id);
+
+    this.updateState({
+      step: "asking",
+      currentFieldIndex: prevIndex,
+      currentFieldId: prevField.id,
+      pendingValue: null,
+    });
+
+    // Prompt AI to ask about previous field, mentioning existing value if any
+    let prompt = `[Going back to previous field: ${prevField.label}]`;
+    if (existingValue) {
+      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+    } else {
+      prompt += ` ${generateFieldPrompt(prevField, false)}`;
+    }
+
+    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", prompt));
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+
+    this.emit({
+      type: "navigation",
+      direction: "previous",
+      fieldId: prevField.id,
+    });
+  }
+
+  /**
+   * Jump to a specific field.
+   */
+  goToField(fieldId: string): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const fieldIndex = this.schema.fields.findIndex((f) => f.id === fieldId);
+    if (fieldIndex < 0) {
+      return;
+    }
+
+    const field = this.schema.fields[fieldIndex];
+    const existingValue = this.state.capturedValues.get(fieldId);
+
+    this.updateState({
+      step: "asking",
+      currentFieldIndex: fieldIndex,
+      currentFieldId: fieldId,
+      pendingValue: null,
+    });
+
+    let prompt = `[Jumping to field: ${field.label}]`;
+    if (existingValue) {
+      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+    } else {
+      prompt += ` ${generateFieldPrompt(field, false)}`;
+    }
+
+    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", prompt));
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+  }
+
+  /**
+   * Skip the current field.
+   */
+  skipCurrentField(): void {
+    const currentField = this.getCurrentField();
+    if (!currentField) {
+      return;
+    }
+
+    if (currentField.required) {
+      // Can't skip required fields
+      if (this.dataChannel) {
+        sendRealtimeEvent(
+          this.dataChannel,
+          createConversationItemEvent(
+            "user",
+            `[User tried to skip ${currentField.label} but it's required] Tell the user this field is required and ask for the value.`
+          )
+        );
+        sendRealtimeEvent(this.dataChannel, createResponseEvent());
+      }
+      return;
+    }
+
+    // Skip to next field
+    this.goToNextField();
+  }
+
+  /**
+   * Capture and confirm a field value.
+   */
+  captureValue(fieldId: string, value: string): void {
+    const captured: CapturedFieldValue = {
+      fieldId,
+      value,
+      confirmedAt: Date.now(),
+    };
+
+    const newCapturedValues = new Map(this.state.capturedValues);
+    newCapturedValues.set(fieldId, captured);
+
+    this.updateState({
+      capturedValues: newCapturedValues,
+      pendingValue: null,
+    });
+
+    this.emit({ type: "field_captured", fieldId, value });
+  }
+
+  /**
+   * Confirm the current field value and move to next.
+   */
+  confirmAndNext(fieldId: string, value: string): void {
+    this.captureValue(fieldId, value);
+    this.emit({ type: "field_confirmed", fieldId, value });
+    this.goToNextField();
+  }
+
+  /**
+   * Review progress - list all captured values.
+   */
+  reviewProgress(): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    let summary = "[User requested progress review]\nHere's what we have so far:\n";
+    for (const field of this.schema.fields) {
+      const captured = this.state.capturedValues.get(field.id);
+      if (captured) {
+        summary += `- ${field.label}: ${captured.value}\n`;
+      } else {
+        summary += `- ${field.label}: (not yet captured)\n`;
+      }
+    }
+    summary += `\nWe're currently on: ${this.getCurrentField()?.label ?? "unknown"}`;
+    summary += "\nRead this summary to the user, then ask if they want to continue or edit any field.";
+
+    sendRealtimeEvent(this.dataChannel, createConversationItemEvent("user", summary));
+    sendRealtimeEvent(this.dataChannel, createResponseEvent());
+  }
+
+  /**
+   * Complete the voice charter session.
+   */
+  complete(): void {
+    this.updateState({ step: "completed" });
+
+    if (this.dataChannel) {
+      sendRealtimeEvent(
+        this.dataChannel,
+        createConversationItemEvent(
+          "user",
+          "[Charter complete] Thank the user and let them know their charter is ready for review. Keep it brief!"
+        )
+      );
+      sendRealtimeEvent(this.dataChannel, createResponseEvent());
+    }
+
+    this.emit({ type: "completed" });
+  }
+
+  /**
+   * Get all captured values as a plain object.
+   */
+  getCapturedValuesObject(): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [fieldId, captured] of this.state.capturedValues) {
+      result[fieldId] = captured.value;
+    }
+    return result;
+  }
+
+  /**
+   * Reset the service state.
+   */
+  reset(): void {
+    this.state = this.createInitialState();
+    this.schema = null;
+    this.dataChannel = null;
+    this.emit({ type: "state_changed", state: this.getState() });
+  }
+
+  /**
+   * Clean up resources.
+   */
+  destroy(): void {
+    this.reset();
+    this.listeners.clear();
+  }
+}
+
+// Singleton instance
+export const voiceCharterService = new VoiceCharterService();

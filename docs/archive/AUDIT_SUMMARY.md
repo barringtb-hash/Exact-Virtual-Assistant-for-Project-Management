@@ -357,8 +357,8 @@ State Stores:         1 unified store
 
 1. **[REFACTORING_PLAN.md](./REFACTORING_PLAN.md)** - Complete 6-phase refactoring plan
 2. **[QUICK_WINS.md](./QUICK_WINS.md)** - High-impact, low-effort improvements to start with
-3. **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Current architecture documentation
-4. **[docs/CODEMAP.md](./docs/CODEMAP.md)** - Code organization guide
+3. **[docs/ARCHITECTURE.md](../ARCHITECTURE.md)** - Current architecture documentation
+4. **[docs/CODEMAP.md](../CODEMAP.md)** - Code organization guide
 
 ---
 

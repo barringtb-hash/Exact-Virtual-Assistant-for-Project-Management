@@ -53,6 +53,7 @@ import {
 } from "./utils/jsonPointer.js";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import VoiceCharterSession from "./components/VoiceCharterSession.tsx";
+import VoiceCharterPrompt from "./components/VoiceCharterPrompt.tsx";
 import { conversationActions, useConversationState, useConversationSchema } from "./state/conversationStore.ts";
 import {
   voiceCharterActions,
@@ -1410,6 +1411,7 @@ export default function ExactVirtualAssistantPM() {
   const voiceCharterMode = useVoiceCharterMode();
   const aiSpeaking = useAiSpeaking();
   const isVoiceCharterActive = voiceCharterMode === "active";
+  const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3376,47 +3378,68 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  // Start voice charter mode when realtime goes live and charter wizard is visible
+  // Show voice charter prompt when realtime goes live and charter wizard is visible
   useEffect(() => {
     if (rtcState === "live" && SHOULD_SHOW_CHARTER_WIZARD && dataRef.current) {
-      // Only start if not already active
-      if (voiceCharterMode === "inactive") {
+      // Only show prompt if not already active and not already showing
+      if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
         const schema = conversationSchema;
         if (schema && schema.document_type === "charter") {
-          // Get existing draft values to seed the voice charter
-          const existingValues = {};
-          if (charterDraftRef.current) {
-            for (const [key, value] of Object.entries(charterDraftRef.current)) {
-              if (typeof value === "string" && value.trim()) {
-                existingValues[key] = value;
-              }
-            }
-          }
-
-          // Initialize and start voice charter service
-          const initialized = voiceCharterService.initialize(
-            schema,
-            dataRef.current,
-            existingValues
-          );
-
-          if (initialized) {
-            voiceCharterActions.start();
-            // Small delay to let the session configure before starting
-            setTimeout(() => {
-              voiceCharterService.start();
-            }, 500);
-          }
+          setShowVoiceCharterPrompt(true);
         }
       }
     }
 
-    // Clean up voice charter when realtime disconnects
-    if (rtcState !== "live" && voiceCharterMode === "active") {
-      voiceCharterActions.exit();
-      voiceCharterService.reset();
+    // Clean up when realtime disconnects
+    if (rtcState !== "live") {
+      setShowVoiceCharterPrompt(false);
+      if (voiceCharterMode === "active") {
+        voiceCharterActions.exit();
+        voiceCharterService.reset();
+      }
     }
-  }, [rtcState, voiceCharterMode, conversationSchema]);
+  }, [rtcState, voiceCharterMode, conversationSchema, showVoiceCharterPrompt]);
+
+  // Handle voice charter prompt confirmation
+  const handleVoiceCharterConfirm = useCallback(() => {
+    setShowVoiceCharterPrompt(false);
+
+    const schema = conversationSchema;
+    if (!schema || !dataRef.current) {
+      return;
+    }
+
+    // Get existing draft values to seed the voice charter
+    const existingValues = {};
+    if (charterDraftRef.current) {
+      for (const [key, value] of Object.entries(charterDraftRef.current)) {
+        if (typeof value === "string" && value.trim()) {
+          existingValues[key] = value;
+        }
+      }
+    }
+
+    // Initialize and start voice charter service
+    const initialized = voiceCharterService.initialize(
+      schema,
+      dataRef.current,
+      existingValues
+    );
+
+    if (initialized) {
+      voiceCharterActions.start();
+      // Small delay to let the session configure before starting
+      setTimeout(() => {
+        voiceCharterService.start();
+      }, 500);
+    }
+  }, [conversationSchema]);
+
+  // Handle voice charter prompt decline (just use regular transcription)
+  const handleVoiceCharterDecline = useCallback(() => {
+    setShowVoiceCharterPrompt(false);
+    // Voice transcription continues normally without voice charter mode
+  }, []);
 
   // Subscribe to voice charter events for field capture
   useEffect(() => {
@@ -4701,6 +4724,11 @@ const resolveDocTypeForManualSync = useCallback(
         onCancel={handleDocTypeCancel}
       />
       {shouldRenderSyncDevtools && <SyncDevtools onReady={handleDevtoolsReady} />}
+      <VoiceCharterPrompt
+        visible={showVoiceCharterPrompt}
+        onConfirm={handleVoiceCharterConfirm}
+        onDecline={handleVoiceCharterDecline}
+      />
     </div>
   );
 }

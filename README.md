@@ -1,7 +1,16 @@
 # Exact Virtual Assistant for Project Management
 
 ## Overview
-The Exact Virtual Assistant for Project Management routes every request through an intent-gated document router that only extracts data when a human explicitly asks for it. Uploading files, speaking without a request, or sending chat messages that lack intent will never start extraction. Phase 1 centers on creating and updating project project charters while introducing a router-first design that can orchestrate multiple document types.
+The Exact Virtual Assistant for Project Management routes every request through an intent-gated document router that only extracts data when a human explicitly asks for it. Uploading files, speaking without a request, or sending chat messages that lack intent will never start extraction. The application supports creating and updating project charters, Design & Development Plans (DDP), and other document types through a router-first design.
+
+### Project Status
+The codebase has undergone a comprehensive 6-phase refactoring effort (completed Nov 2025) that addressed 37 architectural, performance, and code quality issues. Key improvements include:
+- Unified state management using the tinyStore pattern with slices, selectors, and persistence
+- Consolidated API routing (removed redundant layers)
+- TypeScript migration for core state and type definitions
+- Normalized state patterns for chat messages and voice transcripts
+
+Historical documentation from the refactoring effort is archived in [`docs/archive/`](docs/archive/).
 
 ### Document router at a glance
 - The router inspects user intent, then dispatches to document-specific pipelines for extraction, validation, and rendering.

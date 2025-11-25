@@ -2,19 +2,47 @@
 
 ## Repository layout
 - `src/` – React single-page client rendered by Vite + Tailwind.
+  - `src/state/` – Unified state management using tinyStore pattern (slices, selectors, persistence).
+  - `src/features/charter/` – Charter-specific orchestration, guided chat, and state.
+  - `src/chat/` – Chat UI components and API integration.
+  - `src/types/` – TypeScript type definitions for API, audio, chat, and sync.
 - `api/` – Serverless functions (Vercel format) for chat, transcription, and router-backed document extraction/validation/rendering.
+- `server/` – Server-side utilities for extraction, validation, and document handling.
 - `lib/` – Shared utilities (token counting/chunking and charter normalization) consumed by both the frontend and serverless handlers.
 - `lib/doc/` – Document router helpers: registry lookups, validation wrappers, and render utilities shared by every `/api/documents/*` handler.
 - `templates/` – Prompt/schema/template store managed by [`templates/registry.js`](../templates/registry.js). Each manifest exposes prompts, metadata, validation assets, and render helpers for the document router.
   - `templates/doc-types/ddp/` – DDP prompts, schema, metadata, and encoded templates used by the router.
-  - `templates/doc-types/charter/` – Charter assets kept for parity with the Phase 1 acceptance path.
+  - `templates/ddp/` – DDP editor assets (schema, validation CLI, Word template).
+  - `templates/charter/` – Charter manifest, schema, and form configuration.
 - `docs/demo/` – Canonical acceptance-test artifacts (OncoLiquid ctDNA Assay TPP demo + walkthrough).
 - `docs/ddp/` – DDP acceptance walkthrough and supporting assets.
+- `docs/archive/` – Historical documentation from completed refactoring efforts.
 - `public/` – Static assets served verbatim by Vite.
+
+## State Management (`src/state/`)
+The application uses a unified tinyStore-based state management pattern with the following structure:
+
+### Slices (`src/state/slices/`)
+- `chat.ts` – Chat messages, streaming state, and message history
+- `draft.ts` – Draft document content and merge status
+- `voice.ts` – Voice recording status and transcripts
+- `docType.ts` – Document type selection
+
+### Core Infrastructure
+- `src/lib/tinyStore.ts` – Lightweight store implementation with React integration
+- `src/state/core/createSlice.ts` – Slice factory for consistent store creation
+- `src/state/selectors/` – Cross-slice selectors for efficient subscriptions
+- `src/state/actions/` – Coordinated actions spanning multiple slices
+- `src/state/persistence/` – Storage middleware with migrations and rehydration
+
+### Legacy Stores (coexisting during migration)
+- `conversationMachine.ts` – Charter conversation finite state machine
+- `conversationStore.ts` – Charter-specific guided chat state
+- `syncStore.ts` – Input synchronization and buffering
 
 ## Frontend (`src/`)
 - `src/App.jsx`
-  - Owns application state for chat messages, voice transcripts, attachment metadata, and the editable charter preview.
+  - Main application entry that coordinates state, chat, and document preview.
   - Detects charter intent via [`detectCharterIntent`](../src/utils/detectCharterIntent.js) and, when matched, calls [`useBackgroundExtraction.trigger()`](../src/hooks/useBackgroundExtraction.js).
   - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer.
 - `src/components/PreviewEditable.jsx`
@@ -76,7 +104,39 @@
 - Speaking without a charter request produces transcripts but `detectCharterIntent` returns `null`, so extraction is skipped.
 - Idle prompt invocations (e.g., automated cron jobs) must expect `{ "result": "no_op" }` when intent or context is missing.
 
+## Server-Side (`server/`)
+- `server/charter/` – Charter-specific extraction and orchestration
+  - `Orchestrator.ts` – Server-side orchestration logic
+  - `extractFieldsFromUtterance.ts` – Field extraction from voice/text input
+  - `utils/` – Document assembly, storage, finalization, and normalization
+- `server/documents/` – Document processing utilities
+  - `extraction/` – Charter and guided extraction handlers
+  - `openai/` – OpenAI client configuration
+  - `sanitization/` – Input sanitization utilities
+- `server/config/` – Extraction limits and configuration
+- `server/middleware/` – Request validation middleware
+- `server/utils/` – Template preloading, error handling, and logging
+
+## Testing
+The project uses multiple test frameworks organized by scope:
+
+### Unit Tests (`tests/`)
+- Run with `npm test` using Node.js native test module
+- Covers API handlers, state stores, utilities, and validation logic
+- Test stubs in `tests/_stubs/` mock browser dependencies
+
+### E2E Tests (`cypress/`)
+- Run with `npm run e2e:guided` (guided chat mode) or `npm run e2e:wizard` (wizard mode)
+- Covers charter flows, chat interactions, voice sync, and preview visibility
+- Support files in `cypress/support/` provide custom commands and mocks
+
+### QA Tests (`tests/qa/`)
+- Golden conversation tests for charter wizard flows
+- Run with `npm run qa:charter-wizard`
+- Transcript fixtures validate expected conversation paths
+
 ## Companion references
 - [README](../README.md) – Quick start, behavioral contract, testing guidance, and migration notes.
 - [docs/demo/README.md](./demo/README.md) – Acceptance path using the OncoLiquid ctDNA Assay (Demo) TPP.
 - [docs/document-workflow.md](./document-workflow.md) – Detailed guidance on customizing prompts, templates, and validation assets for each supported document type.
+- [docs/archive/](./archive/) – Historical documentation from completed refactoring efforts.

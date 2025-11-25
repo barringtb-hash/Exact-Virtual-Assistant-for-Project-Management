@@ -19,7 +19,7 @@ import {
   conversationActions,
   conversationStoreApi,
 } from "../state/conversationStore";
-import { draftActions } from "../state/draftStore";
+import { draftActions } from "../state/draftStore.ts";
 
 /**
  * Voice charter session state.

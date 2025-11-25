@@ -199,16 +199,36 @@ body {
   z-index: 50;
 }
 
+/* Floating card: combined selector for higher specificity over .bottom-sheet */
 @media (min-width: 768px) {
-  .floating-card {
+  .bottom-sheet.floating-card {
     position: fixed;
+    bottom: 0.75rem;
+    right: 0.75rem;
+    left: auto;
+    width: min(380px, calc(100vw - 1.5rem));
+    height: 50vh;
+    max-height: 55vh;
+    min-height: 260px;
+    z-index: 50;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bottom-sheet.floating-card {
     bottom: 1rem;
     right: 1rem;
-    left: auto;
+    width: min(400px, calc(100vw - 2rem));
+    height: 55vh;
+    max-height: 65vh;
+  }
+}
+
+@media (min-width: 1280px) {
+  .bottom-sheet.floating-card {
     width: 420px;
     height: 60vh;
     max-height: 75vh;
-    z-index: 50;
   }
 }
 

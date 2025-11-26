@@ -3333,6 +3333,7 @@ const resolveDocTypeForManualSync = useCallback(
           if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
             const transcript = rawEvent.transcript || "";
             if (transcript.trim()) {
+              console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
               voiceCharterService.processTranscript(transcript);
             }
           }

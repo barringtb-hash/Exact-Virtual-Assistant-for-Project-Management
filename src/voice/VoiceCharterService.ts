@@ -1022,7 +1022,9 @@ export class VoiceCharterService {
   }
 
   /**
-   * Process a transcript from the user's voice input.
+   * Process a transcript from voice input.
+   * Note: Both AI responses and user speech come through here. The function
+   * filters out AI responses and processes user commands/values.
    */
   processTranscript(transcript: string): void {
     console.log("[VoiceCharterService] processTranscript called:", {
@@ -1198,15 +1200,18 @@ export class VoiceCharterService {
     // This MUST be checked BEFORE navigation commands because AI responses like
     // "Sure, let's go back..." would otherwise trigger navigation
     if (isAIResponse(transcript)) {
-      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
+      console.log("[VoiceCharterService] [AI DETECTED] Skipping AI response:", transcript.substring(0, 50));
       return;
     }
 
     // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
     if (isNoiseTranscript(transcript)) {
-      console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
+      console.log("[VoiceCharterService] [NOISE] Skipping noise transcript:", transcript);
       return;
     }
+
+    // If we reach here, this is a user transcript that will be processed
+    console.log("[VoiceCharterService] [USER INPUT] Processing user transcript:", transcript.substring(0, 50));
 
     // PRIORITY 3: Check for navigation commands
     // Now safe to process since we've filtered out AI responses
@@ -1232,7 +1237,7 @@ export class VoiceCharterService {
       const looksLikeValue = /^[\w\s\-'.,]+$/.test(transcript.trim());
 
       if (!isShortResponse || !looksLikeValue) {
-        console.log("[VoiceCharterService] Skipping transcript during AI cooldown:", transcript.substring(0, 50));
+        console.log("[VoiceCharterService] [AI DETECTED] Skipping during AI cooldown (likely AI speech):", transcript.substring(0, 50));
         return;
       }
     }
@@ -1278,7 +1283,7 @@ export class VoiceCharterService {
         /who(?:'s| is) (?:the\s+)?(?:project|sponsor|lead)/i.test(normalizedCheck) ||
         /when (?:is|does|will)/i.test(normalizedCheck);
       if (isFieldQuestion) {
-        console.log("[VoiceCharterService] Skipping field question transcript:", transcript.substring(0, 50));
+        console.log("[VoiceCharterService] [AI DETECTED] Skipping field question (likely AI):", transcript.substring(0, 50));
         return;
       }
     }

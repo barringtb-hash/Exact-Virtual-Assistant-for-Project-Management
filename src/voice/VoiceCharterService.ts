@@ -19,7 +19,7 @@ import {
   conversationActions,
   conversationStoreApi,
 } from "../state/conversationStore";
-import { draftActions } from "../state/draftStore.ts";
+import { draftActions, draftStoreApi } from "../state/draftStore.ts";
 
 /**
  * Voice charter session state.
@@ -617,6 +617,12 @@ function extractFieldValue(transcript: string, fieldId: string): string {
     value = value.slice(0, -1).trim();
   }
 
+  // Remove trailing question marks and exclamation points from simple fields
+  // (these are often artifacts of voice transcription, e.g., "John Doe?" instead of "John Doe")
+  if (NAME_FIELDS.includes(fieldId) || fieldId === "project_name") {
+    value = value.replace(/[?!]+$/, "").trim();
+  }
+
   // If we stripped too much (empty result), fall back to original
   if (!value) {
     return transcript.trim();
@@ -673,6 +679,13 @@ export class VoiceCharterService {
    * Used as fallback if the AI doesn't provide a reformulated version.
    */
   private pendingReformulationRawValue: string | null = null;
+  /**
+   * Buffer for incomplete AI CAPTURE responses.
+   * AI transcripts may arrive in chunks, so we buffer incomplete CAPTURE text
+   * and wait for a complete sentence (ends with period) before capturing.
+   */
+  private pendingCaptureText: string | null = null;
+  private pendingCaptureFieldId: string | null = null;
 
   constructor() {
     this.state = this.createInitialState();
@@ -939,6 +952,67 @@ export class VoiceCharterService {
     const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
 
     if (shouldCheckForCapture) {
+      // First, check if we have a pending incomplete CAPTURE and this is a continuation
+      if (this.pendingCaptureText && this.pendingCaptureFieldId) {
+        // Check if this transcript contains a new CAPTURE (replacement) or continues the pending one
+        const hasNewCapture = /CAPTURE:/i.test(transcript);
+
+        if (hasNewCapture) {
+          // New CAPTURE found - extract it and check if it's more complete
+          for (const pattern of AI_CAPTURE_PATTERNS) {
+            const match = transcript.match(pattern);
+            if (match && match[1]) {
+              const newValue = match[1].trim();
+              // Use the new CAPTURE if it's longer (more complete) or ends with period
+              if (newValue.length > this.pendingCaptureText.length || /\.\s*$/.test(newValue)) {
+                this.pendingCaptureText = newValue;
+                console.log("[VoiceCharterService] processTranscript: Updated pending CAPTURE with longer text", {
+                  fieldId: this.pendingCaptureFieldId,
+                  newText: newValue.substring(0, 80),
+                });
+              }
+              break;
+            }
+          }
+        }
+
+        // Check if the transcript signals moving to next field (time to finalize capture)
+        const isTransitionPhrase = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript)) ||
+          /(?:now|next)[,.]?\s+what/i.test(transcript) ||
+          /what(?:'s| is) the (?:problem|description|scope)/i.test(transcript);
+
+        // Also check if pending text looks complete (ends with period)
+        const pendingLooksComplete = /\.\s*$/.test(this.pendingCaptureText);
+
+        if (isTransitionPhrase || pendingLooksComplete) {
+          console.log("[VoiceCharterService] processTranscript: Finalizing buffered CAPTURE", {
+            fieldId: this.pendingCaptureFieldId,
+            value: this.pendingCaptureText.substring(0, 80),
+            reason: pendingLooksComplete ? "complete sentence" : "transition phrase",
+          });
+
+          // Capture the buffered value
+          this.captureValue(this.pendingCaptureFieldId, this.pendingCaptureText);
+
+          // Clear states and advance
+          const capturedFieldId = this.pendingCaptureFieldId;
+          this.pendingCaptureText = null;
+          this.pendingCaptureFieldId = null;
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.advanceAskingField();
+
+          this.updateState({
+            step: "listening",
+            pendingValue: this.pendingCaptureText || "",
+          });
+          return;
+        }
+
+        // Not ready to finalize yet - skip other processing for this transcript
+        return;
+      }
+
       // Try all capture patterns to find the reformulated text
       let reformulatedValue: string | null = null;
       for (const pattern of AI_CAPTURE_PATTERNS) {
@@ -953,6 +1027,21 @@ export class VoiceCharterService {
         // Determine which field to capture to: pending field takes priority, then current asking field
         const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
 
+        // Check if this CAPTURE looks complete (ends with period or has transition phrase)
+        const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+          /(?:now|next)[,.]?\s+what/i.test(transcript);
+
+        if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+          // Buffer incomplete CAPTURE for long-form fields
+          console.log("[VoiceCharterService] processTranscript: Buffering incomplete CAPTURE", {
+            fieldId: targetFieldId,
+            value: reformulatedValue.substring(0, 80),
+          });
+          this.pendingCaptureText = reformulatedValue;
+          this.pendingCaptureFieldId = targetFieldId;
+          return;
+        }
+
         console.log("[VoiceCharterService] processTranscript: AI reformulation captured", {
           fieldId: targetFieldId,
           reformulatedValue: reformulatedValue.substring(0, 80),
@@ -966,6 +1055,8 @@ export class VoiceCharterService {
           // Clear the pending state and advance
           this.pendingReformulationFieldId = null;
           this.pendingReformulationRawValue = null;
+          this.pendingCaptureText = null;
+          this.pendingCaptureFieldId = null;
           this.advanceAskingField();
 
           this.updateState({
@@ -1572,11 +1663,41 @@ export class VoiceCharterService {
       // Also sync to draft store for PreviewEditable UI
       // Format the value appropriately for list fields
       const draftValue = formatValueForDraft(fieldId, value);
-      draftActions.mergeDraft({ [fieldId]: draftValue });
-      console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
-        isArray: Array.isArray(draftValue),
-        valueType: typeof draftValue,
-      });
+
+      // For list fields (scope_in, scope_out, risks, assumptions), APPEND to existing array
+      // instead of replacing it. This allows users to add multiple items via voice.
+      if (
+        Array.isArray(draftValue) &&
+        (STRING_LIST_FIELDS.includes(fieldId) || OBJECT_LIST_FIELDS.includes(fieldId))
+      ) {
+        // Get current draft state
+        const currentDraft = draftStoreApi.getState().draft ?? {};
+        const currentArray = Array.isArray(currentDraft[fieldId]) ? currentDraft[fieldId] as unknown[] : [];
+
+        // Append new items to existing array (avoid duplicates)
+        const newItems = draftValue.filter(
+          (item) => !currentArray.some((existing) =>
+            typeof existing === "string" && typeof item === "string"
+              ? existing.toLowerCase() === item.toLowerCase()
+              : JSON.stringify(existing) === JSON.stringify(item)
+          )
+        );
+        const mergedArray = [...currentArray, ...newItems];
+
+        draftActions.mergeDraft({ [fieldId]: mergedArray });
+        console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
+          isArray: true,
+          existingCount: currentArray.length,
+          newCount: newItems.length,
+          totalCount: mergedArray.length,
+        });
+      } else {
+        draftActions.mergeDraft({ [fieldId]: draftValue });
+        console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
+          isArray: Array.isArray(draftValue),
+          valueType: typeof draftValue,
+        });
+      }
     } catch (error) {
       console.error("[VoiceCharterService] Failed to sync to conversation store:", error);
     } finally {

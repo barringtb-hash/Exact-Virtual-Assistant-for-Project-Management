@@ -568,6 +568,11 @@ const AI_RESPONSE_PATTERNS = [
   /(?:returning|return) to/i,
   /let(?:'s| me) (?:go back|return|take you back)/i,
   /back to (?:the\s+)?(?:previous|last)/i,
+  // AI transitioning to another field with "now/next back to"
+  /(?:now|next)\s+back\s+to/i,
+  /(?:sure|okay|alright)[,.!]?\s+back\s+to/i,
+  // AI saying "back to the [field]" after acknowledgment (catches "Great! Now back to the start date")
+  /(?:great|perfect|okay|sure)[.!,]?\s+(?:now\s+)?back\s+to/i,
   // Current value patterns (AI stating current field value)
   /(?:the\s+)?current(?:ly|\s+value)?\s+(?:is|set to|reads)/i,
   /it(?:'s| is) (?:currently|set to|now)/i,
@@ -1184,8 +1189,23 @@ export class VoiceCharterService {
       }
     }
 
-    // PRIORITY 1: Check for navigation commands FIRST (before any filtering)
-    // User intents like "go back" or "previous" should always be processed
+    // PRIORITY 1: Skip AI responses that got transcribed FIRST
+    // (AI speech goes through Whisper and comes back as transcripts)
+    // This MUST be checked BEFORE navigation commands because AI responses like
+    // "Sure, let's go back..." would otherwise trigger navigation
+    if (isAIResponse(transcript)) {
+      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
+      return;
+    }
+
+    // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
+    if (isNoiseTranscript(transcript)) {
+      console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
+      return;
+    }
+
+    // PRIORITY 3: Check for navigation commands
+    // Now safe to process since we've filtered out AI responses
     if (this.handleNavigationCommand(normalizedTranscript)) {
       // Clear pending reformulation if user navigates away
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
@@ -1197,20 +1217,6 @@ export class VoiceCharterService {
         this.pendingReformulationFieldId = null;
         this.pendingReformulationRawValue = null;
       }
-      return;
-    }
-
-    // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
-    if (isNoiseTranscript(transcript)) {
-      console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
-      return;
-    }
-
-    // PRIORITY 3: Skip AI responses that got transcribed
-    // (AI speech goes through Whisper and comes back as transcripts)
-    // But do this AFTER navigation/correction checks so user commands aren't blocked
-    if (isAIResponse(transcript)) {
-      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
       return;
     }
 
@@ -1338,9 +1344,12 @@ export class VoiceCharterService {
   }
 
   /**
-   * Advance askingFieldId to the next field without sending AI messages.
+   * Advance askingFieldId to the next EMPTY field without sending AI messages.
    * This is called after capturing a value so the next transcript goes to the right field.
    * The AI handles asking about the next field in its spoken response.
+   *
+   * After going back to update a field, this will skip over fields that already have
+   * values and advance to the next empty field.
    */
   private advanceAskingField(): void {
     if (!this.schema) {
@@ -1348,15 +1357,33 @@ export class VoiceCharterService {
     }
 
     const previousFieldId = this.askingFieldId;
-    const nextIndex = this.state.currentFieldIndex + 1;
-    if (nextIndex >= this.schema.fields.length) {
-      // All fields done
+
+    // Find the next empty field starting from currentFieldIndex + 1
+    // This ensures we skip over fields that already have values
+    let nextIndex = this.state.currentFieldIndex + 1;
+    let nextField = null;
+
+    while (nextIndex < this.schema.fields.length) {
+      const candidateField = this.schema.fields[nextIndex];
+      const hasValue = this.state.capturedValues.has(candidateField.id);
+
+      if (!hasValue) {
+        // Found an empty field
+        nextField = candidateField;
+        break;
+      }
+
+      console.log(`[VoiceCharterService] advanceAskingField: Skipping ${candidateField.id} (already has value)`);
+      nextIndex++;
+    }
+
+    if (!nextField) {
+      // All fields are complete
       this.askingFieldId = null;
       console.log("[VoiceCharterService] All fields complete, askingFieldId set to null");
       return;
     }
 
-    const nextField = this.schema.fields[nextIndex];
     this.askingFieldId = nextField.id;
 
     console.log(`[VoiceCharterService] advanceAskingField: ${previousFieldId} -> ${nextField.id} (index ${nextIndex})`);

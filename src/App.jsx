@@ -116,6 +116,120 @@ const E2E_FLAG_GUIDED_BACKEND = Boolean(CHARTER_GUIDED_BACKEND_ENABLED || GUIDED
 // Reduced from 500ms to 50ms for real-time sync (<500ms total latency target)
 const CHAT_EXTRACTION_DEBOUNCE_MS = 50;
 
+/**
+ * Array fields that need special handling when values come from voice capture.
+ * These fields expect arrays, but voice capture provides single string values.
+ */
+const STRING_LIST_FIELDS = ["scope_in", "scope_out", "risks", "assumptions"];
+const OBJECT_LIST_FIELDS = ["milestones", "success_metrics", "core_team"];
+const OBJECT_LIST_CHILD_FIELDS = {
+  milestones: ["phase", "deliverable", "date"],
+  success_metrics: ["benefit", "metric", "system_of_measurement"],
+  core_team: ["name", "role", "responsibilities"],
+};
+
+/**
+ * Formats a voice-captured string value as an array for array fields.
+ * This ensures the UI properly renders the value without needing a manual "Add" button click.
+ *
+ * @param fieldId - The field being updated
+ * @param value - The raw string value from voice capture
+ * @param currentValue - The current value in the draft (if any)
+ * @returns The properly formatted value (array for array fields, original for others)
+ */
+function formatVoiceValueForField(fieldId, value, currentValue) {
+  // Check if this is an array field that needs formatting
+  const isStringList = STRING_LIST_FIELDS.includes(fieldId);
+  const isObjectList = OBJECT_LIST_FIELDS.includes(fieldId);
+
+  if (isStringList || isObjectList) {
+    console.log("[App] formatVoiceValueForField: Array field detected", {
+      fieldId,
+      valueType: typeof value,
+      currentValueType: Array.isArray(currentValue) ? "array" : typeof currentValue,
+      isStringList,
+      isObjectList,
+    });
+  }
+
+  // For string list fields, convert to array and append to existing
+  if (isStringList) {
+    const currentArray = Array.isArray(currentValue) ? currentValue : [];
+    // Parse the value - might be comma-separated or single item
+    const newItems = typeof value === "string"
+      ? value.split(/[\r\n]+|,|•|[-*]\s/).map(item => item.trim()).filter(Boolean)
+      : Array.isArray(value) ? value : [String(value)].filter(Boolean);
+
+    // Avoid duplicates (case-insensitive)
+    const uniqueNewItems = newItems.filter(
+      item => !currentArray.some(existing =>
+        typeof existing === "string" && typeof item === "string"
+          ? existing.toLowerCase() === item.toLowerCase()
+          : existing === item
+      )
+    );
+
+    const result = [...currentArray, ...uniqueNewItems];
+    console.log("[App] formatVoiceValueForField: String list formatted", {
+      fieldId,
+      inputValue: typeof value === "string" ? value.substring(0, 50) : value,
+      existingCount: currentArray.length,
+      newItemsCount: uniqueNewItems.length,
+      totalCount: result.length,
+    });
+    return result;
+  }
+
+  // For object list fields, convert to structured objects and append
+  if (isObjectList) {
+    const currentArray = Array.isArray(currentValue) ? currentValue : [];
+    const childFields = OBJECT_LIST_CHILD_FIELDS[fieldId] || [];
+
+    // Parse the value into object entries
+    const valueStr = typeof value === "string" ? value : String(value);
+    const lines = valueStr.split(/[\r\n]+/).map(line => line.trim()).filter(Boolean);
+
+    const newEntries = lines.map(line => {
+      // Try to parse structured format (e.g., "Phase 1 / Deliverable / 2024-01-01")
+      const parts = line.split(/\s*[/|]\s*|\s*:\s+/).map(p => p.trim()).filter(Boolean);
+      const entry = {};
+
+      childFields.forEach((field, index) => {
+        if (parts[index]) {
+          entry[field] = parts[index];
+        }
+      });
+
+      // If no structured parsing, use the first child field
+      if (Object.keys(entry).length === 0 && childFields[0]) {
+        entry[childFields[0]] = line;
+      }
+
+      return entry;
+    }).filter(entry => Object.keys(entry).length > 0);
+
+    // Avoid exact duplicates
+    const uniqueNewEntries = newEntries.filter(
+      newEntry => !currentArray.some(existing =>
+        JSON.stringify(existing) === JSON.stringify(newEntry)
+      )
+    );
+
+    const result = [...currentArray, ...uniqueNewEntries];
+    console.log("[App] formatVoiceValueForField: Object list formatted", {
+      fieldId,
+      inputValue: typeof value === "string" ? value.substring(0, 50) : value,
+      existingCount: currentArray.length,
+      newEntriesCount: uniqueNewEntries.length,
+      totalCount: result.length,
+    });
+    return result;
+  }
+
+  // For other fields, return as-is
+  return value;
+}
+
 function sendTelemetryEvent(eventName, { conversationId = null, metadata = {} } = {}) {
   if (typeof fetch !== "function") {
     return Promise.resolve();
@@ -2097,8 +2211,13 @@ export default function ExactVirtualAssistantPM() {
           baseDraft && typeof baseDraft === "object" && key in baseDraft
             ? baseDraft[key]
             : undefined;
-        if (!valuesEqual(currentValue, value)) {
-          diff[key] = value;
+
+        // Format array field values properly (convert strings to arrays)
+        // This ensures voice-captured values display correctly without needing "Add" button click
+        const formattedValue = formatVoiceValueForField(key, value, currentValue);
+
+        if (!valuesEqual(currentValue, formattedValue)) {
+          diff[key] = formattedValue;
         }
       }
 

@@ -1401,12 +1401,13 @@ export class VoiceCharterService {
   private handleNavigationCommand(transcript: string): boolean {
     console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
 
-    // Check for "go back to [field]" pattern first - navigate to specific field
-    // E.g., "go back to the title", "can we go back to the title"
-    const goBackToMatch = transcript.match(/(?:go back|return)\s+to\s+(?:the\s+)?(.+?)(?:\s*\?|$)/i);
-    if (goBackToMatch) {
-      const fieldName = goBackToMatch[1].toLowerCase().trim();
-      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back to' field:", fieldName);
+    // Check for "back to [field]" pattern - navigate to specific field
+    // Handles: "go back to the title", "back to project title", "no, back to the title, please"
+    // Made more flexible to match "back to" without requiring "go" prefix
+    const backToMatch = transcript.match(/(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (backToMatch) {
+      const fieldName = backToMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'back to' field:", fieldName);
       const field = this.schema?.fields.find(
         (f) =>
           f.label.toLowerCase().includes(fieldName) ||
@@ -1415,6 +1416,48 @@ export class VoiceCharterService {
       );
       if (field) {
         this.goToField(field.id);
+        return true;
+      }
+    }
+
+    // Check for "return to [field]" pattern separately
+    const returnToMatch = transcript.match(/return\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (returnToMatch) {
+      const fieldName = returnToMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'return to' field:", fieldName);
+      const field = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(fieldName) ||
+          f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+          fieldName.includes(f.label.toLowerCase())
+      );
+      if (field) {
+        this.goToField(field.id);
+        return true;
+      }
+    }
+
+    // Check for rejection prefix followed by navigation intent
+    // E.g., "no, back to title" or "wait, go back" or "actually, let's go back"
+    const rejectionNavigationMatch = transcript.match(/^(?:no|wait|actually|stop)[,.]?\s+(?:let'?s?\s+)?(?:go\s+)?back(?:\s+to\s+(?:the\s+)?(.+?))?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (rejectionNavigationMatch) {
+      const fieldName = rejectionNavigationMatch[1]?.toLowerCase().trim();
+      if (fieldName) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + back to field:", fieldName);
+        const field = this.schema?.fields.find(
+          (f) =>
+            f.label.toLowerCase().includes(fieldName) ||
+            f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+            fieldName.includes(f.label.toLowerCase())
+        );
+        if (field) {
+          this.goToField(field.id);
+          return true;
+        }
+      } else {
+        // Just "no, go back" without specific field
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + go back");
+        this.goToPreviousField();
         return true;
       }
     }

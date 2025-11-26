@@ -981,6 +981,7 @@ export default function ExactVirtualAssistantPM() {
   const guidedVoiceEnabledRef = useRef(false);
   const guidedConversationIdRef = useRef(null);
   const guidedInitialPromptAtRef = useRef(null);
+  const startGuidedCharterRef = useRef(null);
   const featureFlagsReady = true;
   useEffect(() => {
     guidedStateRef.current = guidedState;
@@ -3838,6 +3839,20 @@ const resolveDocTypeForManualSync = useCallback(
           }
         }
 
+        // Check for charter creation intent and start guided session
+        const charterIntent = detectCharterIntent(trimmed);
+        if (charterIntent === 'create_charter' && isGuidedChatEnabled) {
+          const currentGuidedState = guidedStateRef.current;
+          const currentConversationId = guidedConversationIdRef.current;
+          const canStart =
+            (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
+            (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
+          if (canStart && startGuidedCharterRef.current) {
+            await startGuidedCharterRef.current();
+            return { status: "guided" };
+          }
+        }
+
         if (intentOnlyExtractionEnabled) {
           const intent = detectCharterIntent(trimmed);
           if (intent) {
@@ -3906,6 +3921,7 @@ const resolveDocTypeForManualSync = useCallback(
       emitGuidedFallbackTelemetry,
       handleCommandFromText,
       intentOnlyExtractionEnabled,
+      isGuidedChatEnabled,
       scheduleChatPreviewSync,
       sendGuidedBackendMessage,
     ],
@@ -4001,6 +4017,10 @@ const resolveDocTypeForManualSync = useCallback(
     setGuidedState,
   ]);
 
+  useEffect(() => {
+    startGuidedCharterRef.current = handleStartGuidedCharter;
+  }, [handleStartGuidedCharter]);
+
   const handleGuidedCommandChip = useCallback(
     async (command) => {
       const trimmed = typeof command === "string" ? command.trim() : "";
@@ -4043,6 +4063,21 @@ const resolveDocTypeForManualSync = useCallback(
       if (isStreaming || isAssistantThinking) {
         voiceActions.setStatus("idle");
         return;
+      }
+
+      // Check for charter creation intent via voice and start guided session
+      const voiceCharterIntent = detectCharterIntent(trimmed);
+      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
+        const currentGuidedState = guidedStateRef.current;
+        const currentConversationId = guidedConversationIdRef.current;
+        const canStart =
+          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
+          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
+        if (canStart && startGuidedCharterRef.current) {
+          voiceActions.setStatus("idle");
+          await startGuidedCharterRef.current();
+          return;
+        }
       }
 
       const entry = {
@@ -4092,6 +4127,7 @@ const resolveDocTypeForManualSync = useCallback(
     [
       applyVoiceExtractionToDraft,
       createBlankDraft,
+      isGuidedChatEnabled,
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,
@@ -4529,55 +4565,44 @@ const resolveDocTypeForManualSync = useCallback(
                   </div>
                 )}
                 <div className="border-t border-slate-200 p-4 bg-white dark:border-slate-700 dark:bg-slate-800">
-                  {isGuidedChatEnabled && (
+                  {isGuidedChatEnabled && isGuidedSessionActive && (
                     <div className="mb-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          data-testid="btn-start-charter"
-                          onClick={handleStartGuidedCharter}
-                          disabled={!canStartGuided}
-                          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                        >
-                          {guidedState?.status === "complete" ? "Restart Charter" : "Start Charter"}
-                        </button>
-                        {isGuidedSessionActive && guidedCurrentField ? (
+                      {guidedCurrentField ? (
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
                             Working on: <span className="text-indigo-600 dark:text-indigo-400">{guidedCurrentField.label}</span>
                             {guidedCurrentField.question
                               ? <span className="text-slate-500 dark:text-slate-400"> — {guidedCurrentField.question}</span>
                               : null}
                           </span>
-                        ) : null}
-                      </div>
-                      {isGuidedSessionActive ? (
-                        <div className="flex flex-wrap gap-2">
-                          {[{
-                            label: "Back",
-                            command: "back",
-                            testId: "chip-back",
-                          }, {
-                            label: "Skip",
-                            command: "skip",
-                            testId: "chip-skip",
-                          }, {
-                            label: "Review",
-                            command: "review",
-                            testId: "chip-review",
-                          }].map((chip) => (
-                            <button
-                              key={chip.testId}
-                              type="button"
-                              data-testid={chip.testId}
-                              onClick={() => handleGuidedCommandChip(chip.command)}
-                              disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                            >
-                              {chip.label}
-                            </button>
-                          ))}
                         </div>
                       ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {[{
+                          label: "Back",
+                          command: "back",
+                          testId: "chip-back",
+                        }, {
+                          label: "Skip",
+                          command: "skip",
+                          testId: "chip-skip",
+                        }, {
+                          label: "Review",
+                          command: "review",
+                          testId: "chip-review",
+                        }].map((chip) => (
+                          <button
+                            key={chip.testId}
+                            type="button"
+                            data-testid={chip.testId}
+                            onClick={() => handleGuidedCommandChip(chip.command)}
+                            disabled={isAssistantThinking || isAssistantStreaming || isComposerLocked}
+                            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                          >
+                            {chip.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {/* Voice Charter Session - shown when voice charter is active for any charter UI */}

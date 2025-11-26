@@ -257,12 +257,17 @@ const MONTH_MAP: Record<string, number> = {
  * - "January 15, 2025" or "January 15th 2025"
  * - "15 January 2025"
  * - "1/15/2025" or "01-15-2025"
+ * - "January 15" or "January 15th" (infers year as current or next year)
+ * - "15th" or "the 15th" (infers month and year from context - uses current month)
  *
  * @param text - The spoken date text
  * @returns Parsed date in YYYY-MM-DD format (for date inputs) or original text if parsing fails
  */
 function parseSpokenDate(text: string): string {
   const cleaned = text.toLowerCase().trim();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-indexed
 
   // Try "Month Day, Year" format (e.g., "January 15, 2025" or "January 15th 2025")
   const monthDayYear = cleaned.match(
@@ -297,6 +302,66 @@ function parseSpokenDate(text: string): string {
     const day = parseInt(numericDate[2], 10);
     const year = parseInt(numericDate[3], 10);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try "Month Day" format without year (e.g., "January 15" or "November 8th")
+  // Infer year: use current year if date is in the future, otherwise next year
+  const monthDayNoYear = cleaned.match(
+    /^(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?\.?$/
+  );
+  if (monthDayNoYear) {
+    const month = MONTH_MAP[monthDayNoYear[1]];
+    const day = parseInt(monthDayNoYear[2], 10);
+    if (month && day >= 1 && day <= 31) {
+      // Check if this date has passed in the current year
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try "Day Month" format without year (e.g., "15 January" or "8th November")
+  const dayMonthNoYear = cleaned.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?\s+(\w+)\.?$/
+  );
+  if (dayMonthNoYear) {
+    const day = parseInt(dayMonthNoYear[1], 10);
+    const month = MONTH_MAP[dayMonthNoYear[2]];
+    if (month && day >= 1 && day <= 31) {
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try just day ordinal format (e.g., "15th" or "the 15th")
+  // Uses current month and infers year
+  const dayOnlyMatch = cleaned.match(
+    /^(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\.?$/
+  );
+  if (dayOnlyMatch) {
+    const day = parseInt(dayOnlyMatch[1], 10);
+    if (day >= 1 && day <= 31) {
+      const month = currentMonth;
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try partial format from speech (e.g., "10th, 2026" - day and year but no month)
+  // This can happen when the user is correcting/adding to a previous date mention
+  const dayYearMatch = cleaned.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})$/
+  );
+  if (dayYearMatch) {
+    const day = parseInt(dayYearMatch[1], 10);
+    const year = parseInt(dayYearMatch[2], 10);
+    if (day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      // Use current month as a reasonable default
+      const month = currentMonth;
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
   }
@@ -453,9 +518,18 @@ function formatValueForDraft(fieldId: string, value: string): unknown {
 }
 
 /**
+ * Normalizes apostrophes in text to standard straight apostrophes.
+ * Handles curly/smart apostrophes (U+2019) that come from speech-to-text.
+ */
+function normalizeApostrophes(text: string): string {
+  return text.replace(/[\u2018\u2019\u2032\u0060]/g, "'");
+}
+
+/**
  * Patterns that indicate the transcript is from AI speech, not user input.
  * AI responses get transcribed by Whisper and fed back through processTranscript,
  * so we need to detect and skip them.
+ * Note: Patterns use straight apostrophes; text is normalized before matching.
  */
 const AI_RESPONSE_PATTERNS = [
   // AI acknowledgment patterns (start of AI responses)
@@ -469,6 +543,12 @@ const AI_RESPONSE_PATTERNS = [
   /who (?:is|will be|would be) (?:the|your)/i,
   /can you (?:tell me|give me|describe)/i,
   /(?:tell me|describe) (?:the|your|about)/i,
+  // AI asking about specific charter fields (common patterns)
+  /what(?:'s| is) the (?:project\s+)?(?:name|title|vision|problem|description|scope|start date|end date)/i,
+  /who(?:'s| is) the (?:project\s+)?(?:sponsor|lead)/i,
+  /what(?:'s| is) the (?:high[- ]level\s+)?vision/i,
+  /what problem (?:does|will|would)/i,
+  /what(?:'s| is) (?:included in|in|out of) (?:the\s+)?scope/i,
   // AI field introduction patterns - only match "should/would/could/will" NOT "is"
   // "The project title is X" = user declaring value (ALLOW)
   // "A project lead should be..." = AI asking about field (BLOCK)
@@ -547,7 +627,8 @@ const NOISE_WORDS = [
  * @returns true if the transcript is noise
  */
 function isNoiseTranscript(transcript: string): boolean {
-  const normalized = transcript.trim();
+  // Normalize apostrophes to handle curly/smart quotes
+  const normalized = normalizeApostrophes(transcript.trim());
 
   for (const pattern of NOISE_WORDS) {
     if (pattern.test(normalized)) {
@@ -566,7 +647,8 @@ function isNoiseTranscript(transcript: string): boolean {
  * @returns true if the transcript looks like AI speech
  */
 function isAIResponse(transcript: string): boolean {
-  const normalized = transcript.trim();
+  // Normalize apostrophes to handle curly/smart quotes from speech-to-text
+  const normalized = normalizeApostrophes(transcript.trim());
 
   // Very short responses are unlikely to be AI speech
   if (normalized.length < 10) {
@@ -587,6 +669,12 @@ function isAIResponse(transcript: string): boolean {
     return true;
   }
 
+  // AI asking about next field - detect phrases like "what's the [field]?"
+  // This catches cases where AI skips ahead to a different field than expected
+  if (/what(?:'s| is) (?:the\s+)?(?:end date|start date|vision|problem|description|scope)/i.test(normalized)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -601,7 +689,8 @@ function isAIResponse(transcript: string): boolean {
  * @returns The cleaned value suitable for the field
  */
 function extractFieldValue(transcript: string, fieldId: string): string {
-  let value = transcript.trim();
+  // Normalize apostrophes first to handle curly/smart quotes from speech-to-text
+  let value = normalizeApostrophes(transcript.trim());
 
   // Apply filler patterns repeatedly until no more matches
   let previousValue = "";
@@ -941,7 +1030,8 @@ export class VoiceCharterService {
       return;
     }
 
-    const normalizedTranscript = transcript.toLowerCase().trim();
+    // Normalize apostrophes to handle curly/smart quotes from speech-to-text
+    const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
 
     // PRIORITY 0: Check for AI reformulation capture (CAPTURE: [text])
     // This MUST be checked BEFORE filtering AI responses, as the AI uses this to
@@ -1166,6 +1256,21 @@ export class VoiceCharterService {
     ) {
       this.reviewProgress();
       return;
+    }
+
+    // PRIORITY 5: Skip transcripts that are questions (likely AI asking about fields)
+    // User responses should be statements, not questions
+    const endsWithQuestion = transcript.trim().endsWith("?");
+    if (endsWithQuestion) {
+      // Check if this is asking about a field (AI behavior)
+      const normalizedCheck = normalizeApostrophes(transcript.toLowerCase());
+      const isFieldQuestion = /what(?:'s| is) (?:the\s+)?(?:project|name|title|sponsor|lead|date|vision|problem|description|scope|risk)/i.test(normalizedCheck) ||
+        /who(?:'s| is) (?:the\s+)?(?:project|sponsor|lead)/i.test(normalizedCheck) ||
+        /when (?:is|does|will)/i.test(normalizedCheck);
+      if (isFieldQuestion) {
+        console.log("[VoiceCharterService] Skipping field question transcript:", transcript.substring(0, 50));
+        return;
+      }
     }
 
     // Use askingFieldId to ensure we capture to the correct field

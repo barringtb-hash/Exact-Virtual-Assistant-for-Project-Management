@@ -4065,6 +4065,21 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
+      // Check for charter creation intent via voice and start guided session
+      const voiceCharterIntent = detectCharterIntent(trimmed);
+      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
+        const currentGuidedState = guidedStateRef.current;
+        const currentConversationId = guidedConversationIdRef.current;
+        const canStart =
+          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
+          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
+        if (canStart && startGuidedCharterRef.current) {
+          voiceActions.setStatus("idle");
+          await startGuidedCharterRef.current();
+          return;
+        }
+      }
+
       const entry = {
         id: Date.now() + Math.random(),
         text: trimmed,
@@ -4112,6 +4127,7 @@ const resolveDocTypeForManualSync = useCallback(
     [
       applyVoiceExtractionToDraft,
       createBlankDraft,
+      isGuidedChatEnabled,
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,

@@ -19,7 +19,7 @@ import {
   conversationActions,
   conversationStoreApi,
 } from "../state/conversationStore";
-import { draftActions } from "../state/draftStore.ts";
+import { draftActions, draftStoreApi } from "../state/draftStore.ts";
 
 /**
  * Voice charter session state.
@@ -32,6 +32,12 @@ export type VoiceCharterStep =
   | "confirming"
   | "navigating"
   | "completed";
+
+/**
+ * Source of a transcript - either AI speech or user speech.
+ * When known, this eliminates the need for heuristic AI detection.
+ */
+export type TranscriptSource = "ai" | "user";
 
 /**
  * Captured field value from voice input.
@@ -257,12 +263,17 @@ const MONTH_MAP: Record<string, number> = {
  * - "January 15, 2025" or "January 15th 2025"
  * - "15 January 2025"
  * - "1/15/2025" or "01-15-2025"
+ * - "January 15" or "January 15th" (infers year as current or next year)
+ * - "15th" or "the 15th" (infers month and year from context - uses current month)
  *
  * @param text - The spoken date text
  * @returns Parsed date in YYYY-MM-DD format (for date inputs) or original text if parsing fails
  */
 function parseSpokenDate(text: string): string {
   const cleaned = text.toLowerCase().trim();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-indexed
 
   // Try "Month Day, Year" format (e.g., "January 15, 2025" or "January 15th 2025")
   const monthDayYear = cleaned.match(
@@ -297,6 +308,66 @@ function parseSpokenDate(text: string): string {
     const day = parseInt(numericDate[2], 10);
     const year = parseInt(numericDate[3], 10);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try "Month Day" format without year (e.g., "January 15" or "November 8th")
+  // Infer year: use current year if date is in the future, otherwise next year
+  const monthDayNoYear = cleaned.match(
+    /^(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?\.?$/
+  );
+  if (monthDayNoYear) {
+    const month = MONTH_MAP[monthDayNoYear[1]];
+    const day = parseInt(monthDayNoYear[2], 10);
+    if (month && day >= 1 && day <= 31) {
+      // Check if this date has passed in the current year
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try "Day Month" format without year (e.g., "15 January" or "8th November")
+  const dayMonthNoYear = cleaned.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?\s+(\w+)\.?$/
+  );
+  if (dayMonthNoYear) {
+    const day = parseInt(dayMonthNoYear[1], 10);
+    const month = MONTH_MAP[dayMonthNoYear[2]];
+    if (month && day >= 1 && day <= 31) {
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try just day ordinal format (e.g., "15th" or "the 15th")
+  // Uses current month and infers year
+  const dayOnlyMatch = cleaned.match(
+    /^(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\.?$/
+  );
+  if (dayOnlyMatch) {
+    const day = parseInt(dayOnlyMatch[1], 10);
+    if (day >= 1 && day <= 31) {
+      const month = currentMonth;
+      const testDate = new Date(currentYear, month - 1, day);
+      const year = testDate >= now ? currentYear : currentYear + 1;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  // Try partial format from speech (e.g., "10th, 2026" - day and year but no month)
+  // This can happen when the user is correcting/adding to a previous date mention
+  const dayYearMatch = cleaned.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})$/
+  );
+  if (dayYearMatch) {
+    const day = parseInt(dayYearMatch[1], 10);
+    const year = parseInt(dayYearMatch[2], 10);
+    if (day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      // Use current month as a reasonable default
+      const month = currentMonth;
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
   }
@@ -359,8 +430,9 @@ const LONG_FORM_FIELDS = ["vision", "problem", "description"];
  */
 const AI_CAPTURE_PATTERNS = [
   /CAPTURE:\s*(.+?)(?:\.(?:\s|$)|$)/i,
-  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?[:\s]+[""]?([^""]+)[""]?/i,
-  /(?:Captured|Recording|Saving|Noted)(?: as)?[:\s]+[""]?([^""]+)[""]?/i,
+  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?:\s*[""]?([^""]+)[""]?/i,
+  // Require colon after Captured/Noted to avoid matching conversational "I captured the vision from your input"
+  /(?:Captured|Recording|Saving|Noted):\s*[""]?([^""]+)[""]?/i,
 ];
 
 /**
@@ -452,9 +524,18 @@ function formatValueForDraft(fieldId: string, value: string): unknown {
 }
 
 /**
+ * Normalizes apostrophes in text to standard straight apostrophes.
+ * Handles curly/smart apostrophes (U+2019) that come from speech-to-text.
+ */
+function normalizeApostrophes(text: string): string {
+  return text.replace(/[\u2018\u2019\u2032\u0060]/g, "'");
+}
+
+/**
  * Patterns that indicate the transcript is from AI speech, not user input.
  * AI responses get transcribed by Whisper and fed back through processTranscript,
  * so we need to detect and skip them.
+ * Note: Patterns use straight apostrophes; text is normalized before matching.
  */
 const AI_RESPONSE_PATTERNS = [
   // AI acknowledgment patterns (start of AI responses)
@@ -468,6 +549,12 @@ const AI_RESPONSE_PATTERNS = [
   /who (?:is|will be|would be) (?:the|your)/i,
   /can you (?:tell me|give me|describe)/i,
   /(?:tell me|describe) (?:the|your|about)/i,
+  // AI asking about specific charter fields (common patterns)
+  /what(?:'s| is) the (?:project\s+)?(?:name|title|vision|problem|description|scope|start date|end date)/i,
+  /who(?:'s| is) the (?:project\s+)?(?:sponsor|lead)/i,
+  /what(?:'s| is) the (?:high[- ]level\s+)?vision/i,
+  /what problem (?:does|will|would)/i,
+  /what(?:'s| is) (?:included in|in|out of) (?:the\s+)?scope/i,
   // AI field introduction patterns - only match "should/would/could/will" NOT "is"
   // "The project title is X" = user declaring value (ALLOW)
   // "A project lead should be..." = AI asking about field (BLOCK)
@@ -483,10 +570,19 @@ const AI_RESPONSE_PATTERNS = [
   // Combined acknowledgment + question (most common AI pattern)
   /^(?:got it|perfect|great|okay)[.!,]?\s+(?:and\s+)?(?:what|when|who|how|tell|can)/i,
   // Navigation acknowledgment patterns (AI responding to "go back", etc.)
-  /(?:going|go) back to/i,
-  /(?:returning|return) to/i,
+  // Note: "going back to" is AI (present continuous), but "go back to" alone is a user command
+  /going back to/i,  // AI saying "going back to..." (present continuous = AI action)
+  /returning to/i,   // AI saying "returning to..."
   /let(?:'s| me) (?:go back|return|take you back)/i,
   /back to (?:the\s+)?(?:previous|last)/i,
+  // AI transitioning to another field with "now/next back to"
+  /(?:now|next)\s+back\s+to/i,
+  // AI with acknowledgment prefix + navigation (catches "Sure, go back to...", "Okay, back to...")
+  /(?:sure|okay|alright|understood)[,.!]?\s+(?:go\s+)?back\s+to/i,
+  // AI saying "back to the [field]" after acknowledgment (catches "Great! Now back to the start date")
+  /(?:great|perfect|okay|sure)[.!,]?\s+(?:now\s+)?back\s+to/i,
+  // AI saying "I'll go back to..." or "I will go back to..."
+  /i(?:'ll| will)\s+(?:go\s+)?back\s+to/i,
   // Current value patterns (AI stating current field value)
   /(?:the\s+)?current(?:ly|\s+value)?\s+(?:is|set to|reads)/i,
   /it(?:'s| is) (?:currently|set to|now)/i,
@@ -546,7 +642,8 @@ const NOISE_WORDS = [
  * @returns true if the transcript is noise
  */
 function isNoiseTranscript(transcript: string): boolean {
-  const normalized = transcript.trim();
+  // Normalize apostrophes to handle curly/smart quotes
+  const normalized = normalizeApostrophes(transcript.trim());
 
   for (const pattern of NOISE_WORDS) {
     if (pattern.test(normalized)) {
@@ -565,7 +662,8 @@ function isNoiseTranscript(transcript: string): boolean {
  * @returns true if the transcript looks like AI speech
  */
 function isAIResponse(transcript: string): boolean {
-  const normalized = transcript.trim();
+  // Normalize apostrophes to handle curly/smart quotes from speech-to-text
+  const normalized = normalizeApostrophes(transcript.trim());
 
   // Very short responses are unlikely to be AI speech
   if (normalized.length < 10) {
@@ -586,6 +684,12 @@ function isAIResponse(transcript: string): boolean {
     return true;
   }
 
+  // AI asking about next field - detect phrases like "what's the [field]?"
+  // This catches cases where AI skips ahead to a different field than expected
+  if (/what(?:'s| is) (?:the\s+)?(?:end date|start date|vision|problem|description|scope)/i.test(normalized)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -600,7 +704,8 @@ function isAIResponse(transcript: string): boolean {
  * @returns The cleaned value suitable for the field
  */
 function extractFieldValue(transcript: string, fieldId: string): string {
-  let value = transcript.trim();
+  // Normalize apostrophes first to handle curly/smart quotes from speech-to-text
+  let value = normalizeApostrophes(transcript.trim());
 
   // Apply filler patterns repeatedly until no more matches
   let previousValue = "";
@@ -614,6 +719,12 @@ function extractFieldValue(transcript: string, fieldId: string): string {
   // Remove trailing period if it looks like conversational ending
   if (value.endsWith(".") && !value.includes(". ")) {
     value = value.slice(0, -1).trim();
+  }
+
+  // Remove trailing question marks and exclamation points from simple fields
+  // (these are often artifacts of voice transcription, e.g., "John Doe?" instead of "John Doe")
+  if (NAME_FIELDS.includes(fieldId) || fieldId === "project_name") {
+    value = value.replace(/[?!]+$/, "").trim();
   }
 
   // If we stripped too much (empty result), fall back to original
@@ -672,6 +783,13 @@ export class VoiceCharterService {
    * Used as fallback if the AI doesn't provide a reformulated version.
    */
   private pendingReformulationRawValue: string | null = null;
+  /**
+   * Buffer for incomplete AI CAPTURE responses.
+   * AI transcripts may arrive in chunks, so we buffer incomplete CAPTURE text
+   * and wait for a complete sentence (ends with period) before capturing.
+   */
+  private pendingCaptureText: string | null = null;
+  private pendingCaptureFieldId: string | null = null;
 
   constructor() {
     this.state = this.createInitialState();
@@ -910,11 +1028,18 @@ export class VoiceCharterService {
   }
 
   /**
-   * Process a transcript from the user's voice input.
+   * Process a transcript from voice input.
+   *
+   * @param transcript - The transcript text to process
+   * @param source - The source of the transcript: "ai" for AI speech, "user" for user speech.
+   *                 When source is known, we skip heuristic AI detection entirely.
+   *                 AI transcripts are only checked for CAPTURE patterns.
+   *                 User transcripts are processed for commands and values.
    */
-  processTranscript(transcript: string): void {
+  processTranscript(transcript: string, source?: TranscriptSource): void {
     console.log("[VoiceCharterService] processTranscript called:", {
       transcript: transcript.substring(0, 80),
+      source: source || "unknown",
       askingFieldId: this.askingFieldId,
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
@@ -927,12 +1052,95 @@ export class VoiceCharterService {
       return;
     }
 
-    const normalizedTranscript = transcript.toLowerCase().trim();
+    // If source is explicitly "ai", only process CAPTURE patterns - skip all user input handling
+    if (source === "ai") {
+      this.processAITranscript(transcript);
+      return;
+    }
+
+    // If source is explicitly "user", skip AI detection entirely
+    if (source === "user") {
+      this.processUserTranscript(transcript);
+      return;
+    }
+
+    // Fallback for unknown source: use legacy heuristic detection
+    // (kept for backwards compatibility)
+    console.log("[VoiceCharterService] processTranscript: Using legacy heuristic detection (source unknown)");
+
+    // Normalize apostrophes to handle curly/smart quotes from speech-to-text
+    const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
 
     // PRIORITY 0: Check for AI reformulation capture (CAPTURE: [text])
     // This MUST be checked BEFORE filtering AI responses, as the AI uses this to
     // submit reformulated text for long-form fields like vision, problem, description.
-    if (this.pendingReformulationFieldId) {
+    // Check if we're waiting for reformulation OR if current field is a long-form field
+    // (the AI might proactively provide CAPTURE based on context before user input)
+    const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
+    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+
+    if (shouldCheckForCapture) {
+      // First, check if we have a pending incomplete CAPTURE and this is a continuation
+      if (this.pendingCaptureText && this.pendingCaptureFieldId) {
+        // Check if this transcript contains a new CAPTURE (replacement) or continues the pending one
+        const hasNewCapture = /CAPTURE:/i.test(transcript);
+
+        if (hasNewCapture) {
+          // New CAPTURE found - extract it and check if it's more complete
+          for (const pattern of AI_CAPTURE_PATTERNS) {
+            const match = transcript.match(pattern);
+            if (match && match[1]) {
+              const newValue = match[1].trim();
+              // Use the new CAPTURE if it's longer (more complete) or ends with period
+              if (newValue.length > this.pendingCaptureText.length || /\.\s*$/.test(newValue)) {
+                this.pendingCaptureText = newValue;
+                console.log("[VoiceCharterService] processTranscript: Updated pending CAPTURE with longer text", {
+                  fieldId: this.pendingCaptureFieldId,
+                  newText: newValue.substring(0, 80),
+                });
+              }
+              break;
+            }
+          }
+        }
+
+        // Check if the transcript signals moving to next field (time to finalize capture)
+        const isTransitionPhrase = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript)) ||
+          /(?:now|next)[,.]?\s+what/i.test(transcript) ||
+          /what(?:'s| is) the (?:problem|description|scope)/i.test(transcript);
+
+        // Also check if pending text looks complete (ends with period)
+        const pendingLooksComplete = /\.\s*$/.test(this.pendingCaptureText);
+
+        if (isTransitionPhrase || pendingLooksComplete) {
+          console.log("[VoiceCharterService] processTranscript: Finalizing buffered CAPTURE", {
+            fieldId: this.pendingCaptureFieldId,
+            value: this.pendingCaptureText.substring(0, 80),
+            reason: pendingLooksComplete ? "complete sentence" : "transition phrase",
+          });
+
+          // Capture the buffered value
+          this.captureValue(this.pendingCaptureFieldId, this.pendingCaptureText);
+
+          // Clear states and advance
+          const capturedFieldId = this.pendingCaptureFieldId;
+          this.pendingCaptureText = null;
+          this.pendingCaptureFieldId = null;
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.advanceAskingField();
+
+          this.updateState({
+            step: "listening",
+            pendingValue: this.pendingCaptureText || "",
+          });
+          return;
+        }
+
+        // Not ready to finalize yet - skip other processing for this transcript
+        return;
+      }
+
       // Try all capture patterns to find the reformulated text
       let reformulatedValue: string | null = null;
       for (const pattern of AI_CAPTURE_PATTERNS) {
@@ -944,53 +1152,96 @@ export class VoiceCharterService {
       }
 
       if (reformulatedValue) {
+        // Determine which field to capture to: pending field takes priority, then current asking field
+        const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+
+        // Check if this CAPTURE looks complete (ends with period or has transition phrase)
+        const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+          /(?:now|next)[,.]?\s+what/i.test(transcript);
+
+        if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+          // Buffer incomplete CAPTURE for long-form fields
+          console.log("[VoiceCharterService] processTranscript: Buffering incomplete CAPTURE", {
+            fieldId: targetFieldId,
+            value: reformulatedValue.substring(0, 80),
+          });
+          this.pendingCaptureText = reformulatedValue;
+          this.pendingCaptureFieldId = targetFieldId;
+          return;
+        }
+
         console.log("[VoiceCharterService] processTranscript: AI reformulation captured", {
-          fieldId: this.pendingReformulationFieldId,
+          fieldId: targetFieldId,
           reformulatedValue: reformulatedValue.substring(0, 80),
+          hadPendingField: !!this.pendingReformulationFieldId,
         });
 
-        // Capture the AI's reformulated value
-        this.captureValue(this.pendingReformulationFieldId, reformulatedValue);
+        if (targetFieldId) {
+          // Capture the AI's reformulated value
+          this.captureValue(targetFieldId, reformulatedValue);
 
-        // Clear the pending state and advance
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.advanceAskingField();
+          // Clear the pending state and advance
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.pendingCaptureText = null;
+          this.pendingCaptureFieldId = null;
+          this.advanceAskingField();
 
-        this.updateState({
-          step: "listening",
-          pendingValue: reformulatedValue,
-        });
-        return;
+          this.updateState({
+            step: "listening",
+            pendingValue: reformulatedValue,
+          });
+          return;
+        }
       }
 
       // Check if AI has moved on to the next field without providing CAPTURE
-      // If so, use the raw user input as fallback
-      const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((pattern) => pattern.test(transcript));
-      if (aiMovedOn && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] processTranscript: AI moved on without CAPTURE, using raw input as fallback", {
-          fieldId: this.pendingReformulationFieldId,
-          rawValue: this.pendingReformulationRawValue.substring(0, 80),
-        });
+      // If so, use the raw user input as fallback (only if we had pending reformulation)
+      if (this.pendingReformulationFieldId) {
+        const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((pattern) => pattern.test(transcript));
+        if (aiMovedOn && this.pendingReformulationRawValue) {
+          console.log("[VoiceCharterService] processTranscript: AI moved on without CAPTURE, using raw input as fallback", {
+            fieldId: this.pendingReformulationFieldId,
+            rawValue: this.pendingReformulationRawValue.substring(0, 80),
+          });
 
-        // Capture the raw user input as fallback
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+          // Capture the raw user input as fallback
+          this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
 
-        // Clear the pending state and advance
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.advanceAskingField();
+          // Clear the pending state and advance
+          this.pendingReformulationFieldId = null;
+          this.pendingReformulationRawValue = null;
+          this.advanceAskingField();
 
-        this.updateState({
-          step: "listening",
-          pendingValue: transcript,
-        });
-        return;
+          this.updateState({
+            step: "listening",
+            pendingValue: transcript,
+          });
+          return;
+        }
       }
     }
 
-    // PRIORITY 1: Check for navigation commands FIRST (before any filtering)
-    // User intents like "go back" or "previous" should always be processed
+    // PRIORITY 1: Skip AI responses that got transcribed FIRST
+    // (AI speech goes through Whisper and comes back as transcripts)
+    // This MUST be checked BEFORE navigation commands because AI responses like
+    // "Sure, let's go back..." would otherwise trigger navigation
+    if (isAIResponse(transcript)) {
+      console.log("[VoiceCharterService] [AI DETECTED] Skipping AI response:", transcript.substring(0, 50));
+      return;
+    }
+
+    // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
+    if (isNoiseTranscript(transcript)) {
+      console.log("[VoiceCharterService] [NOISE] Skipping noise transcript:", transcript);
+      return;
+    }
+
+    // If we reach here, this is a user transcript that will be processed
+    console.log("[VoiceCharterService] [USER INPUT] Processing user transcript:", transcript.substring(0, 50));
+
+    // PRIORITY 3: Check for navigation commands
+    // Now safe to process since we've filtered out AI responses
     if (this.handleNavigationCommand(normalizedTranscript)) {
       // Clear pending reformulation if user navigates away
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
@@ -1005,20 +1256,6 @@ export class VoiceCharterService {
       return;
     }
 
-    // PRIORITY 2: Skip noise (short acknowledgments, farewells, etc.)
-    if (isNoiseTranscript(transcript)) {
-      console.log("[VoiceCharterService] Skipping noise transcript:", transcript);
-      return;
-    }
-
-    // PRIORITY 3: Skip AI responses that got transcribed
-    // (AI speech goes through Whisper and comes back as transcripts)
-    // But do this AFTER navigation/correction checks so user commands aren't blocked
-    if (isAIResponse(transcript)) {
-      console.log("[VoiceCharterService] Skipping AI response transcript:", transcript.substring(0, 50));
-      return;
-    }
-
     // PRIORITY 4: Extra safeguard for AI cooldown period
     if (this.isWithinAICooldown()) {
       // Only process if it's clearly a short user response (name, date, etc.)
@@ -1027,7 +1264,7 @@ export class VoiceCharterService {
       const looksLikeValue = /^[\w\s\-'.,]+$/.test(transcript.trim());
 
       if (!isShortResponse || !looksLikeValue) {
-        console.log("[VoiceCharterService] Skipping transcript during AI cooldown:", transcript.substring(0, 50));
+        console.log("[VoiceCharterService] [AI DETECTED] Skipping during AI cooldown (likely AI speech):", transcript.substring(0, 50));
         return;
       }
     }
@@ -1063,6 +1300,21 @@ export class VoiceCharterService {
       return;
     }
 
+    // PRIORITY 5: Skip transcripts that are questions (likely AI asking about fields)
+    // User responses should be statements, not questions
+    const endsWithQuestion = transcript.trim().endsWith("?");
+    if (endsWithQuestion) {
+      // Check if this is asking about a field (AI behavior)
+      const normalizedCheck = normalizeApostrophes(transcript.toLowerCase());
+      const isFieldQuestion = /what(?:'s| is) (?:the\s+)?(?:project|name|title|sponsor|lead|date|vision|problem|description|scope|risk)/i.test(normalizedCheck) ||
+        /who(?:'s| is) (?:the\s+)?(?:project|sponsor|lead)/i.test(normalizedCheck) ||
+        /when (?:is|does|will)/i.test(normalizedCheck);
+      if (isFieldQuestion) {
+        console.log("[VoiceCharterService] [AI DETECTED] Skipping field question (likely AI):", transcript.substring(0, 50));
+        return;
+      }
+    }
+
     // Use askingFieldId to ensure we capture to the correct field
     // (the one the AI was asking about, not the current field which may have changed)
     const targetFieldId = this.askingFieldId;
@@ -1073,13 +1325,27 @@ export class VoiceCharterService {
       if (LONG_FORM_FIELDS.includes(targetFieldId)) {
         // Extract the value from the user's response (strip conversational fillers)
         const rawValue = extractFieldValue(transcript, targetFieldId);
-        console.log("[VoiceCharterService] processTranscript: Long-form field, waiting for AI reformulation", {
-          targetFieldId,
-          rawTranscript: transcript.substring(0, 50),
-          extractedRawValue: rawValue.substring(0, 50),
-        });
-        this.pendingReformulationFieldId = targetFieldId;
-        this.pendingReformulationRawValue = rawValue;
+
+        // Accumulate transcript chunks if we're still waiting for the same field
+        // (user may speak in multiple sentences/phrases)
+        if (this.pendingReformulationFieldId === targetFieldId && this.pendingReformulationRawValue) {
+          // Append new chunk to existing value with a space separator
+          this.pendingReformulationRawValue = this.pendingReformulationRawValue + " " + rawValue;
+          console.log("[VoiceCharterService] processTranscript: Long-form field, accumulating transcript", {
+            targetFieldId,
+            newChunk: rawValue.substring(0, 50),
+            accumulatedValue: this.pendingReformulationRawValue.substring(0, 80),
+          });
+        } else {
+          // First chunk for this field
+          this.pendingReformulationFieldId = targetFieldId;
+          this.pendingReformulationRawValue = rawValue;
+          console.log("[VoiceCharterService] processTranscript: Long-form field, waiting for AI reformulation", {
+            targetFieldId,
+            rawTranscript: transcript.substring(0, 50),
+            extractedRawValue: rawValue.substring(0, 50),
+          });
+        }
 
         // Don't advance yet - wait for AI to say "CAPTURE: [text]"
         this.updateState({
@@ -1114,9 +1380,212 @@ export class VoiceCharterService {
   }
 
   /**
-   * Advance askingFieldId to the next field without sending AI messages.
+   * Process a transcript that is known to be from AI speech.
+   * Only handles CAPTURE patterns - all user input handling is skipped.
+   */
+  private processAITranscript(transcript: string): void {
+    console.log("[VoiceCharterService] [AI] Processing AI transcript:", transcript.substring(0, 80));
+
+    // Check if we're waiting for reformulation OR if current field is a long-form field
+    const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
+    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+
+    if (!shouldCheckForCapture) {
+      // No CAPTURE expected, just skip
+      console.log("[VoiceCharterService] [AI] No CAPTURE expected, skipping");
+      return;
+    }
+
+    // Handle pending incomplete CAPTURE
+    if (this.pendingCaptureText && this.pendingCaptureFieldId) {
+      const hasNewCapture = /CAPTURE:/i.test(transcript);
+
+      if (hasNewCapture) {
+        // New CAPTURE found - extract and check if more complete
+        for (const pattern of AI_CAPTURE_PATTERNS) {
+          const match = transcript.match(pattern);
+          if (match && match[1]) {
+            const newValue = this.sanitizeCapturedValue(match[1].trim());
+            if (newValue.length > this.pendingCaptureText.length || /\.\s*$/.test(newValue)) {
+              this.pendingCaptureText = newValue;
+              console.log("[VoiceCharterService] [AI] Updated pending CAPTURE:", newValue.substring(0, 80));
+            }
+            break;
+          }
+        }
+      }
+
+      // Check if ready to finalize
+      const isTransitionPhrase = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript)) ||
+        /(?:now|next)[,.]?\s+what/i.test(transcript) ||
+        /what(?:'s| is) the (?:problem|description|scope)/i.test(transcript);
+      const pendingLooksComplete = /\.\s*$/.test(this.pendingCaptureText);
+
+      if (isTransitionPhrase || pendingLooksComplete) {
+        console.log("[VoiceCharterService] [AI] Finalizing buffered CAPTURE:", this.pendingCaptureText.substring(0, 80));
+        this.captureValue(this.pendingCaptureFieldId, this.pendingCaptureText);
+        this.pendingCaptureText = null;
+        this.pendingCaptureFieldId = null;
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: "" });
+      }
+      return;
+    }
+
+    // Try to extract CAPTURE value
+    let reformulatedValue: string | null = null;
+    for (const pattern of AI_CAPTURE_PATTERNS) {
+      const match = transcript.match(pattern);
+      if (match && match[1]) {
+        reformulatedValue = this.sanitizeCapturedValue(match[1].trim());
+        break;
+      }
+    }
+
+    if (reformulatedValue) {
+      const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+      const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+        /(?:now|next)[,.]?\s+what/i.test(transcript);
+
+      if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+        // Buffer incomplete CAPTURE
+        console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
+        this.pendingCaptureText = reformulatedValue;
+        this.pendingCaptureFieldId = targetFieldId;
+        return;
+      }
+
+      if (targetFieldId) {
+        console.log("[VoiceCharterService] [AI] Capturing reformulated value:", reformulatedValue.substring(0, 80));
+        this.captureValue(targetFieldId, reformulatedValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.pendingCaptureText = null;
+        this.pendingCaptureFieldId = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: reformulatedValue });
+        return;
+      }
+    }
+
+    // Check if AI moved on without CAPTURE - use raw input as fallback
+    if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
+      const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript));
+      if (aiMovedOn) {
+        console.log("[VoiceCharterService] [AI] Moved on without CAPTURE, using raw fallback");
+        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: transcript });
+      }
+    }
+  }
+
+  /**
+   * Process a transcript that is known to be from user speech.
+   * Skips all AI detection heuristics - goes straight to user input handling.
+   */
+  private processUserTranscript(transcript: string): void {
+    console.log("[VoiceCharterService] [USER] Processing user transcript:", transcript.substring(0, 80));
+
+    // Skip noise (short acknowledgments, farewells, etc.)
+    if (isNoiseTranscript(transcript)) {
+      console.log("[VoiceCharterService] [USER] Skipping noise transcript:", transcript);
+      return;
+    }
+
+    // Normalize for command detection
+    const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
+
+    // Check for navigation commands
+    if (this.handleNavigationCommand(normalizedTranscript)) {
+      // Clear pending reformulation if user navigates away
+      if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
+        console.log("[VoiceCharterService] [USER] Navigation detected, capturing pending raw value");
+        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+      }
+      return;
+    }
+
+    // Check for skip command
+    if (normalizedTranscript.includes("skip") &&
+        (normalizedTranscript.includes("this") || normalizedTranscript.includes("field") || normalizedTranscript === "skip")) {
+      this.skipCurrentField();
+      return;
+    }
+
+    // Check for completion command
+    if (normalizedTranscript.includes("done") || normalizedTranscript.includes("finish") || normalizedTranscript.includes("complete")) {
+      this.complete();
+      return;
+    }
+
+    // Check for review command
+    if (normalizedTranscript.includes("review") || normalizedTranscript.includes("show progress") || normalizedTranscript.includes("what do i have")) {
+      this.reviewProgress();
+      return;
+    }
+
+    // Check for correction commands
+    if (this.handleCorrectionCommand(normalizedTranscript)) {
+      return;
+    }
+
+    // Capture user value
+    const targetFieldId = this.askingFieldId || this.state.currentFieldId;
+
+    if (targetFieldId) {
+      // Check if this is a long-form field that needs AI reformulation
+      if (LONG_FORM_FIELDS.includes(targetFieldId)) {
+        const rawValue = extractFieldValue(transcript, targetFieldId);
+
+        if (this.pendingReformulationFieldId === targetFieldId && this.pendingReformulationRawValue) {
+          // Accumulate additional input
+          this.pendingReformulationRawValue += " " + rawValue;
+          console.log("[VoiceCharterService] [USER] Long-form field, accumulating:", rawValue.substring(0, 50));
+        } else {
+          // First input for this field
+          this.pendingReformulationFieldId = targetFieldId;
+          this.pendingReformulationRawValue = rawValue;
+          console.log("[VoiceCharterService] [USER] Long-form field, waiting for AI reformulation:", rawValue.substring(0, 50));
+        }
+
+        this.updateState({ step: "listening", pendingValue: transcript });
+        return;
+      }
+
+      // Extract and capture value for non-long-form fields
+      const extractedValue = extractFieldValue(transcript, targetFieldId);
+      console.log("[VoiceCharterService] [USER] Capturing value:", extractedValue.substring(0, 50));
+      this.captureValue(targetFieldId, extractedValue);
+      this.advanceAskingField();
+    }
+
+    this.updateState({ step: "listening", pendingValue: transcript });
+  }
+
+  /**
+   * Sanitize a captured value by removing "CAPTURE:" prefix if present.
+   * This handles edge cases where the CAPTURE pattern might not extract cleanly.
+   */
+  private sanitizeCapturedValue(value: string): string {
+    // Remove "CAPTURE:" prefix if still present (shouldn't happen with correct regex, but safety check)
+    let sanitized = value.replace(/^CAPTURE:\s*/i, "").trim();
+    return sanitized;
+  }
+
+  /**
+   * Advance askingFieldId to the next EMPTY field without sending AI messages.
    * This is called after capturing a value so the next transcript goes to the right field.
    * The AI handles asking about the next field in its spoken response.
+   *
+   * After going back to update a field, this will skip over fields that already have
+   * values and advance to the next empty field.
    */
   private advanceAskingField(): void {
     if (!this.schema) {
@@ -1124,15 +1593,33 @@ export class VoiceCharterService {
     }
 
     const previousFieldId = this.askingFieldId;
-    const nextIndex = this.state.currentFieldIndex + 1;
-    if (nextIndex >= this.schema.fields.length) {
-      // All fields done
+
+    // Find the next empty field starting from currentFieldIndex + 1
+    // This ensures we skip over fields that already have values
+    let nextIndex = this.state.currentFieldIndex + 1;
+    let nextField = null;
+
+    while (nextIndex < this.schema.fields.length) {
+      const candidateField = this.schema.fields[nextIndex];
+      const hasValue = this.state.capturedValues.has(candidateField.id);
+
+      if (!hasValue) {
+        // Found an empty field
+        nextField = candidateField;
+        break;
+      }
+
+      console.log(`[VoiceCharterService] advanceAskingField: Skipping ${candidateField.id} (already has value)`);
+      nextIndex++;
+    }
+
+    if (!nextField) {
+      // All fields are complete
       this.askingFieldId = null;
       console.log("[VoiceCharterService] All fields complete, askingFieldId set to null");
       return;
     }
 
-    const nextField = this.schema.fields[nextIndex];
     this.askingFieldId = nextField.id;
 
     console.log(`[VoiceCharterService] advanceAskingField: ${previousFieldId} -> ${nextField.id} (index ${nextIndex})`);
@@ -1177,12 +1664,14 @@ export class VoiceCharterService {
   private handleNavigationCommand(transcript: string): boolean {
     console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
 
-    // Check for "go back to [field]" pattern first - navigate to specific field
-    // E.g., "go back to the title", "can we go back to the title"
-    const goBackToMatch = transcript.match(/(?:go back|return)\s+to\s+(?:the\s+)?(.+?)(?:\s*\?|$)/i);
-    if (goBackToMatch) {
-      const fieldName = goBackToMatch[1].toLowerCase().trim();
-      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back to' field:", fieldName);
+    // Check for "back to [field]" pattern - navigate to specific field
+    // Handles: "go back to the title", "back to project title", "no, back to the title, please"
+    // Also handles: "can you go back to...", "could you go back to..."
+    // Made more flexible to match "back to" without requiring "go" prefix
+    const backToMatch = transcript.match(/(?:can\s+you\s+|could\s+you\s+)?(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (backToMatch) {
+      const fieldName = backToMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'back to' field:", fieldName);
       const field = this.schema?.fields.find(
         (f) =>
           f.label.toLowerCase().includes(fieldName) ||
@@ -1191,6 +1680,69 @@ export class VoiceCharterService {
       );
       if (field) {
         this.goToField(field.id);
+        return true;
+      }
+    }
+
+    // Check for "return to [field]" pattern separately
+    const returnToMatch = transcript.match(/return\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (returnToMatch) {
+      const fieldName = returnToMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'return to' field:", fieldName);
+      const field = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(fieldName) ||
+          f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+          fieldName.includes(f.label.toLowerCase())
+      );
+      if (field) {
+        this.goToField(field.id);
+        return true;
+      }
+    }
+
+    // Check for "go to [field]" pattern (without "back")
+    // Handles: "go to the start date", "go to start date field", "go to project name"
+    const goToMatch = transcript.match(/^(?:can\s+you\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (goToMatch) {
+      const fieldName = goToMatch[1].toLowerCase().trim();
+      // Skip if this looks like "go to back" which should be handled by back-to pattern
+      if (!fieldName.includes("back")) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go to' field:", fieldName);
+        const field = this.schema?.fields.find(
+          (f) =>
+            f.label.toLowerCase().includes(fieldName) ||
+            f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+            fieldName.includes(f.label.toLowerCase())
+        );
+        if (field) {
+          this.goToField(field.id);
+          return true;
+        }
+      }
+    }
+
+    // Check for rejection prefix followed by navigation intent
+    // E.g., "no, back to title" or "wait, go back" or "actually, let's go back"
+    const rejectionNavigationMatch = transcript.match(/^(?:no|wait|actually|stop)[,.]?\s+(?:let'?s?\s+)?(?:go\s+)?back(?:\s+to\s+(?:the\s+)?(.+?))?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (rejectionNavigationMatch) {
+      const fieldName = rejectionNavigationMatch[1]?.toLowerCase().trim();
+      if (fieldName) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + back to field:", fieldName);
+        const field = this.schema?.fields.find(
+          (f) =>
+            f.label.toLowerCase().includes(fieldName) ||
+            f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+            fieldName.includes(f.label.toLowerCase())
+        );
+        if (field) {
+          this.goToField(field.id);
+          return true;
+        }
+      } else {
+        // Just "no, go back" without specific field
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + go back");
+        this.goToPreviousField();
         return true;
       }
     }
@@ -1487,9 +2039,12 @@ export class VoiceCharterService {
    * Also syncs the value to the conversation store for real-time form updates.
    */
   captureValue(fieldId: string, value: string): void {
+    // Sanitize the value to remove "CAPTURE:" prefix if present
+    const sanitizedValue = this.sanitizeCapturedValue(value);
+
     console.log("[VoiceCharterService] captureValue:", {
       fieldId,
-      value: value.substring(0, 50),
+      value: sanitizedValue.substring(0, 50),
       currentAskingFieldId: this.askingFieldId,
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
@@ -1497,7 +2052,7 @@ export class VoiceCharterService {
 
     const captured: CapturedFieldValue = {
       fieldId,
-      value,
+      value: sanitizedValue,
       confirmedAt: Date.now(),
     };
 
@@ -1510,9 +2065,9 @@ export class VoiceCharterService {
     });
 
     // Sync to conversation store for real-time form field updates
-    this.syncToConversationStore(fieldId, value);
+    this.syncToConversationStore(fieldId, sanitizedValue);
 
-    this.emit({ type: "field_captured", fieldId, value });
+    this.emit({ type: "field_captured", fieldId, value: sanitizedValue });
     console.log("[VoiceCharterService] captureValue complete:", fieldId);
   }
 
@@ -1544,11 +2099,41 @@ export class VoiceCharterService {
       // Also sync to draft store for PreviewEditable UI
       // Format the value appropriately for list fields
       const draftValue = formatValueForDraft(fieldId, value);
-      draftActions.mergeDraft({ [fieldId]: draftValue });
-      console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
-        isArray: Array.isArray(draftValue),
-        valueType: typeof draftValue,
-      });
+
+      // For list fields (scope_in, scope_out, risks, assumptions), APPEND to existing array
+      // instead of replacing it. This allows users to add multiple items via voice.
+      if (
+        Array.isArray(draftValue) &&
+        (STRING_LIST_FIELDS.includes(fieldId) || OBJECT_LIST_FIELDS.includes(fieldId))
+      ) {
+        // Get current draft state
+        const currentDraft = draftStoreApi.getState().draft ?? {};
+        const currentArray = Array.isArray(currentDraft[fieldId]) ? currentDraft[fieldId] as unknown[] : [];
+
+        // Append new items to existing array (avoid duplicates)
+        const newItems = draftValue.filter(
+          (item) => !currentArray.some((existing) =>
+            typeof existing === "string" && typeof item === "string"
+              ? existing.toLowerCase() === item.toLowerCase()
+              : JSON.stringify(existing) === JSON.stringify(item)
+          )
+        );
+        const mergedArray = [...currentArray, ...newItems];
+
+        draftActions.mergeDraft({ [fieldId]: mergedArray });
+        console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
+          isArray: true,
+          existingCount: currentArray.length,
+          newCount: newItems.length,
+          totalCount: mergedArray.length,
+        });
+      } else {
+        draftActions.mergeDraft({ [fieldId]: draftValue });
+        console.log("[VoiceCharterService] syncToConversationStore: Draft merged for", fieldId, {
+          isArray: Array.isArray(draftValue),
+          valueType: typeof draftValue,
+        });
+      }
     } catch (error) {
       console.error("[VoiceCharterService] Failed to sync to conversation store:", error);
     } finally {

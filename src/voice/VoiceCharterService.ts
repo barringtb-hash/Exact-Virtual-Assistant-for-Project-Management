@@ -34,6 +34,12 @@ export type VoiceCharterStep =
   | "completed";
 
 /**
+ * Source of a transcript - either AI speech or user speech.
+ * When known, this eliminates the need for heuristic AI detection.
+ */
+export type TranscriptSource = "ai" | "user";
+
+/**
  * Captured field value from voice input.
  */
 export interface CapturedFieldValue {
@@ -1023,12 +1029,17 @@ export class VoiceCharterService {
 
   /**
    * Process a transcript from voice input.
-   * Note: Both AI responses and user speech come through here. The function
-   * filters out AI responses and processes user commands/values.
+   *
+   * @param transcript - The transcript text to process
+   * @param source - The source of the transcript: "ai" for AI speech, "user" for user speech.
+   *                 When source is known, we skip heuristic AI detection entirely.
+   *                 AI transcripts are only checked for CAPTURE patterns.
+   *                 User transcripts are processed for commands and values.
    */
-  processTranscript(transcript: string): void {
+  processTranscript(transcript: string, source?: TranscriptSource): void {
     console.log("[VoiceCharterService] processTranscript called:", {
       transcript: transcript.substring(0, 80),
+      source: source || "unknown",
       askingFieldId: this.askingFieldId,
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
@@ -1040,6 +1051,22 @@ export class VoiceCharterService {
       console.log("[VoiceCharterService] processTranscript: No schema or dataChannel, returning");
       return;
     }
+
+    // If source is explicitly "ai", only process CAPTURE patterns - skip all user input handling
+    if (source === "ai") {
+      this.processAITranscript(transcript);
+      return;
+    }
+
+    // If source is explicitly "user", skip AI detection entirely
+    if (source === "user") {
+      this.processUserTranscript(transcript);
+      return;
+    }
+
+    // Fallback for unknown source: use legacy heuristic detection
+    // (kept for backwards compatibility)
+    console.log("[VoiceCharterService] processTranscript: Using legacy heuristic detection (source unknown)");
 
     // Normalize apostrophes to handle curly/smart quotes from speech-to-text
     const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
@@ -1350,6 +1377,206 @@ export class VoiceCharterService {
       step: "listening",
       pendingValue: transcript,
     });
+  }
+
+  /**
+   * Process a transcript that is known to be from AI speech.
+   * Only handles CAPTURE patterns - all user input handling is skipped.
+   */
+  private processAITranscript(transcript: string): void {
+    console.log("[VoiceCharterService] [AI] Processing AI transcript:", transcript.substring(0, 80));
+
+    // Check if we're waiting for reformulation OR if current field is a long-form field
+    const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
+    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+
+    if (!shouldCheckForCapture) {
+      // No CAPTURE expected, just skip
+      console.log("[VoiceCharterService] [AI] No CAPTURE expected, skipping");
+      return;
+    }
+
+    // Handle pending incomplete CAPTURE
+    if (this.pendingCaptureText && this.pendingCaptureFieldId) {
+      const hasNewCapture = /CAPTURE:/i.test(transcript);
+
+      if (hasNewCapture) {
+        // New CAPTURE found - extract and check if more complete
+        for (const pattern of AI_CAPTURE_PATTERNS) {
+          const match = transcript.match(pattern);
+          if (match && match[1]) {
+            const newValue = this.sanitizeCapturedValue(match[1].trim());
+            if (newValue.length > this.pendingCaptureText.length || /\.\s*$/.test(newValue)) {
+              this.pendingCaptureText = newValue;
+              console.log("[VoiceCharterService] [AI] Updated pending CAPTURE:", newValue.substring(0, 80));
+            }
+            break;
+          }
+        }
+      }
+
+      // Check if ready to finalize
+      const isTransitionPhrase = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript)) ||
+        /(?:now|next)[,.]?\s+what/i.test(transcript) ||
+        /what(?:'s| is) the (?:problem|description|scope)/i.test(transcript);
+      const pendingLooksComplete = /\.\s*$/.test(this.pendingCaptureText);
+
+      if (isTransitionPhrase || pendingLooksComplete) {
+        console.log("[VoiceCharterService] [AI] Finalizing buffered CAPTURE:", this.pendingCaptureText.substring(0, 80));
+        this.captureValue(this.pendingCaptureFieldId, this.pendingCaptureText);
+        this.pendingCaptureText = null;
+        this.pendingCaptureFieldId = null;
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: "" });
+      }
+      return;
+    }
+
+    // Try to extract CAPTURE value
+    let reformulatedValue: string | null = null;
+    for (const pattern of AI_CAPTURE_PATTERNS) {
+      const match = transcript.match(pattern);
+      if (match && match[1]) {
+        reformulatedValue = this.sanitizeCapturedValue(match[1].trim());
+        break;
+      }
+    }
+
+    if (reformulatedValue) {
+      const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+      const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+        /(?:now|next)[,.]?\s+what/i.test(transcript);
+
+      if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+        // Buffer incomplete CAPTURE
+        console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
+        this.pendingCaptureText = reformulatedValue;
+        this.pendingCaptureFieldId = targetFieldId;
+        return;
+      }
+
+      if (targetFieldId) {
+        console.log("[VoiceCharterService] [AI] Capturing reformulated value:", reformulatedValue.substring(0, 80));
+        this.captureValue(targetFieldId, reformulatedValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.pendingCaptureText = null;
+        this.pendingCaptureFieldId = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: reformulatedValue });
+        return;
+      }
+    }
+
+    // Check if AI moved on without CAPTURE - use raw input as fallback
+    if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
+      const aiMovedOn = AI_NEXT_FIELD_PATTERNS.some((p) => p.test(transcript));
+      if (aiMovedOn) {
+        console.log("[VoiceCharterService] [AI] Moved on without CAPTURE, using raw fallback");
+        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+        this.advanceAskingField();
+        this.updateState({ step: "listening", pendingValue: transcript });
+      }
+    }
+  }
+
+  /**
+   * Process a transcript that is known to be from user speech.
+   * Skips all AI detection heuristics - goes straight to user input handling.
+   */
+  private processUserTranscript(transcript: string): void {
+    console.log("[VoiceCharterService] [USER] Processing user transcript:", transcript.substring(0, 80));
+
+    // Skip noise (short acknowledgments, farewells, etc.)
+    if (isNoiseTranscript(transcript)) {
+      console.log("[VoiceCharterService] [USER] Skipping noise transcript:", transcript);
+      return;
+    }
+
+    // Normalize for command detection
+    const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
+
+    // Check for navigation commands
+    if (this.handleNavigationCommand(normalizedTranscript)) {
+      // Clear pending reformulation if user navigates away
+      if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
+        console.log("[VoiceCharterService] [USER] Navigation detected, capturing pending raw value");
+        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        this.pendingReformulationFieldId = null;
+        this.pendingReformulationRawValue = null;
+      }
+      return;
+    }
+
+    // Check for skip command
+    if (normalizedTranscript.includes("skip") &&
+        (normalizedTranscript.includes("this") || normalizedTranscript.includes("field") || normalizedTranscript === "skip")) {
+      this.skipCurrentField();
+      return;
+    }
+
+    // Check for completion command
+    if (normalizedTranscript.includes("done") || normalizedTranscript.includes("finish") || normalizedTranscript.includes("complete")) {
+      this.complete();
+      return;
+    }
+
+    // Check for review command
+    if (normalizedTranscript.includes("review") || normalizedTranscript.includes("show progress") || normalizedTranscript.includes("what do i have")) {
+      this.reviewProgress();
+      return;
+    }
+
+    // Check for correction commands
+    if (this.handleCorrectionCommand(normalizedTranscript)) {
+      return;
+    }
+
+    // Capture user value
+    const targetFieldId = this.askingFieldId || this.state.currentFieldId;
+
+    if (targetFieldId) {
+      // Check if this is a long-form field that needs AI reformulation
+      if (LONG_FORM_FIELDS.includes(targetFieldId)) {
+        const rawValue = extractFieldValue(transcript, targetFieldId);
+
+        if (this.pendingReformulationFieldId === targetFieldId && this.pendingReformulationRawValue) {
+          // Accumulate additional input
+          this.pendingReformulationRawValue += " " + rawValue;
+          console.log("[VoiceCharterService] [USER] Long-form field, accumulating:", rawValue.substring(0, 50));
+        } else {
+          // First input for this field
+          this.pendingReformulationFieldId = targetFieldId;
+          this.pendingReformulationRawValue = rawValue;
+          console.log("[VoiceCharterService] [USER] Long-form field, waiting for AI reformulation:", rawValue.substring(0, 50));
+        }
+
+        this.updateState({ step: "listening", pendingValue: transcript });
+        return;
+      }
+
+      // Extract and capture value for non-long-form fields
+      const extractedValue = extractFieldValue(transcript, targetFieldId);
+      console.log("[VoiceCharterService] [USER] Capturing value:", extractedValue.substring(0, 50));
+      this.captureValue(targetFieldId, extractedValue);
+      this.advanceAskingField();
+    }
+
+    this.updateState({ step: "listening", pendingValue: transcript });
+  }
+
+  /**
+   * Sanitize a captured value by removing "CAPTURE:" prefix if present.
+   * This handles edge cases where the CAPTURE pattern might not extract cleanly.
+   */
+  private sanitizeCapturedValue(value: string): string {
+    // Remove "CAPTURE:" prefix if still present (shouldn't happen with correct regex, but safety check)
+    let sanitized = value.replace(/^CAPTURE:\s*/i, "").trim();
+    return sanitized;
   }
 
   /**
@@ -1812,9 +2039,12 @@ export class VoiceCharterService {
    * Also syncs the value to the conversation store for real-time form updates.
    */
   captureValue(fieldId: string, value: string): void {
+    // Sanitize the value to remove "CAPTURE:" prefix if present
+    const sanitizedValue = this.sanitizeCapturedValue(value);
+
     console.log("[VoiceCharterService] captureValue:", {
       fieldId,
-      value: value.substring(0, 50),
+      value: sanitizedValue.substring(0, 50),
       currentAskingFieldId: this.askingFieldId,
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
@@ -1822,7 +2052,7 @@ export class VoiceCharterService {
 
     const captured: CapturedFieldValue = {
       fieldId,
-      value,
+      value: sanitizedValue,
       confirmedAt: Date.now(),
     };
 
@@ -1835,9 +2065,9 @@ export class VoiceCharterService {
     });
 
     // Sync to conversation store for real-time form field updates
-    this.syncToConversationStore(fieldId, value);
+    this.syncToConversationStore(fieldId, sanitizedValue);
 
-    this.emit({ type: "field_captured", fieldId, value });
+    this.emit({ type: "field_captured", fieldId, value: sanitizedValue });
     console.log("[VoiceCharterService] captureValue complete:", fieldId);
   }
 

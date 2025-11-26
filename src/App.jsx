@@ -3443,8 +3443,8 @@ const resolveDocTypeForManualSync = useCallback(
           if (rawEvent.type === "response.audio_transcript.done" && voiceCharterService.getState().step !== "idle") {
             const aiTranscript = rawEvent.transcript || "";
             if (aiTranscript.trim()) {
-              console.log("[App] Processing AI transcript for CAPTURE detection:", aiTranscript.substring(0, 80));
-              voiceCharterService.processTranscript(aiTranscript);
+              console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
+              voiceCharterService.processTranscript(aiTranscript, "ai");
             }
           }
 
@@ -3453,7 +3453,7 @@ const resolveDocTypeForManualSync = useCallback(
             const transcript = rawEvent.transcript || "";
             if (transcript.trim()) {
               console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
-              voiceCharterService.processTranscript(transcript);
+              voiceCharterService.processTranscript(transcript, "user");
             }
           }
         }

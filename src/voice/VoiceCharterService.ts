@@ -564,15 +564,19 @@ const AI_RESPONSE_PATTERNS = [
   // Combined acknowledgment + question (most common AI pattern)
   /^(?:got it|perfect|great|okay)[.!,]?\s+(?:and\s+)?(?:what|when|who|how|tell|can)/i,
   // Navigation acknowledgment patterns (AI responding to "go back", etc.)
-  /(?:going|go) back to/i,
-  /(?:returning|return) to/i,
+  // Note: "going back to" is AI (present continuous), but "go back to" alone is a user command
+  /going back to/i,  // AI saying "going back to..." (present continuous = AI action)
+  /returning to/i,   // AI saying "returning to..."
   /let(?:'s| me) (?:go back|return|take you back)/i,
   /back to (?:the\s+)?(?:previous|last)/i,
   // AI transitioning to another field with "now/next back to"
   /(?:now|next)\s+back\s+to/i,
-  /(?:sure|okay|alright)[,.!]?\s+back\s+to/i,
+  // AI with acknowledgment prefix + navigation (catches "Sure, go back to...", "Okay, back to...")
+  /(?:sure|okay|alright|understood)[,.!]?\s+(?:go\s+)?back\s+to/i,
   // AI saying "back to the [field]" after acknowledgment (catches "Great! Now back to the start date")
   /(?:great|perfect|okay|sure)[.!,]?\s+(?:now\s+)?back\s+to/i,
+  // AI saying "I'll go back to..." or "I will go back to..."
+  /i(?:'ll| will)\s+(?:go\s+)?back\s+to/i,
   // Current value patterns (AI stating current field value)
   /(?:the\s+)?current(?:ly|\s+value)?\s+(?:is|set to|reads)/i,
   /it(?:'s| is) (?:currently|set to|now)/i,
@@ -1430,8 +1434,9 @@ export class VoiceCharterService {
 
     // Check for "back to [field]" pattern - navigate to specific field
     // Handles: "go back to the title", "back to project title", "no, back to the title, please"
+    // Also handles: "can you go back to...", "could you go back to..."
     // Made more flexible to match "back to" without requiring "go" prefix
-    const backToMatch = transcript.match(/(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    const backToMatch = transcript.match(/(?:can\s+you\s+|could\s+you\s+)?(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
     if (backToMatch) {
       const fieldName = backToMatch[1].toLowerCase().trim();
       console.log("[VoiceCharterService] handleNavigationCommand: Detected 'back to' field:", fieldName);
@@ -1461,6 +1466,27 @@ export class VoiceCharterService {
       if (field) {
         this.goToField(field.id);
         return true;
+      }
+    }
+
+    // Check for "go to [field]" pattern (without "back")
+    // Handles: "go to the start date", "go to start date field", "go to project name"
+    const goToMatch = transcript.match(/^(?:can\s+you\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (goToMatch) {
+      const fieldName = goToMatch[1].toLowerCase().trim();
+      // Skip if this looks like "go to back" which should be handled by back-to pattern
+      if (!fieldName.includes("back")) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go to' field:", fieldName);
+        const field = this.schema?.fields.find(
+          (f) =>
+            f.label.toLowerCase().includes(fieldName) ||
+            f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_")) ||
+            fieldName.includes(f.label.toLowerCase())
+        );
+        if (field) {
+          this.goToField(field.id);
+          return true;
+        }
       }
     }
 

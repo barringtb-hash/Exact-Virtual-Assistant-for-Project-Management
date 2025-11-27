@@ -277,10 +277,10 @@ const Composer: React.FC<ComposerProps> = ({
                   <IconMic
                     className="h-5 w-5"
                     style={
-                      rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted
+                      rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted && !isStreaming && micLevel.level > 0.08
                         ? {
-                            transform: `scale(${1 + Math.pow(micLevel.level, 0.6) * 0.3}) translateY(${-Math.pow(micLevel.level, 0.6) * 2}px)`,
-                            transition: "transform 60ms ease-out",
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.5) * 0.5}) translateY(${-Math.pow(micLevel.level, 0.5) * 4}px)`,
+                            transition: "transform 50ms ease-out",
                           }
                         : undefined
                     }
@@ -323,10 +323,10 @@ const Composer: React.FC<ComposerProps> = ({
                   <IconMic
                     className="h-5 w-5"
                     style={
-                      recording && micLevel && micLevel.isActive && !micLevel.isMuted
+                      recording && micLevel && micLevel.isActive && !micLevel.isMuted && !isStreaming && micLevel.level > 0.08
                         ? {
-                            transform: `scale(${1 + Math.pow(micLevel.level, 0.6) * 0.3}) translateY(${-Math.pow(micLevel.level, 0.6) * 2}px)`,
-                            transition: "transform 60ms ease-out",
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.5) * 0.5}) translateY(${-Math.pow(micLevel.level, 0.5) * 4}px)`,
+                            transition: "transform 50ms ease-out",
                           }
                         : undefined
                     }

@@ -3855,6 +3855,8 @@ const resolveDocTypeForManualSync = useCallback(
         // Check for charter creation intent and show voice charter prompt
         const charterIntent = detectCharterIntent(trimmed);
         if (charterIntent === 'create_charter') {
+          // Start doc session to make charter fields visible and schema available
+          startDocSession({ docType: 'charter', origin: 'intent' });
           // Show voice charter prompt to ask if user wants voice-guided charter
           if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
             setShowVoiceCharterPrompt(true);
@@ -4077,6 +4079,8 @@ const resolveDocTypeForManualSync = useCallback(
       // Check for charter creation intent via voice and show voice charter prompt
       const voiceCharterIntent = detectCharterIntent(trimmed);
       if (voiceCharterIntent === 'create_charter') {
+        // Start doc session to make charter fields visible and schema available
+        startDocSession({ docType: 'charter', origin: 'intent' });
         // Show voice charter prompt to ask if user wants voice-guided charter
         if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
           voiceActions.setStatus("idle");

@@ -4675,6 +4675,7 @@ const resolveDocTypeForManualSync = useCallback(
                     rtcState={rtcState}
                     startRealtime={startRealtime}
                     stopRealtime={stopRealtime}
+                    aiSpeaking={aiSpeaking}
                     placeholder="Type here… (paste scope or attach files)"
                     onDrop={handleComposerDrop}
                     onDragOver={handleComposerDragOver}

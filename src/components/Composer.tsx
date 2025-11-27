@@ -12,7 +12,6 @@ import { dispatch } from "../sync/syncStore.js";
 
 import { useDocType } from "../state/docType.js";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
-import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
@@ -265,11 +264,21 @@ const Composer: React.FC<ComposerProps> = ({
             </button>
             {realtimeEnabled ? (
               <div className="relative">
+                {/* Pulsing ring for audio level visualization */}
+                {rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted && (
+                  <div
+                    className="absolute inset-0 rounded-lg pointer-events-none"
+                    style={{
+                      boxShadow: `0 0 0 ${2 + micLevel.level * 6}px rgba(239, 68, 68, ${0.15 + micLevel.level * 0.25})`,
+                      transition: "box-shadow 100ms ease-out",
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   onClick={handleRealtimeClick}
                   disabled={!startRealtime && !stopRealtime}
-                  className={`shrink-0 rounded-lg border p-2.5 transition-colors ${rtcStateClasses[rtcState]}`}
+                  className={`relative shrink-0 rounded-lg border p-2.5 transition-colors ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
                   data-testid="mic-button"
@@ -297,11 +306,21 @@ const Composer: React.FC<ComposerProps> = ({
               </div>
             ) : (
               <div className="relative">
+                {/* Pulsing ring for audio level visualization */}
+                {recording && micLevel && micLevel.isActive && !micLevel.isMuted && (
+                  <div
+                    className="absolute inset-0 rounded-lg pointer-events-none"
+                    style={{
+                      boxShadow: `0 0 0 ${2 + micLevel.level * 6}px rgba(239, 68, 68, ${0.15 + micLevel.level * 0.25})`,
+                      transition: "box-shadow 100ms ease-out",
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   onClick={handleMicClick}
                   disabled={micDisabled}
-                  className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
+                  className={`relative shrink-0 rounded-lg border p-2.5 transition-colors ${
                     micDisabled
                       ? "cursor-not-allowed bg-slate-50 text-slate-300 border-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-600"
                       : micButtonClasses
@@ -331,16 +350,6 @@ const Composer: React.FC<ComposerProps> = ({
                   </button>
                 )}
               </div>
-            )}
-            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
-              <MicLevelIndicator
-                level={micLevel.level}
-                peak={micLevel.peak}
-                db={micLevel.db}
-                variant="bar"
-                showDb={false}
-                ariaLabel="Live microphone level"
-              />
             )}
           </div>
           <div className="flex items-center gap-2">

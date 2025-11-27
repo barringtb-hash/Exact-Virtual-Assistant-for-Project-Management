@@ -202,9 +202,12 @@ const Composer: React.FC<ComposerProps> = ({
 
   const handleMuteToggle = useCallback(() => {
     if (micLevel) {
+      // Toggle returns immediately, but state updates async
+      // So we compute the new state as the inverse of current
+      const newMuted = !micLevel.isMuted;
       micLevel.toggleMute();
       // Also mute the actual recording/realtime stream
-      onMuteChange?.(micLevel.isMuted);
+      onMuteChange?.(newMuted);
     }
   }, [micLevel, onMuteChange]);
 

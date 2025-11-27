@@ -264,16 +264,6 @@ const Composer: React.FC<ComposerProps> = ({
             </button>
             {realtimeEnabled ? (
               <div className="relative">
-                {/* Pulsing ring for audio level visualization */}
-                {rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted && (
-                  <div
-                    className="absolute inset-0 rounded-lg pointer-events-none"
-                    style={{
-                      boxShadow: `0 0 0 ${2 + Math.pow(micLevel.level, 0.5) * 12}px rgba(239, 68, 68, ${0.25 + Math.pow(micLevel.level, 0.5) * 0.35})`,
-                      transition: "box-shadow 80ms ease-out",
-                    }}
-                  />
-                )}
                 <button
                   type="button"
                   onClick={handleRealtimeClick}
@@ -284,7 +274,17 @@ const Composer: React.FC<ComposerProps> = ({
                   data-testid="mic-button"
                   aria-pressed={rtcState === "live" || rtcState === "connecting"}
                 >
-                  <IconMic className="h-5 w-5" />
+                  <IconMic
+                    className="h-5 w-5"
+                    style={
+                      rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted
+                        ? {
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.6) * 0.3}) translateY(${-Math.pow(micLevel.level, 0.6) * 2}px)`,
+                            transition: "transform 60ms ease-out",
+                          }
+                        : undefined
+                    }
+                  />
                 </button>
                 {rtcState !== "idle" && micLevel && (
                   <button
@@ -306,16 +306,6 @@ const Composer: React.FC<ComposerProps> = ({
               </div>
             ) : (
               <div className="relative">
-                {/* Pulsing ring for audio level visualization */}
-                {recording && micLevel && micLevel.isActive && !micLevel.isMuted && (
-                  <div
-                    className="absolute inset-0 rounded-lg pointer-events-none"
-                    style={{
-                      boxShadow: `0 0 0 ${2 + Math.pow(micLevel.level, 0.5) * 12}px rgba(239, 68, 68, ${0.25 + Math.pow(micLevel.level, 0.5) * 0.35})`,
-                      transition: "box-shadow 80ms ease-out",
-                    }}
-                  />
-                )}
                 <button
                   type="button"
                   onClick={handleMicClick}
@@ -330,7 +320,17 @@ const Composer: React.FC<ComposerProps> = ({
                   data-testid="mic-button"
                   aria-pressed={recording}
                 >
-                  <IconMic className="h-5 w-5" />
+                  <IconMic
+                    className="h-5 w-5"
+                    style={
+                      recording && micLevel && micLevel.isActive && !micLevel.isMuted
+                        ? {
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.6) * 0.3}) translateY(${-Math.pow(micLevel.level, 0.6) * 2}px)`,
+                            transition: "transform 60ms ease-out",
+                          }
+                        : undefined
+                    }
+                  />
                 </button>
                 {recording && micLevel && (
                   <button

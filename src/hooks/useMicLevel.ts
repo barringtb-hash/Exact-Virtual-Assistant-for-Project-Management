@@ -8,6 +8,7 @@ import { MicLevelEngine } from "../audio/micLevelEngine.ts";
 
 export type MicState = {
   isActive: boolean;
+  isMuted: boolean;
   hasPermission: boolean | null;
   level: number; // 0..1
   db: number;    // ~-100..0
@@ -33,6 +34,7 @@ export function useMicLevel() {
   const engineRef = useRef<MicLevelEngine | null>(null);
   const [state, setState] = useState<MicState>({
     isActive: false,
+    isMuted: false,
     hasPermission: null,
     level: 0,
     db: -100,
@@ -80,7 +82,14 @@ export function useMicLevel() {
 
   const stop = useCallback(async () => {
     await engineRef.current?.stop();
-    setState(s => ({ ...s, isActive: false, level: 0, db: -100, peak: 0 }));
+    setState(s => ({ ...s, isActive: false, isMuted: false, level: 0, db: -100, peak: 0 }));
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    if (engineRef.current) {
+      const newMuted = engineRef.current.toggleMute();
+      setState(s => ({ ...s, isMuted: newMuted }));
+    }
   }, []);
 
   const selectDevice = useCallback(async (deviceId?: string) => {
@@ -91,6 +100,7 @@ export function useMicLevel() {
     ...state,
     start,
     stop,
-    selectDevice
+    selectDevice,
+    toggleMute
   };
 }

@@ -22,6 +22,7 @@ export class MicLevelEngine {
   private prevDb: number = -100;
   private peakHold: number = 0;
   private peakDecayPerSec = 0.75; // visible peak "comet tail"
+  private _isMuted: boolean = false;
 
   constructor(opts: {
     onLevel: OnLevel;
@@ -114,5 +115,36 @@ export class MicLevelEngine {
       try { this.ctx.close(); } catch {}
     }
     this.ctx = null;
+  }
+
+  get isMuted(): boolean {
+    return this._isMuted;
+  }
+
+  mute() {
+    if (this.stream) {
+      this.stream.getAudioTracks().forEach(track => {
+        track.enabled = false;
+      });
+    }
+    this._isMuted = true;
+  }
+
+  unmute() {
+    if (this.stream) {
+      this.stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+      });
+    }
+    this._isMuted = false;
+  }
+
+  toggleMute(): boolean {
+    if (this._isMuted) {
+      this.unmute();
+    } else {
+      this.mute();
+    }
+    return this._isMuted;
   }
 }

@@ -15,6 +15,7 @@ function renderComposer(overrides = {}) {
     onUploadClick: () => {},
     IconUpload: StubIcon,
     IconMic: StubIcon,
+    IconMicMute: StubIcon,
     IconSend: StubIcon,
     ...overrides,
   };

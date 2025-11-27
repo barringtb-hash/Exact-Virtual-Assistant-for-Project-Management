@@ -264,7 +264,7 @@ const Composer: React.FC<ComposerProps> = ({
               <IconUpload className="h-5 w-5" />
             </button>
             {realtimeEnabled ? (
-              <div className="flex items-center gap-2">
+              <div className="relative">
                 <button
                   type="button"
                   onClick={handleRealtimeClick}
@@ -281,22 +281,22 @@ const Composer: React.FC<ComposerProps> = ({
                   <button
                     type="button"
                     onClick={handleMuteToggle}
-                    className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border shadow-sm transition-colors ${
                       micLevel.isMuted
-                        ? "bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/70"
-                        : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                        ? "bg-amber-500 border-amber-600 text-white dark:bg-amber-600 dark:border-amber-700"
+                        : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-600"
                     }`}
                     title={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
                     aria-label={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
                     aria-pressed={micLevel.isMuted}
                     data-testid="mute-button"
                   >
-                    <IconMicMute className="h-5 w-5" />
+                    <IconMicMute className="h-3 w-3" />
                   </button>
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="relative">
                 <button
                   type="button"
                   onClick={handleMicClick}
@@ -317,17 +317,17 @@ const Composer: React.FC<ComposerProps> = ({
                   <button
                     type="button"
                     onClick={handleMuteToggle}
-                    className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border shadow-sm transition-colors ${
                       micLevel.isMuted
-                        ? "bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/70"
-                        : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                        ? "bg-amber-500 border-amber-600 text-white dark:bg-amber-600 dark:border-amber-700"
+                        : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-600"
                     }`}
                     title={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
                     aria-label={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
                     aria-pressed={micLevel.isMuted}
                     data-testid="mute-button"
                   >
-                    <IconMicMute className="h-5 w-5" />
+                    <IconMicMute className="h-3 w-3" />
                   </button>
                 )}
               </div>

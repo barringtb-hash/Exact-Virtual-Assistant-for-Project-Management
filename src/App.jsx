@@ -20,6 +20,7 @@ import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate, getDocTemplateFormState } from "./state/docTemplateStore.js";
 import { normalizeCharterFormSchema } from "./features/charter/utils/formSchema.ts";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
+import { detectCharterIntentLLM } from "./utils/detectCharterIntentLLM.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
@@ -4071,19 +4072,73 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      // Check for charter creation intent via voice and start guided session
-      // This mimics the text-based trigger in submitChatTurn
-      const voiceCharterIntent = detectCharterIntent(trimmed);
-      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
-        const currentGuidedState = guidedStateRef.current;
-        const currentConversationId = guidedConversationIdRef.current;
-        const canStart =
-          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-        if (canStart && startGuidedCharterRef.current) {
-          voiceActions.setStatus("idle");
-          await startGuidedCharterRef.current();
-          return;
+      // Check for charter creation intent via voice using LLM reasoning
+      // Falls back to regex detection if LLM call fails
+      let voiceCharterIntent = null;
+      try {
+        voiceCharterIntent = await detectCharterIntentLLM(trimmed);
+      } catch (error) {
+        console.warn("[Voice] LLM intent detection failed, falling back to regex:", error);
+      }
+
+      // Fallback to regex-based detection if LLM didn't detect intent
+      if (!voiceCharterIntent) {
+        voiceCharterIntent = detectCharterIntent(trimmed);
+      }
+
+      if (voiceCharterIntent === 'create_charter') {
+        // Start voice charter directly (not guided session) when mic is active
+        if (dataRef.current && voiceCharterMode === "inactive") {
+          // Get the schema from docTemplateStore
+          const { form } = getDocTemplateFormState();
+          if (form) {
+            try {
+              const schema = normalizeCharterFormSchema(form);
+
+              // Get existing draft values to seed the voice charter
+              const existingValues = {};
+              if (charterDraftRef.current) {
+                for (const [key, value] of Object.entries(charterDraftRef.current)) {
+                  if (typeof value === "string" && value.trim()) {
+                    existingValues[key] = value;
+                  }
+                }
+              }
+
+              // Initialize and start voice charter service
+              const initialized = voiceCharterService.initialize(
+                schema,
+                dataRef.current,
+                existingValues
+              );
+
+              if (initialized) {
+                voiceActions.setStatus("idle");
+                voiceCharterActions.start();
+                // Small delay to let the session configure before starting
+                setTimeout(() => {
+                  voiceCharterService.start();
+                }, 500);
+                return;
+              }
+            } catch (error) {
+              console.error("[Voice] Failed to start voice charter:", error);
+            }
+          }
+        }
+
+        // Fallback to guided session if voice charter couldn't start
+        if (isGuidedChatEnabled) {
+          const currentGuidedState = guidedStateRef.current;
+          const currentConversationId = guidedConversationIdRef.current;
+          const canStart =
+            (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
+            (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
+          if (canStart && startGuidedCharterRef.current) {
+            voiceActions.setStatus("idle");
+            await startGuidedCharterRef.current();
+            return;
+          }
         }
       }
 
@@ -4138,6 +4193,7 @@ const resolveDocTypeForManualSync = useCallback(
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,
+      voiceCharterMode,
     ]
   );
 

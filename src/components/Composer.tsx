@@ -269,7 +269,7 @@ const Composer: React.FC<ComposerProps> = ({
                   <div
                     className="absolute inset-0 rounded-lg pointer-events-none"
                     style={{
-                      boxShadow: `0 0 0 ${Math.pow(micLevel.level, 0.5) * 14}px rgba(239, 68, 68, ${0.2 + Math.pow(micLevel.level, 0.5) * 0.4})`,
+                      boxShadow: `0 0 0 ${2 + Math.pow(micLevel.level, 0.5) * 12}px rgba(239, 68, 68, ${0.25 + Math.pow(micLevel.level, 0.5) * 0.35})`,
                       transition: "box-shadow 80ms ease-out",
                     }}
                   />
@@ -311,7 +311,7 @@ const Composer: React.FC<ComposerProps> = ({
                   <div
                     className="absolute inset-0 rounded-lg pointer-events-none"
                     style={{
-                      boxShadow: `0 0 0 ${Math.pow(micLevel.level, 0.5) * 14}px rgba(239, 68, 68, ${0.2 + Math.pow(micLevel.level, 0.5) * 0.4})`,
+                      boxShadow: `0 0 0 ${2 + Math.pow(micLevel.level, 0.5) * 12}px rgba(239, 68, 68, ${0.25 + Math.pow(micLevel.level, 0.5) * 0.35})`,
                       transition: "box-shadow 80ms ease-out",
                     }}
                   />

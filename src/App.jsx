@@ -3450,12 +3450,20 @@ const resolveDocTypeForManualSync = useCallback(
             }
           }
 
-          // Handle user transcript in voice charter mode
-          if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
+          // Handle user transcript from voice input
+          if (rawEvent.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = rawEvent.transcript || "";
             if (transcript.trim()) {
-              console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
-              voiceCharterService.processTranscript(transcript, "user");
+              if (voiceCharterService.getState().step !== "idle") {
+                // Voice charter is active - let service handle field processing
+                console.log("[App] Processing USER transcript (voice charter):", transcript.substring(0, 80));
+                voiceCharterService.processTranscript(transcript, "user");
+              } else {
+                // Voice charter is idle - check for charter intent triggers
+                console.log("[App] Processing USER transcript (idle):", transcript.substring(0, 80));
+                await handleVoiceTranscriptMessage(transcript, { isFinal: true });
+              }
+              return; // Already handled this transcript
             }
           }
         }
@@ -3584,25 +3592,58 @@ const resolveDocTypeForManualSync = useCallback(
   const handleVoiceCharterConfirm = useCallback(async () => {
     setShowVoiceCharterPrompt(false);
 
-    // If voice is already connected, start voice charter immediately
-    if (rtcState === "live" && dataRef.current) {
-      initializeAndStartVoiceCharter();
+    // If voice is already connected and data channel is open, start immediately
+    if (rtcState === "live" && dataRef.current && dataRef.current.readyState === "open") {
+      const started = initializeAndStartVoiceCharter();
+      if (!started) {
+        console.warn("[VoiceCharter] Failed to start voice charter - will retry");
+        // Retry after a short delay
+        setTimeout(() => {
+          initializeAndStartVoiceCharter();
+        }, 500);
+      }
       return;
     }
 
-    // If voice is not connected, set pending flag and start connection
+    // If voice is not connected or data channel not ready, set pending flag and start/wait
     pendingVoiceCharterStartRef.current = true;
-    await startRealtime();
+    if (rtcState !== "live") {
+      await startRealtime();
+    }
   }, [rtcState, initializeAndStartVoiceCharter]);
 
   // Start voice charter when connection is established (after user confirmed)
   useEffect(() => {
     if (rtcState === "live" && pendingVoiceCharterStartRef.current && dataRef.current) {
-      pendingVoiceCharterStartRef.current = false;
-      // Small delay to ensure data channel is ready
-      setTimeout(() => {
-        initializeAndStartVoiceCharter();
-      }, 100);
+      const dataChannel = dataRef.current;
+
+      const startVoiceCharter = () => {
+        pendingVoiceCharterStartRef.current = false;
+        // Small delay to ensure everything is ready
+        setTimeout(() => {
+          const started = initializeAndStartVoiceCharter();
+          if (!started) {
+            console.warn("[VoiceCharter] Failed to start voice charter after connection");
+          }
+        }, 200);
+      };
+
+      // Check if data channel is already open
+      if (dataChannel.readyState === "open") {
+        startVoiceCharter();
+      } else {
+        // Wait for data channel to open
+        const handleOpen = () => {
+          startVoiceCharter();
+          dataChannel.removeEventListener("open", handleOpen);
+        };
+        dataChannel.addEventListener("open", handleOpen);
+
+        // Cleanup if component unmounts
+        return () => {
+          dataChannel.removeEventListener("open", handleOpen);
+        };
+      }
     }
   }, [rtcState, initializeAndStartVoiceCharter]);
 

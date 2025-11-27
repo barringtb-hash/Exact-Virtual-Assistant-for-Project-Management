@@ -4071,37 +4071,19 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      // Check for charter creation intent via voice
+      // Check for charter creation intent via voice and start guided session
+      // This mimics the text-based trigger in submitChatTurn
       const voiceCharterIntent = detectCharterIntent(trimmed);
-      if (voiceCharterIntent === 'create_charter') {
-        // Check if we should show the voice charter prompt (realtime voice mode)
-        const isCharterUIActive = SHOULD_SHOW_CHARTER_WIZARD || isGuidedChatEnabled;
-        if (
-          isCharterUIActive &&
-          templateDocType === "charter" &&
-          voiceCharterMode === "inactive" &&
-          !showVoiceCharterPrompt &&
-          dataRef.current
-        ) {
-          // User asked to create a charter while realtime voice is active
-          // Show the voice charter prompt instead of starting guided session
-          setShowVoiceCharterPrompt(true);
+      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
+        const currentGuidedState = guidedStateRef.current;
+        const currentConversationId = guidedConversationIdRef.current;
+        const canStart =
+          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
+          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
+        if (canStart && startGuidedCharterRef.current) {
           voiceActions.setStatus("idle");
+          await startGuidedCharterRef.current();
           return;
-        }
-
-        // Fallback to guided session if voice charter conditions not met
-        if (isGuidedChatEnabled) {
-          const currentGuidedState = guidedStateRef.current;
-          const currentConversationId = guidedConversationIdRef.current;
-          const canStart =
-            (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-            (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-          if (canStart && startGuidedCharterRef.current) {
-            voiceActions.setStatus("idle");
-            await startGuidedCharterRef.current();
-            return;
-          }
         }
       }
 
@@ -4156,9 +4138,6 @@ const resolveDocTypeForManualSync = useCallback(
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,
-      showVoiceCharterPrompt,
-      templateDocType,
-      voiceCharterMode,
     ]
   );
 

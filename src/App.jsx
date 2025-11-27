@@ -3898,11 +3898,12 @@ const resolveDocTypeForManualSync = useCallback(
         if (charterIntent === 'create_charter') {
           // Start doc session to make charter fields visible and schema available
           startDocSession({ docType: 'charter', origin: 'intent' });
-          // Show voice charter prompt to ask if user wants voice-guided charter
-          if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+          // Only show voice charter prompt if realtime voice is available
+          if (realtimeEnabled && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
             setShowVoiceCharterPrompt(true);
             return { status: "voice_charter_prompt" };
           }
+          // If realtime not available, just continue with manual charter filling
         }
 
         if (intentOnlyExtractionEnabled) {
@@ -4122,12 +4123,14 @@ const resolveDocTypeForManualSync = useCallback(
       if (voiceCharterIntent === 'create_charter') {
         // Start doc session to make charter fields visible and schema available
         startDocSession({ docType: 'charter', origin: 'intent' });
-        // Show voice charter prompt to ask if user wants voice-guided charter
-        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+        // Only show voice charter prompt if realtime voice is available
+        // Note: If we're here via voice, realtime should be enabled, but check anyway
+        if (realtimeEnabled && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
           voiceActions.setStatus("idle");
           setShowVoiceCharterPrompt(true);
           return;
         }
+        // If realtime not available, just continue with manual charter filling
       }
 
       const entry = {

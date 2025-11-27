@@ -1,7 +1,7 @@
 /**
  * VoiceCharterPrompt - Modal prompt asking if user wants voice-guided charter creation.
  *
- * Appears when the user activates voice mode while the charter wizard is visible.
+ * Appears when the user triggers the project charter creation process (via voice or text).
  *
  * @module components/VoiceCharterPrompt
  */
@@ -34,7 +34,7 @@ export interface VoiceCharterPromptProps {
   visible: boolean;
   /** Called when user chooses to use voice charter */
   onConfirm: () => void;
-  /** Called when user declines voice charter (just use regular transcription) */
+  /** Called when user declines voice charter (will fill fields manually) */
   onDecline: () => void;
   /** Called when user dismisses the prompt without choosing */
   onDismiss?: () => void;
@@ -132,13 +132,13 @@ export const VoiceCharterPrompt = React.memo(
                 "dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
               )}
             >
-              No, just transcribe
+              No, I'll fill it manually
             </button>
           </div>
 
           {/* Hint */}
           <p className="mt-4 text-center text-xs text-slate-400 dark:text-slate-500">
-            You can switch modes anytime by exiting voice
+            You can exit voice mode anytime during the process
           </p>
         </div>
       </div>

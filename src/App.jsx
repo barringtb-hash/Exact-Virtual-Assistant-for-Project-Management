@@ -1527,6 +1527,7 @@ export default function ExactVirtualAssistantPM() {
   const aiSpeaking = useAiSpeaking();
   const isVoiceCharterActive = voiceCharterMode === "active";
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
+  const pendingVoiceCharterStartRef = useRef(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3517,23 +3518,8 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  // Show voice charter prompt when realtime goes live and charter is active
+  // Clean up voice charter when realtime disconnects
   useEffect(() => {
-    // Show prompt if voice is live and we're working on a charter
-    // Check for either CharterFieldSession wizard OR guided chat interface
-    const isCharterUIActive = SHOULD_SHOW_CHARTER_WIZARD || isGuidedChatEnabled;
-
-    if (rtcState === "live" && isCharterUIActive && dataRef.current) {
-      // Only show prompt if not already active and not already showing
-      if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
-        // Check if we're working with a charter document type
-        if (templateDocType === "charter") {
-          setShowVoiceCharterPrompt(true);
-        }
-      }
-    }
-
-    // Clean up when realtime disconnects
     if (rtcState !== "live") {
       setShowVoiceCharterPrompt(false);
       if (voiceCharterMode === "active") {
@@ -3541,21 +3527,20 @@ const resolveDocTypeForManualSync = useCallback(
         voiceCharterService.reset();
       }
     }
-  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt, isGuidedChatEnabled]);
+  }, [rtcState, voiceCharterMode]);
 
-  // Handle voice charter prompt confirmation
-  const handleVoiceCharterConfirm = useCallback(() => {
-    setShowVoiceCharterPrompt(false);
-
+  // Helper to initialize and start voice charter service
+  const initializeAndStartVoiceCharter = useCallback(() => {
     if (!dataRef.current) {
-      return;
+      console.warn("[VoiceCharter] No data channel available");
+      return false;
     }
 
     // Get the schema from docTemplateStore
     const { form } = getDocTemplateFormState();
     if (!form) {
       console.warn("[VoiceCharter] No form schema available");
-      return;
+      return false;
     }
 
     // Normalize the form into a CharterFormSchema
@@ -3564,7 +3549,7 @@ const resolveDocTypeForManualSync = useCallback(
       schema = normalizeCharterFormSchema(form);
     } catch (error) {
       console.error("[VoiceCharter] Failed to normalize schema:", error);
-      return;
+      return false;
     }
 
     // Get existing draft values to seed the voice charter
@@ -3590,13 +3575,41 @@ const resolveDocTypeForManualSync = useCallback(
       setTimeout(() => {
         voiceCharterService.start();
       }, 500);
+      return true;
     }
+    return false;
   }, []);
 
-  // Handle voice charter prompt decline (just use regular transcription)
+  // Handle voice charter prompt confirmation
+  const handleVoiceCharterConfirm = useCallback(async () => {
+    setShowVoiceCharterPrompt(false);
+
+    // If voice is already connected, start voice charter immediately
+    if (rtcState === "live" && dataRef.current) {
+      initializeAndStartVoiceCharter();
+      return;
+    }
+
+    // If voice is not connected, set pending flag and start connection
+    pendingVoiceCharterStartRef.current = true;
+    await startRealtime();
+  }, [rtcState, initializeAndStartVoiceCharter]);
+
+  // Start voice charter when connection is established (after user confirmed)
+  useEffect(() => {
+    if (rtcState === "live" && pendingVoiceCharterStartRef.current && dataRef.current) {
+      pendingVoiceCharterStartRef.current = false;
+      // Small delay to ensure data channel is ready
+      setTimeout(() => {
+        initializeAndStartVoiceCharter();
+      }, 100);
+    }
+  }, [rtcState, initializeAndStartVoiceCharter]);
+
+  // Handle voice charter prompt decline (user chooses manual field entry)
   const handleVoiceCharterDecline = useCallback(() => {
     setShowVoiceCharterPrompt(false);
-    // Voice transcription continues normally without voice charter mode
+    // User will fill in charter fields manually
   }, []);
 
   // Subscribe to voice charter events for field capture
@@ -3839,17 +3852,13 @@ const resolveDocTypeForManualSync = useCallback(
           }
         }
 
-        // Check for charter creation intent and start guided session
+        // Check for charter creation intent and show voice charter prompt
         const charterIntent = detectCharterIntent(trimmed);
-        if (charterIntent === 'create_charter' && isGuidedChatEnabled) {
-          const currentGuidedState = guidedStateRef.current;
-          const currentConversationId = guidedConversationIdRef.current;
-          const canStart =
-            (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-            (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-          if (canStart && startGuidedCharterRef.current) {
-            await startGuidedCharterRef.current();
-            return { status: "guided" };
+        if (charterIntent === 'create_charter') {
+          // Show voice charter prompt to ask if user wants voice-guided charter
+          if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+            setShowVoiceCharterPrompt(true);
+            return { status: "voice_charter_prompt" };
           }
         }
 
@@ -4065,17 +4074,13 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      // Check for charter creation intent via voice and start guided session
+      // Check for charter creation intent via voice and show voice charter prompt
       const voiceCharterIntent = detectCharterIntent(trimmed);
-      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
-        const currentGuidedState = guidedStateRef.current;
-        const currentConversationId = guidedConversationIdRef.current;
-        const canStart =
-          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-        if (canStart && startGuidedCharterRef.current) {
+      if (voiceCharterIntent === 'create_charter') {
+        // Show voice charter prompt to ask if user wants voice-guided charter
+        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
           voiceActions.setStatus("idle");
-          await startGuidedCharterRef.current();
+          setShowVoiceCharterPrompt(true);
           return;
         }
       }

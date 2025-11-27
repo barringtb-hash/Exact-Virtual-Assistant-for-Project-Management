@@ -39,6 +39,7 @@ export interface ComposerProps {
   onMicToggle?: () => void;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
+  onMuteChange?: (muted: boolean) => void;
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
@@ -75,6 +76,7 @@ const Composer: React.FC<ComposerProps> = ({
   onMicToggle,
   onStartRecording,
   onStopRecording,
+  onMuteChange,
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
@@ -201,8 +203,10 @@ const Composer: React.FC<ComposerProps> = ({
   const handleMuteToggle = useCallback(() => {
     if (micLevel) {
       micLevel.toggleMute();
+      // Also mute the actual recording/realtime stream
+      onMuteChange?.(micLevel.isMuted);
     }
-  }, [micLevel]);
+  }, [micLevel, onMuteChange]);
 
   const micButtonClasses = recording
     ? "bg-red-100 border-red-300 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/70"

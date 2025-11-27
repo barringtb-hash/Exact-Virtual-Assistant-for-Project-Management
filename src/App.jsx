@@ -3400,6 +3400,15 @@ const resolveDocTypeForManualSync = useCallback(
     setRtcState("idle");
   };
 
+  const setRealtimeMuted = (muted) => {
+    const stream = micStreamRef.current;
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
+  };
+
   const startRealtime = async () => {
     if (!realtimeEnabled) return;
     if (rtcState === "connecting" || rtcState === "live") return;
@@ -3772,7 +3781,7 @@ const resolveDocTypeForManualSync = useCallback(
     [handleCommandFromText],
   );
 
-  const { startRecording, stopRecording } = useSpeechInput({
+  const { startRecording, stopRecording, setMuted: setRecordingMuted } = useSpeechInput({
     onTranscript: handleSpeechTranscript,
     onError: (error) => {
       console.error("Transcription failed", error);
@@ -4670,6 +4679,13 @@ const resolveDocTypeForManualSync = useCallback(
                     onUploadClick={() => fileInputRef.current?.click()}
                     onStartRecording={!realtimeEnabled ? startRecording : undefined}
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
+                    onMuteChange={(muted) => {
+                      if (realtimeEnabled) {
+                        setRealtimeMuted(muted);
+                      } else {
+                        setRecordingMuted(muted);
+                      }
+                    }}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}

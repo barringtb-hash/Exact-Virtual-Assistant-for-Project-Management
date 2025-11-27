@@ -12,7 +12,6 @@ import { dispatch } from "../sync/syncStore.js";
 
 import { useDocType } from "../state/docType.js";
 import { useMicLevel } from "../hooks/useMicLevel.ts";
-import { MicLevelIndicator } from "./MicLevelIndicator.tsx";
 import { FEATURE_MIC_LEVEL } from "../config/flags.ts";
 
 export type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
@@ -40,6 +39,7 @@ export interface ComposerProps {
   onMicToggle?: () => void;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
+  onMuteChange?: (muted: boolean) => void;
   sendDisabled?: boolean;
   uploadDisabled?: boolean;
   micDisabled?: boolean;
@@ -48,12 +48,13 @@ export interface ComposerProps {
   rtcState?: RtcState;
   startRealtime?: () => void;
   stopRealtime?: (options?: { dispatchStop?: boolean }) => void;
-  rtcReset?: () => void;
+  aiSpeaking?: boolean;
   placeholder?: string;
   onDrop?: React.DragEventHandler<HTMLTextAreaElement>;
   onDragOver?: React.DragEventHandler<HTMLTextAreaElement>;
   IconUpload: IconComponent;
   IconMic: IconComponent;
+  IconMicMute: IconComponent;
   IconSend: IconComponent;
   children?: React.ReactNode;
 }
@@ -75,6 +76,7 @@ const Composer: React.FC<ComposerProps> = ({
   onMicToggle,
   onStartRecording,
   onStopRecording,
+  onMuteChange,
   sendDisabled = false,
   uploadDisabled = false,
   micDisabled = false,
@@ -83,12 +85,13 @@ const Composer: React.FC<ComposerProps> = ({
   rtcState = "idle",
   startRealtime,
   stopRealtime,
-  rtcReset,
+  aiSpeaking = false,
   placeholder,
   onDrop,
   onDragOver,
   IconUpload,
   IconMic,
+  IconMicMute,
   IconSend,
   children,
 }) => {
@@ -197,6 +200,17 @@ const Composer: React.FC<ComposerProps> = ({
     }
   }, [rtcState, startRealtime, stopRealtime, micLevel]);
 
+  const handleMuteToggle = useCallback(() => {
+    if (micLevel) {
+      // Toggle returns immediately, but state updates async
+      // So we compute the new state as the inverse of current
+      const newMuted = !micLevel.isMuted;
+      micLevel.toggleMute();
+      // Also mute the actual recording/realtime stream
+      onMuteChange?.(newMuted);
+    }
+  }, [micLevel, onMuteChange]);
+
   const micButtonClasses = recording
     ? "bg-red-100 border-red-300 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/70"
     : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700";
@@ -258,57 +272,93 @@ const Composer: React.FC<ComposerProps> = ({
               <IconUpload className="h-5 w-5" />
             </button>
             {realtimeEnabled ? (
-              <div className="flex items-center gap-2">
+              <div className="relative">
                 <button
                   type="button"
                   onClick={handleRealtimeClick}
                   disabled={!startRealtime && !stopRealtime}
-                  className={`shrink-0 rounded-lg border p-2.5 transition-colors ${rtcStateClasses[rtcState]}`}
+                  className={`relative shrink-0 rounded-lg border p-2.5 transition-colors ${rtcStateClasses[rtcState]}`}
                   title={realtimeButtonTitle}
                   aria-label={realtimeAriaLabel}
                   data-testid="mic-button"
                   aria-pressed={rtcState === "live" || rtcState === "connecting"}
                 >
-                  <IconMic className="h-5 w-5" />
+                  <IconMic
+                    className="h-5 w-5"
+                    style={
+                      rtcState !== "idle" && micLevel && micLevel.isActive && !micLevel.isMuted && !aiSpeaking && micLevel.level > 0.08
+                        ? {
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.5) * 0.5}) translateY(${-Math.pow(micLevel.level, 0.5) * 4}px)`,
+                            transition: "transform 50ms ease-out",
+                          }
+                        : undefined
+                    }
+                  />
                 </button>
-                {rtcState !== "idle" && (
+                {rtcState !== "idle" && micLevel && (
                   <button
                     type="button"
-                    onClick={() => (rtcReset ?? stopRealtime)?.()}
-                    className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    title="Reset realtime call"
+                    onClick={handleMuteToggle}
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border shadow-sm transition-colors ${
+                      micLevel.isMuted
+                        ? "bg-amber-500 border-amber-600 text-white dark:bg-amber-600 dark:border-amber-700"
+                        : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-600"
+                    }`}
+                    title={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
+                    aria-label={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
+                    aria-pressed={micLevel.isMuted}
+                    data-testid="mute-button"
                   >
-                    Reset
+                    <IconMicMute className="h-3 w-3" />
                   </button>
                 )}
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleMicClick}
-                disabled={micDisabled}
-                className={`shrink-0 rounded-lg border p-2.5 transition-colors ${
-                  micDisabled
-                    ? "cursor-not-allowed bg-slate-50 text-slate-300 border-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-600"
-                    : micButtonClasses
-                }`}
-                title={recording ? "Stop recording" : "Voice input (mock)"}
-                aria-label={recordingAriaLabel}
-                data-testid="mic-button"
-                aria-pressed={recording}
-              >
-                <IconMic className="h-5 w-5" />
-              </button>
-            )}
-            {FEATURE_MIC_LEVEL && micLevel && micLevel.isActive && (
-              <MicLevelIndicator
-                level={micLevel.level}
-                peak={micLevel.peak}
-                db={micLevel.db}
-                variant="bar"
-                showDb={false}
-                ariaLabel="Live microphone level"
-              />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={handleMicClick}
+                  disabled={micDisabled}
+                  className={`relative shrink-0 rounded-lg border p-2.5 transition-colors ${
+                    micDisabled
+                      ? "cursor-not-allowed bg-slate-50 text-slate-300 border-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-600"
+                      : micButtonClasses
+                  }`}
+                  title={recording ? "Stop recording" : "Voice input (mock)"}
+                  aria-label={recordingAriaLabel}
+                  data-testid="mic-button"
+                  aria-pressed={recording}
+                >
+                  <IconMic
+                    className="h-5 w-5"
+                    style={
+                      recording && micLevel && micLevel.isActive && !micLevel.isMuted && !aiSpeaking && micLevel.level > 0.08
+                        ? {
+                            transform: `scale(${1 + Math.pow(micLevel.level, 0.5) * 0.5}) translateY(${-Math.pow(micLevel.level, 0.5) * 4}px)`,
+                            transition: "transform 50ms ease-out",
+                          }
+                        : undefined
+                    }
+                  />
+                </button>
+                {recording && micLevel && (
+                  <button
+                    type="button"
+                    onClick={handleMuteToggle}
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border shadow-sm transition-colors ${
+                      micLevel.isMuted
+                        ? "bg-amber-500 border-amber-600 text-white dark:bg-amber-600 dark:border-amber-700"
+                        : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-600"
+                    }`}
+                    title={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
+                    aria-label={micLevel.isMuted ? "Unmute microphone" : "Mute microphone"}
+                    aria-pressed={micLevel.isMuted}
+                    data-testid="mute-button"
+                  >
+                    <IconMicMute className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">

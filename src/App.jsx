@@ -612,6 +612,14 @@ const IconMic = (props) => (
     <path d="M12 19v3" />
   </svg>
 );
+const IconMicMute = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <rect x="9" y="2" width="6" height="12" rx="3" />
+    <path d="M5 10a7 7 0 0 0 14 0" />
+    <path d="M12 19v3" />
+    <path d="M3 3l18 18" strokeLinecap="round" />
+  </svg>
+);
 const IconPlus = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
     <path d="M12 5v14" />
@@ -3392,6 +3400,15 @@ const resolveDocTypeForManualSync = useCallback(
     setRtcState("idle");
   };
 
+  const setRealtimeMuted = (muted) => {
+    const stream = micStreamRef.current;
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
+  };
+
   const startRealtime = async () => {
     if (!realtimeEnabled) return;
     if (rtcState === "connecting" || rtcState === "live") return;
@@ -3764,7 +3781,7 @@ const resolveDocTypeForManualSync = useCallback(
     [handleCommandFromText],
   );
 
-  const { startRecording, stopRecording } = useSpeechInput({
+  const { startRecording, stopRecording, setMuted: setRecordingMuted } = useSpeechInput({
     onTranscript: handleSpeechTranscript,
     onError: (error) => {
       console.error("Transcription failed", error);
@@ -4662,17 +4679,25 @@ const resolveDocTypeForManualSync = useCallback(
                     onUploadClick={() => fileInputRef.current?.click()}
                     onStartRecording={!realtimeEnabled ? startRecording : undefined}
                     onStopRecording={!realtimeEnabled ? stopRecording : undefined}
+                    onMuteChange={(muted) => {
+                      if (realtimeEnabled) {
+                        setRealtimeMuted(muted);
+                      } else {
+                        setRecordingMuted(muted);
+                      }
+                    }}
                     uploadDisabled={isUploadingAttachments}
                     realtimeEnabled={realtimeEnabled}
                     rtcState={rtcState}
                     startRealtime={startRealtime}
                     stopRealtime={stopRealtime}
-                    rtcReset={stopRealtime}
+                    aiSpeaking={aiSpeaking}
                     placeholder="Type here… (paste scope or attach files)"
                     onDrop={handleComposerDrop}
                     onDragOver={handleComposerDragOver}
                     IconUpload={IconUpload}
                     IconMic={IconMic}
+                    IconMicMute={IconMicMute}
                     IconSend={IconSend}
                   >
                     {realtimeEnabled ? (

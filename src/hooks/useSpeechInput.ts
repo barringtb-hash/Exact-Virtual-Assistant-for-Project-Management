@@ -12,6 +12,7 @@ export interface SpeechInputOptions {
 export interface SpeechInputControls {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
+  setMuted: (muted: boolean) => void;
   isRecording: boolean;
 }
 
@@ -245,9 +246,19 @@ export function useSpeechInput({ onTranscript, onError }: SpeechInputOptions): S
     }
   }, [handleError, onTranscript]);
 
+  const setMuted = useCallback((muted: boolean) => {
+    const stream = streamRef.current;
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
+  }, []);
+
   return {
     startRecording,
     stopRecording,
+    setMuted,
     isRecording,
   };
 }

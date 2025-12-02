@@ -86,10 +86,19 @@ export function useMicLevel() {
   }, []);
 
   const toggleMute = useCallback(() => {
-    if (engineRef.current) {
-      const newMuted = engineRef.current.toggleMute();
-      setState(s => ({ ...s, isMuted: newMuted }));
-    }
+    // Always update React state for UI consistency, regardless of engine state
+    setState(s => {
+      const newMuted = !s.isMuted;
+      // Sync with engine if available
+      if (engineRef.current) {
+        if (newMuted) {
+          engineRef.current.mute();
+        } else {
+          engineRef.current.unmute();
+        }
+      }
+      return { ...s, isMuted: newMuted };
+    });
   }, []);
 
   const selectDevice = useCallback(async (deviceId?: string) => {

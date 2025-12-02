@@ -3466,6 +3466,15 @@ const resolveDocTypeForManualSync = useCallback(
             if (aiTranscript.trim()) {
               console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
               voiceCharterService.processTranscript(aiTranscript, "ai");
+              // Add AI transcript to chat messages for visibility
+              chatActions.setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "assistant",
+                  text: aiTranscript,
+                },
+              ]);
             }
           }
 
@@ -3475,6 +3484,15 @@ const resolveDocTypeForManualSync = useCallback(
             if (transcript.trim()) {
               console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
               voiceCharterService.processTranscript(transcript, "user");
+              // Add user transcript to chat messages for visibility
+              chatActions.setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  role: "user",
+                  text: transcript,
+                },
+              ]);
             }
           }
         }
@@ -4490,6 +4508,10 @@ const resolveDocTypeForManualSync = useCallback(
       data-testid="app-ready"
       className="min-h-screen w-full font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
     >
+      {/* Realtime audio element - placed at top level to prevent unmounting during layout changes */}
+      {realtimeEnabled && (
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      )}
       {/* Top Bar */}
       <header
         data-testid="app-header"
@@ -4703,11 +4725,7 @@ const resolveDocTypeForManualSync = useCallback(
                     IconMic={IconMic}
                     IconMicMute={IconMicMute}
                     IconSend={IconSend}
-                  >
-                    {realtimeEnabled ? (
-                      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-                    ) : null}
-                  </Composer>
+                  />
                   {isPreviewSyncing ? (
                     <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
                       <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" aria-hidden="true" />

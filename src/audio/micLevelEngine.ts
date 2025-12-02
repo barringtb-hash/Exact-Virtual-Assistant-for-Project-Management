@@ -48,6 +48,14 @@ export class MicLevelEngine {
     }
 
     this.stream = await navigator.mediaDevices.getUserMedia(buildAudioConstraints(deviceId));
+
+    // Apply persisted mute state if mute was toggled before stream was ready
+    if (this._isMuted) {
+      this.stream.getAudioTracks().forEach(track => {
+        track.enabled = false;
+      });
+    }
+
     this.source = this.ctx.createMediaStreamSource(this.stream);
 
     this.analyser = this.ctx.createAnalyser();

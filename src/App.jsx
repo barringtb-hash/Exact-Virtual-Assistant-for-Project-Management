@@ -4187,30 +4187,51 @@ const resolveDocTypeForManualSync = useCallback(
   const handleVoiceTranscriptMessage = useCallback(
     async (rawText, { isFinal = true } = {}) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
-      if (!trimmed) return;
+
+      console.log("[Voice Debug - Realtime] handleVoiceTranscriptMessage called:");
+      console.log("[Voice Debug - Realtime] - rawText:", rawText);
+      console.log("[Voice Debug - Realtime] - trimmed:", trimmed);
+      console.log("[Voice Debug - Realtime] - isFinal:", isFinal);
+
+      if (!trimmed) {
+        console.log("[Voice Debug - Realtime] Empty text, returning");
+        return;
+      }
 
       if (!isFinal) {
+        console.log("[Voice Debug - Realtime] Not final, setting status to transcribing");
         voiceActions.setStatus("transcribing");
         return;
       }
 
       const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
+      console.log("[Voice Debug - Realtime] - isStreaming:", isStreaming, "isAssistantThinking:", isAssistantThinking);
       if (isStreaming || isAssistantThinking) {
+        console.log("[Voice Debug - Realtime] Busy, returning");
         voiceActions.setStatus("idle");
         return;
       }
 
-      // Check for charter creation intent via voice and start guided session
+      // Check for charter creation intent via voice
+      // If detected, show voice charter prompt instead of auto-starting guided charter
       const voiceCharterIntent = detectCharterIntent(trimmed);
-      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
-        const currentGuidedState = guidedStateRef.current;
-        const currentConversationId = guidedConversationIdRef.current;
-        const canStart =
-          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-        if (canStart && startGuidedCharterRef.current) {
+      console.log("[Voice Debug - Realtime] - voiceCharterIntent:", voiceCharterIntent);
+      console.log("[Voice Debug - Realtime] - voiceCharterMode:", voiceCharterMode);
+      console.log("[Voice Debug - Realtime] - showVoiceCharterPrompt:", showVoiceCharterPrompt);
+
+      if (voiceCharterIntent === 'create_charter') {
+        console.log("[Voice Debug - Realtime] Charter intent detected!");
+        // Show user's message in chat
+        chatActions.pushUser(`🎤 ${trimmed}`);
+
+        // Show voice charter prompt if voice charter is not already active
+        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+          console.log("[Voice Debug - Realtime] Showing voice charter prompt");
+          chatActions.pushAssistant(
+            "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+          );
+          setShowVoiceCharterPrompt(true);
           voiceActions.setStatus("idle");
-          await startGuidedCharterRef.current();
           return;
         }
       }
@@ -4229,8 +4250,10 @@ const resolveDocTypeForManualSync = useCallback(
       dispatch("PREVIEW_UPDATED", { source: "voice" });
 
       voiceActions.setStatus("transcribing");
+      console.log("[Voice Debug - Realtime] Processing voice transcript, pushing to chat");
       try {
-        chatActions.pushUser(trimmed);
+        // Show user's voice message in chat with microphone indicator
+        chatActions.pushUser(`🎤 ${trimmed}`);
         messagesRef.current = chatStoreApi.getState().messages;
 
         const voiceResult = await runVoiceFieldExtraction({
@@ -4266,6 +4289,8 @@ const resolveDocTypeForManualSync = useCallback(
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,
+      voiceCharterMode,
+      showVoiceCharterPrompt,
     ]
   );
 

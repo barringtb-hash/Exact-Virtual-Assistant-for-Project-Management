@@ -20,7 +20,6 @@ import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate, getDocTemplateFormState } from "./state/docTemplateStore.js";
 import { normalizeCharterFormSchema } from "./features/charter/utils/formSchema.ts";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
-import { detectVoiceIntent } from "./utils/detectVoiceIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
@@ -3811,6 +3810,9 @@ const resolveDocTypeForManualSync = useCallback(
     ]
   );
 
+  // Ref to hold submitChatTurn for use in handleSpeechTranscript
+  const submitChatTurnRef = useRef(null);
+
   const handleSpeechTranscript = useCallback(
     async (rawTranscript) => {
       const trimmedTranscript =
@@ -3819,37 +3821,26 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
-      // Check for voice intent to trigger PMO tools
-      const voiceIntent = detectVoiceIntent(trimmedTranscript);
-
-      if (voiceIntent.type === "charter" && voiceIntent.action === "create") {
-        // User explicitly wants to create a charter via voice
-        // Show prompt if voice charter is not already active
-        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
-          // Add the transcript to chat so user sees their request was understood
-          chatActions.pushUser(trimmedTranscript);
-          chatActions.pushAssistant(
-            "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
-          );
-          setShowVoiceCharterPrompt(true);
-          return; // Don't process further - waiting for user to confirm voice charter
-        }
+      // First check for commands
+      const handled = await handleCommandFromText(trimmedTranscript);
+      if (handled) {
+        return;
       }
 
-      // Future: Handle other PMO tool intents here
-      // if (voiceIntent.type === 'ddp') { ... }
-      // if (voiceIntent.type === 'sow') { ... }
-
-      // Default: Process as regular voice input (commands or add to composer)
-      const handled = await handleCommandFromText(trimmedTranscript);
-      if (!handled) {
+      // Submit transcript to chat - LLM will detect intent and respond appropriately
+      // If LLM detects charter intent, it will include [[VOICE_CHARTER_INTENT]] marker
+      // which triggers the voice charter prompt (handled in submitChatTurn response processing)
+      if (submitChatTurnRef.current) {
+        await submitChatTurnRef.current(trimmedTranscript, { source: "voice" });
+      } else {
+        // Fallback: add to composer draft if submitChatTurn not ready
         const currentDraft = chatStoreApi.getState().composerDraft;
         chatActions.setComposerDraft(
           currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
         );
       }
     },
-    [handleCommandFromText, voiceCharterMode, showVoiceCharterPrompt],
+    [handleCommandFromText],
   );
 
   const { startRecording, stopRecording, setMuted: setRecordingMuted } = useSpeechInput({
@@ -3994,6 +3985,19 @@ const resolveDocTypeForManualSync = useCallback(
         } catch (e) {
           reply = "LLM error (demo): " + (e?.message || "unknown");
         }
+
+        // Check for voice charter intent marker from LLM response
+        const VOICE_CHARTER_MARKER = "[[VOICE_CHARTER_INTENT]]";
+        const hasVoiceCharterIntent = reply.includes(VOICE_CHARTER_MARKER);
+        if (hasVoiceCharterIntent) {
+          // Strip the marker from the displayed reply
+          reply = reply.replace(VOICE_CHARTER_MARKER, "").trim();
+          // Show voice charter prompt if not already active
+          if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+            setShowVoiceCharterPrompt(true);
+          }
+        }
+
         chatActions.endAssistant(runId, reply || "");
         scheduleChatPreviewSync({
           reason: source === "voice" ? "voice-chat-completion" : "chat-completion",
@@ -4014,6 +4018,11 @@ const resolveDocTypeForManualSync = useCallback(
       sendGuidedBackendMessage,
     ],
   );
+
+  // Keep submitChatTurnRef updated for use in handleSpeechTranscript
+  useEffect(() => {
+    submitChatTurnRef.current = submitChatTurn;
+  }, [submitChatTurn]);
 
   const handleStartGuidedCharter = useCallback(async () => {
     if (!isGuidedChatEnabled) {

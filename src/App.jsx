@@ -3817,23 +3817,32 @@ const resolveDocTypeForManualSync = useCallback(
     async (rawTranscript) => {
       const trimmedTranscript =
         typeof rawTranscript === "string" ? rawTranscript.trim() : "";
+
+      console.log("[Voice Debug] Raw transcript received:", rawTranscript);
+      console.log("[Voice Debug] Trimmed transcript:", trimmedTranscript);
+
       if (!trimmedTranscript) {
+        console.log("[Voice Debug] Empty transcript, skipping");
         return;
       }
 
       // First check for commands
       const handled = await handleCommandFromText(trimmedTranscript);
       if (handled) {
+        console.log("[Voice Debug] Handled as command");
         return;
       }
 
       // Submit transcript to chat - LLM will detect intent and respond appropriately
       // If LLM detects charter intent, it will include [[VOICE_CHARTER_INTENT]] marker
       // which triggers the voice charter prompt (handled in submitChatTurn response processing)
+      console.log("[Voice Debug] Submitting to chat, submitChatTurnRef.current:", !!submitChatTurnRef.current);
       if (submitChatTurnRef.current) {
+        console.log("[Voice Debug] Calling submitChatTurn with source: voice");
         await submitChatTurnRef.current(trimmedTranscript, { source: "voice" });
       } else {
         // Fallback: add to composer draft if submitChatTurn not ready
+        console.log("[Voice Debug] Fallback: adding to composer draft");
         const currentDraft = chatStoreApi.getState().composerDraft;
         chatActions.setComposerDraft(
           currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
@@ -3989,13 +3998,27 @@ const resolveDocTypeForManualSync = useCallback(
         // Check for voice charter intent marker from LLM response
         const VOICE_CHARTER_MARKER = "[[VOICE_CHARTER_INTENT]]";
         const hasVoiceCharterIntent = reply.includes(VOICE_CHARTER_MARKER);
+
+        console.log("[Voice Debug] LLM Response received:");
+        console.log("[Voice Debug] - Raw reply length:", reply.length);
+        console.log("[Voice Debug] - Raw reply (first 500 chars):", reply.substring(0, 500));
+        console.log("[Voice Debug] - Contains VOICE_CHARTER_INTENT marker:", hasVoiceCharterIntent);
+        console.log("[Voice Debug] - Current voiceCharterMode:", voiceCharterMode);
+        console.log("[Voice Debug] - Current showVoiceCharterPrompt:", showVoiceCharterPrompt);
+
         if (hasVoiceCharterIntent) {
+          console.log("[Voice Debug] Charter intent detected! Stripping marker and showing prompt");
           // Strip the marker from the displayed reply
           reply = reply.replace(VOICE_CHARTER_MARKER, "").trim();
           // Show voice charter prompt if not already active
           if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+            console.log("[Voice Debug] Setting showVoiceCharterPrompt to true");
             setShowVoiceCharterPrompt(true);
+          } else {
+            console.log("[Voice Debug] NOT showing prompt - voiceCharterMode:", voiceCharterMode, "showVoiceCharterPrompt:", showVoiceCharterPrompt);
           }
+        } else {
+          console.log("[Voice Debug] No charter intent marker found in response");
         }
 
         chatActions.endAssistant(runId, reply || "");
@@ -4016,6 +4039,8 @@ const resolveDocTypeForManualSync = useCallback(
       isGuidedChatEnabled,
       scheduleChatPreviewSync,
       sendGuidedBackendMessage,
+      voiceCharterMode,
+      showVoiceCharterPrompt,
     ],
   );
 

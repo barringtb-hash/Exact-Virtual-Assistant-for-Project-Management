@@ -1469,18 +1469,20 @@ export default function ExactVirtualAssistantPM() {
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
   const hasPreviewDocType = Boolean(previewDocType);
-  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive;
+
+  // Voice charter state - needed early for layout calculations
+  const voiceCharterMode = useVoiceCharterMode();
+  const aiSpeaking = useAiSpeaking();
+  const isVoiceCharterActive = voiceCharterMode === "active";
+
+  // Show preview when: conditional visibility is off, OR doc session is active, OR voice charter is active
+  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive || isVoiceCharterActive;
 
   // Stage 7: Preview focus state - when preview should dominate layout
   const isPreviewFocus = useMemo(
     () => Boolean(shouldShowPreview && FLAGS.PREVIEW_FOCUS_ENABLED),
     [shouldShowPreview]
   );
-
-  // Voice charter state - needed early for layout calculations
-  const voiceCharterMode = useVoiceCharterMode();
-  const aiSpeaking = useAiSpeaking();
-  const isVoiceCharterActive = voiceCharterMode === "active";
 
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);

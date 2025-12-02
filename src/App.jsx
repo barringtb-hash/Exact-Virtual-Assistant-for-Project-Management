@@ -52,6 +52,7 @@ import {
   pointerMapToPathObject,
   pointerSetToPathSet,
 } from "./utils/jsonPointer.js";
+import { createId } from "./utils/id.ts";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import VoiceCharterSession from "./components/VoiceCharterSession.tsx";
 import VoiceCharterPrompt from "./components/VoiceCharterPrompt.tsx";
@@ -3468,13 +3469,14 @@ const resolveDocTypeForManualSync = useCallback(
             if (aiTranscript.trim()) {
               console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
               voiceCharterService.processTranscript(aiTranscript, "ai");
-              // Add AI transcript to chat messages for visibility
+
+              // Add AI transcript to chat for debugging (append directly to avoid mutating run state)
               chatActions.setMessages((prev) => [
                 ...prev,
                 {
-                  id: Date.now() + Math.random(),
+                  id: createId(),
                   role: "assistant",
-                  text: aiTranscript,
+                  text: `🎙️ [EVA]: ${aiTranscript.trim()}`,
                 },
               ]);
             }
@@ -3486,15 +3488,9 @@ const resolveDocTypeForManualSync = useCallback(
             if (transcript.trim()) {
               console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
               voiceCharterService.processTranscript(transcript, "user");
-              // Add user transcript to chat messages for visibility
-              chatActions.setMessages((prev) => [
-                ...prev,
-                {
-                  id: Date.now() + Math.random(),
-                  role: "user",
-                  text: transcript,
-                },
-              ]);
+
+              // Add user transcript to chat for debugging
+              chatActions.pushUser(`🎤 [Voice]: ${transcript.trim()}`);
             }
           }
         }

@@ -1479,18 +1479,19 @@ export default function ExactVirtualAssistantPM() {
 
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
+  // Voice charter mode forces chat into overlay mode (bottom-left corner)
   const chatIsOverlay = useMemo(
-    () => isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned,
-    [chatOverlayPinned, isPreviewFocus]
+    () => isVoiceCharterActive || (isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned),
+    [chatOverlayPinned, isPreviewFocus, isVoiceCharterActive]
   );
 
   const chatPanelClassName = useMemo(
-    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview }),
-    [chatIsOverlay, shouldShowPreview],
+    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview, isVoiceCharterActive }),
+    [chatIsOverlay, shouldShowPreview, isVoiceCharterActive],
   );
   const previewPanelClassName = useMemo(
-    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus }),
-    [chatIsOverlay, isPreviewFocus],
+    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus, isVoiceCharterActive }),
+    [chatIsOverlay, isPreviewFocus, isVoiceCharterActive],
   );
 
   const manifestLoading =
@@ -4622,12 +4623,13 @@ const resolveDocTypeForManualSync = useCallback(
                       </div>
                     </div>
                   )}
-                  {/* Voice Charter Session - shown when voice charter is active for any charter UI */}
+                  {/* Voice Charter Session - compact view in chat overlay when voice charter is active */}
                   {isVoiceCharterActive && (
                     <VoiceCharterSession
                       className="mb-3"
                       visible={true}
                       aiSpeaking={aiSpeaking}
+                      compact={true}
                       onComplete={(values) => {
                         // Apply captured values to the draft
                         if (values && Object.keys(values).length > 0) {

@@ -233,6 +233,8 @@ export interface VoiceCharterSessionProps {
   className?: string;
   visible?: boolean;
   aiSpeaking?: boolean;
+  /** Compact mode for overlay/sidebar display */
+  compact?: boolean;
   onComplete?: (values: Record<string, string>) => void;
   onExit?: () => void;
 }
@@ -245,6 +247,7 @@ export const VoiceCharterSession = React.memo(
     className,
     visible = true,
     aiSpeaking = false,
+    compact = false,
     onComplete,
     onExit,
   }: VoiceCharterSessionProps) => {
@@ -294,6 +297,107 @@ export const VoiceCharterSession = React.memo(
       return null;
     }
 
+    // Compact mode: horizontal layout optimized for overlay
+    if (compact) {
+      return (
+        <section
+          className={classNames(
+            "rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800",
+            className
+          )}
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-3">
+            {/* Compact visual indicator */}
+            <div className="flex-shrink-0">
+              {aiSpeaking ? (
+                <div className="relative flex h-10 w-10 items-center justify-center">
+                  <div className="absolute h-10 w-10 animate-pulse rounded-full bg-emerald-400/30" />
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 shadow-md">
+                    <SpeakerIcon className="h-4 w-4 text-white" />
+                  </div>
+                </div>
+              ) : (
+                <div className="relative flex h-10 w-10 items-center justify-center">
+                  <div
+                    className={classNames(
+                      "absolute h-10 w-10 rounded-full transition-all",
+                      isListening ? "animate-ping bg-indigo-400/30" : "bg-slate-200/30 dark:bg-slate-700/30"
+                    )}
+                  />
+                  <div
+                    className={classNames(
+                      "relative flex h-8 w-8 items-center justify-center rounded-full transition-all",
+                      isListening ? "bg-indigo-500 shadow-md" : "bg-slate-300 dark:bg-slate-600"
+                    )}
+                  >
+                    <MicrophoneIcon
+                      className={classNames(
+                        "h-4 w-4 transition-colors",
+                        isListening ? "text-white" : "text-slate-500 dark:text-slate-400"
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Compact info */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-800 dark:text-slate-100">
+                  Voice Charter
+                </span>
+                {state.step !== "completed" && state.step !== "idle" && currentField && (
+                  <span className="truncate text-xs text-indigo-600 dark:text-indigo-400">
+                    {currentField.label}
+                    {currentField.required && <span className="text-red-500">*</span>}
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                {statusText}
+              </p>
+              {/* Compact progress */}
+              {state.step !== "idle" && state.step !== "completed" && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div
+                      className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                      style={{ width: `${progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    {progress.current}/{progress.total}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Exit button */}
+            <button
+              type="button"
+              onClick={handleExitClick}
+              className="flex-shrink-0 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              title={state.step === "completed" ? "Close" : "Exit Voice Mode"}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Error display */}
+          {state.error && (
+            <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">
+              {state.error}
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    // Full mode: centered layout for standalone display
     return (
       <section
         className={classNames(

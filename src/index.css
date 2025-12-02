@@ -210,6 +210,15 @@ body {
     max-height: 75vh;
     z-index: 50;
   }
+
+  /* Voice charter overlay: positioned bottom-left to keep charter fields in focus */
+  .floating-card.voice-charter-overlay {
+    right: auto;
+    left: 1rem;
+    width: 380px;
+    height: 50vh;
+    max-height: 60vh;
+  }
 }
 
 /* Floating chat overlay specific styles */

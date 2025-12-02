@@ -3862,12 +3862,19 @@ const resolveDocTypeForManualSync = useCallback(
   const submitChatTurn = useCallback(
     async (rawText, { source }) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+
+      console.log("[Voice Debug] submitChatTurn called:");
+      console.log("[Voice Debug] - source:", source);
+      console.log("[Voice Debug] - trimmed text:", trimmed);
+
       if (!trimmed) {
+        console.log("[Voice Debug] - Empty text, returning early");
         return { status: "empty" };
       }
 
       const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
       if (isStreaming || isAssistantThinking) {
+        console.log("[Voice Debug] - Busy (streaming/thinking), returning early");
         return { status: "busy" };
       }
 
@@ -3888,8 +3895,14 @@ const resolveDocTypeForManualSync = useCallback(
         Boolean(guidedConversationIdRef.current) &&
         !shouldBypassGuided;
 
+      console.log("[Voice Debug] - CHARTER_GUIDED_BACKEND_ENABLED:", CHARTER_GUIDED_BACKEND_ENABLED);
+      console.log("[Voice Debug] - guidedConversationIdRef.current:", guidedConversationIdRef.current);
+      console.log("[Voice Debug] - shouldAttemptRemote:", shouldAttemptRemote);
+      console.log("[Voice Debug] - orchestrator active:", orchestrator?.isActive?.());
+
       try {
         if (shouldAttemptRemote) {
+          console.log("[Voice Debug] Taking REMOTE GUIDED path - will NOT reach LLM intent detection");
           let remoteHandled = false;
           const runId = createTempId();
           chatActions.startAssistant(runId);

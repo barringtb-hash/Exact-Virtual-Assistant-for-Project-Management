@@ -3465,10 +3465,15 @@ const resolveDocTypeForManualSync = useCallback(
               console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
               voiceCharterService.processTranscript(aiTranscript, "ai");
 
-              // Add AI transcript to chat for debugging
-              const runId = createId();
-              chatActions.startAssistant(runId);
-              chatActions.endAssistant(runId, `🎙️ [Voice AI]: ${aiTranscript.trim()}`);
+              // Add AI transcript to chat for debugging (append directly to avoid mutating run state)
+              chatActions.setMessages((prev) => [
+                ...prev,
+                {
+                  id: createId(),
+                  role: "assistant",
+                  text: `🎙️ [Voice AI]: ${aiTranscript.trim()}`,
+                },
+              ]);
             }
           }
 

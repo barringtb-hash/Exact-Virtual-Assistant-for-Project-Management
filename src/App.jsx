@@ -1477,6 +1477,11 @@ export default function ExactVirtualAssistantPM() {
     [shouldShowPreview]
   );
 
+  // Voice charter state - needed early for layout calculations
+  const voiceCharterMode = useVoiceCharterMode();
+  const aiSpeaking = useAiSpeaking();
+  const isVoiceCharterActive = voiceCharterMode === "active";
+
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
   // Voice charter mode forces chat into overlay mode (bottom-left corner)
@@ -1532,9 +1537,6 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rtcState, setRtcState] = useState("idle");
-  const voiceCharterMode = useVoiceCharterMode();
-  const aiSpeaking = useAiSpeaking();
-  const isVoiceCharterActive = voiceCharterMode === "active";
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();

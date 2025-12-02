@@ -1542,6 +1542,7 @@ export default function ExactVirtualAssistantPM() {
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rtcState, setRtcState] = useState("idle");
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
+  const [pendingVoiceCharter, setPendingVoiceCharter] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3571,9 +3572,10 @@ const resolveDocTypeForManualSync = useCallback(
   // rather than automatically when mic is activated. This allows the mic to be used for
   // other PMO tools in the future.
   useEffect(() => {
-    // Clean up when realtime disconnects
-    if (rtcState !== "live") {
+    // Clean up when realtime disconnects or errors
+    if (rtcState !== "live" && rtcState !== "connecting") {
       setShowVoiceCharterPrompt(false);
+      setPendingVoiceCharter(false);
       if (voiceCharterMode === "active") {
         voiceCharterActions.exit();
         voiceCharterService.reset();
@@ -3581,19 +3583,18 @@ const resolveDocTypeForManualSync = useCallback(
     }
   }, [rtcState, voiceCharterMode]);
 
-  // Handle voice charter prompt confirmation
-  const handleVoiceCharterConfirm = useCallback(() => {
-    setShowVoiceCharterPrompt(false);
-
+  // Initialize and start voice charter service (called when realtime is connected)
+  const initializeVoiceCharter = useCallback(() => {
     if (!dataRef.current) {
-      return;
+      console.warn("[VoiceCharter] No data channel available");
+      return false;
     }
 
     // Get the schema from docTemplateStore
     const { form } = getDocTemplateFormState();
     if (!form) {
       console.warn("[VoiceCharter] No form schema available");
-      return;
+      return false;
     }
 
     // Normalize the form into a CharterFormSchema
@@ -3602,7 +3603,7 @@ const resolveDocTypeForManualSync = useCallback(
       schema = normalizeCharterFormSchema(form);
     } catch (error) {
       console.error("[VoiceCharter] Failed to normalize schema:", error);
-      return;
+      return false;
     }
 
     // Get existing draft values to seed the voice charter
@@ -3628,14 +3629,41 @@ const resolveDocTypeForManualSync = useCallback(
       setTimeout(() => {
         voiceCharterService.start();
       }, 500);
+      return true;
     }
+    return false;
   }, []);
+
+  // Handle voice charter prompt confirmation
+  const handleVoiceCharterConfirm = useCallback(() => {
+    setShowVoiceCharterPrompt(false);
+
+    // If realtime is already connected, initialize voice charter immediately
+    if (rtcState === "live" && dataRef.current) {
+      initializeVoiceCharter();
+    } else {
+      // Start realtime connection and set pending flag to initialize when connected
+      setPendingVoiceCharter(true);
+      startRealtime();
+    }
+  }, [rtcState, initializeVoiceCharter, startRealtime]);
 
   // Handle voice charter prompt decline (just use regular transcription)
   const handleVoiceCharterDecline = useCallback(() => {
     setShowVoiceCharterPrompt(false);
     // Voice transcription continues normally without voice charter mode
   }, []);
+
+  // Auto-initialize voice charter when realtime connects and we have a pending request
+  useEffect(() => {
+    if (rtcState === "live" && pendingVoiceCharter && dataRef.current) {
+      console.log("[VoiceCharter] Realtime connected, initializing pending voice charter");
+      const success = initializeVoiceCharter();
+      if (success) {
+        setPendingVoiceCharter(false);
+      }
+    }
+  }, [rtcState, pendingVoiceCharter, initializeVoiceCharter]);
 
   // Subscribe to voice charter events for field capture
   useEffect(() => {
@@ -3796,15 +3824,15 @@ const resolveDocTypeForManualSync = useCallback(
 
       if (voiceIntent.type === "charter" && voiceIntent.action === "create") {
         // User explicitly wants to create a charter via voice
-        // Only show prompt if realtime is connected and voice charter is not already active
-        if (rtcState === "live" && dataRef.current && voiceCharterMode === "inactive") {
-          setShowVoiceCharterPrompt(true);
+        // Show prompt if voice charter is not already active
+        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
           // Add the transcript to chat so user sees their request was understood
           chatActions.pushUser(trimmedTranscript);
           chatActions.pushAssistant(
-            "I heard you want to create a project charter. Let me help you with that using voice guidance."
+            "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
           );
-          return; // Don't process further - we're switching to voice charter mode
+          setShowVoiceCharterPrompt(true);
+          return; // Don't process further - waiting for user to confirm voice charter
         }
       }
 
@@ -3821,7 +3849,7 @@ const resolveDocTypeForManualSync = useCallback(
         );
       }
     },
-    [handleCommandFromText, rtcState, voiceCharterMode],
+    [handleCommandFromText, voiceCharterMode, showVoiceCharterPrompt],
   );
 
   const { startRecording, stopRecording, setMuted: setRecordingMuted } = useSpeechInput({

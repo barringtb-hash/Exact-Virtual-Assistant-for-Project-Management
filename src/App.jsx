@@ -1596,6 +1596,7 @@ export default function ExactVirtualAssistantPM() {
   const remoteAudioRef = useRef(null);
   const pcRef = useRef(null);
   const micStreamRef = useRef(null);
+  const realtimeMutedRef = useRef(false);
   const dataRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const hideEmptySections = useMemo(() => {
@@ -3392,6 +3393,7 @@ const resolveDocTypeForManualSync = useCallback(
         }
       });
       micStreamRef.current = null;
+      realtimeMutedRef.current = false;
       if (dispatchStop) {
         dispatch("VOICE_STOP");
       }
@@ -3407,6 +3409,8 @@ const resolveDocTypeForManualSync = useCallback(
   };
 
   const setRealtimeMuted = (muted) => {
+    // Persist the mute state so it can be applied when stream is obtained
+    realtimeMutedRef.current = muted;
     const stream = micStreamRef.current;
     if (stream) {
       stream.getAudioTracks().forEach((track) => {
@@ -3422,6 +3426,14 @@ const resolveDocTypeForManualSync = useCallback(
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       micStreamRef.current = stream;
+
+      // Apply persisted mute state if mute was clicked before stream was ready
+      if (realtimeMutedRef.current) {
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+
       dispatch("VOICE_START");
 
       const pc = new RTCPeerConnection({

@@ -3471,7 +3471,7 @@ const resolveDocTypeForManualSync = useCallback(
                 {
                   id: createId(),
                   role: "assistant",
-                  text: `🎙️ [Voice AI]: ${aiTranscript.trim()}`,
+                  text: `🎙️ [EVA]: ${aiTranscript.trim()}`,
                 },
               ]);
             }

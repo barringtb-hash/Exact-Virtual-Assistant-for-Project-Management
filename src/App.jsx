@@ -1470,7 +1470,14 @@ export default function ExactVirtualAssistantPM() {
   const requiredFieldsHeading = docTypeConfig.requiredFieldsHeading;
   const defaultShareBaseName = docTypeConfig.defaultBaseName;
   const hasPreviewDocType = Boolean(previewDocType);
-  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive;
+
+  // Voice charter state - needed early for layout calculations
+  const voiceCharterMode = useVoiceCharterMode();
+  const aiSpeaking = useAiSpeaking();
+  const isVoiceCharterActive = voiceCharterMode === "active";
+
+  // Show preview when: conditional visibility is off, OR doc session is active, OR voice charter is active
+  const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive || isVoiceCharterActive;
 
   // Stage 7: Preview focus state - when preview should dominate layout
   const isPreviewFocus = useMemo(
@@ -1480,18 +1487,19 @@ export default function ExactVirtualAssistantPM() {
 
   // Stage 7: Chat overlay pinned state - allow users to toggle between overlay and docked
   const [chatOverlayPinned, setChatOverlayPinned] = useState(true);
+  // Voice charter mode forces chat into overlay mode (bottom-left corner)
   const chatIsOverlay = useMemo(
-    () => isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned,
-    [chatOverlayPinned, isPreviewFocus]
+    () => isVoiceCharterActive || (isPreviewFocus && FLAGS.CHAT_OVERLAY_ON_PREVIEW && chatOverlayPinned),
+    [chatOverlayPinned, isPreviewFocus, isVoiceCharterActive]
   );
 
   const chatPanelClassName = useMemo(
-    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview }),
-    [chatIsOverlay, shouldShowPreview],
+    () => getChatPanelClass({ chatIsOverlay, shouldShowPreview, isVoiceCharterActive }),
+    [chatIsOverlay, shouldShowPreview, isVoiceCharterActive],
   );
   const previewPanelClassName = useMemo(
-    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus }),
-    [chatIsOverlay, isPreviewFocus],
+    () => getPreviewPanelClass({ chatIsOverlay, isPreviewFocus, isVoiceCharterActive }),
+    [chatIsOverlay, isPreviewFocus, isVoiceCharterActive],
   );
 
   const manifestLoading =
@@ -1532,9 +1540,6 @@ export default function ExactVirtualAssistantPM() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rtcState, setRtcState] = useState("idle");
-  const voiceCharterMode = useVoiceCharterMode();
-  const aiSpeaking = useAiSpeaking();
-  const isVoiceCharterActive = voiceCharterMode === "active";
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
@@ -4501,6 +4506,10 @@ const resolveDocTypeForManualSync = useCallback(
       data-testid="app-ready"
       className="min-h-screen w-full font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
     >
+      {/* Realtime audio element - placed at top level to prevent unmounting during layout changes */}
+      {realtimeEnabled && (
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      )}
       {/* Top Bar */}
       <header
         data-testid="app-header"
@@ -4636,12 +4645,13 @@ const resolveDocTypeForManualSync = useCallback(
                       </div>
                     </div>
                   )}
-                  {/* Voice Charter Session - shown when voice charter is active for any charter UI */}
+                  {/* Voice Charter Session - compact view in chat overlay when voice charter is active */}
                   {isVoiceCharterActive && (
                     <VoiceCharterSession
                       className="mb-3"
                       visible={true}
                       aiSpeaking={aiSpeaking}
+                      compact={true}
                       onComplete={(values) => {
                         // Apply captured values to the draft
                         if (values && Object.keys(values).length > 0) {
@@ -4713,11 +4723,7 @@ const resolveDocTypeForManualSync = useCallback(
                     IconMic={IconMic}
                     IconMicMute={IconMicMute}
                     IconSend={IconSend}
-                  >
-                    {realtimeEnabled ? (
-                      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-                    ) : null}
-                  </Composer>
+                  />
                   {isPreviewSyncing ? (
                     <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
                       <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" aria-hidden="true" />

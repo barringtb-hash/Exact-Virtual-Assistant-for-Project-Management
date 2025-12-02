@@ -1,7 +1,9 @@
 /**
  * VoiceCharterPrompt - Modal prompt asking if user wants voice-guided charter creation.
  *
- * Appears when the user activates voice mode while the charter wizard is visible.
+ * Appears when the user explicitly requests to create a charter via voice input.
+ * This prompt is triggered by intent detection rather than automatically when
+ * the mic is activated, allowing the voice feature to be used for other PMO tools.
  *
  * @module components/VoiceCharterPrompt
  */
@@ -102,12 +104,12 @@ export const VoiceCharterPrompt = React.memo(
             id="voice-charter-prompt-title"
             className="mb-2 text-center text-lg font-semibold text-slate-800 dark:text-slate-100"
           >
-            Use Voice for Charter?
+            Voice-Guided Charter
           </h2>
 
           {/* Description */}
           <p className="mb-6 text-center text-sm text-slate-600 dark:text-slate-300">
-            Would you like to create your project charter using voice? I'll guide you through each field conversationally.
+            I can guide you through each charter field conversationally. Would you like to continue with voice guidance?
           </p>
 
           {/* Buttons */}
@@ -121,7 +123,7 @@ export const VoiceCharterPrompt = React.memo(
                 "dark:bg-indigo-500 dark:hover:bg-indigo-400"
               )}
             >
-              Yes, use voice
+              Start voice guidance
             </button>
             <button
               type="button"
@@ -132,7 +134,7 @@ export const VoiceCharterPrompt = React.memo(
                 "dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
               )}
             >
-              No, just transcribe
+              No thanks, I'll type
             </button>
           </div>
 

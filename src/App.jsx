@@ -20,6 +20,7 @@ import { getDocTypeSnapshot, useDocType } from "./state/docType.js";
 import { useDocTemplate, getDocTemplateFormState } from "./state/docTemplateStore.js";
 import { normalizeCharterFormSchema } from "./features/charter/utils/formSchema.ts";
 import { detectCharterIntent } from "./utils/detectCharterIntent.js";
+import { detectVoiceIntent } from "./utils/detectVoiceIntent.js";
 import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
@@ -3565,22 +3566,11 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  // Show voice charter prompt when realtime goes live and charter is active
+  // Clean up voice charter when realtime disconnects
+  // NOTE: Voice charter prompt is now triggered by intent detection in handleSpeechTranscript
+  // rather than automatically when mic is activated. This allows the mic to be used for
+  // other PMO tools in the future.
   useEffect(() => {
-    // Show prompt if voice is live and we're working on a charter
-    // Check for either CharterFieldSession wizard OR guided chat interface
-    const isCharterUIActive = SHOULD_SHOW_CHARTER_WIZARD || isGuidedChatEnabled;
-
-    if (rtcState === "live" && isCharterUIActive && dataRef.current) {
-      // Only show prompt if not already active and not already showing
-      if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
-        // Check if we're working with a charter document type
-        if (templateDocType === "charter") {
-          setShowVoiceCharterPrompt(true);
-        }
-      }
-    }
-
     // Clean up when realtime disconnects
     if (rtcState !== "live") {
       setShowVoiceCharterPrompt(false);
@@ -3589,7 +3579,7 @@ const resolveDocTypeForManualSync = useCallback(
         voiceCharterService.reset();
       }
     }
-  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt, isGuidedChatEnabled]);
+  }, [rtcState, voiceCharterMode]);
 
   // Handle voice charter prompt confirmation
   const handleVoiceCharterConfirm = useCallback(() => {
@@ -3801,6 +3791,28 @@ const resolveDocTypeForManualSync = useCallback(
         return;
       }
 
+      // Check for voice intent to trigger PMO tools
+      const voiceIntent = detectVoiceIntent(trimmedTranscript);
+
+      if (voiceIntent.type === "charter" && voiceIntent.action === "create") {
+        // User explicitly wants to create a charter via voice
+        // Only show prompt if realtime is connected and voice charter is not already active
+        if (rtcState === "live" && dataRef.current && voiceCharterMode === "inactive") {
+          setShowVoiceCharterPrompt(true);
+          // Add the transcript to chat so user sees their request was understood
+          chatActions.pushUser(trimmedTranscript);
+          chatActions.pushAssistant(
+            "I heard you want to create a project charter. Let me help you with that using voice guidance."
+          );
+          return; // Don't process further - we're switching to voice charter mode
+        }
+      }
+
+      // Future: Handle other PMO tool intents here
+      // if (voiceIntent.type === 'ddp') { ... }
+      // if (voiceIntent.type === 'sow') { ... }
+
+      // Default: Process as regular voice input (commands or add to composer)
       const handled = await handleCommandFromText(trimmedTranscript);
       if (!handled) {
         const currentDraft = chatStoreApi.getState().composerDraft;
@@ -3809,7 +3821,7 @@ const resolveDocTypeForManualSync = useCallback(
         );
       }
     },
-    [handleCommandFromText],
+    [handleCommandFromText, rtcState, voiceCharterMode],
   );
 
   const { startRecording, stopRecording, setMuted: setRecordingMuted } = useSpeechInput({

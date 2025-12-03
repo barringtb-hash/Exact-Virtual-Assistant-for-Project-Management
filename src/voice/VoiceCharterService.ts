@@ -1747,20 +1747,14 @@ Keep it brief and conversational.`;
         return;
       }
 
-      // Extract the relevant value from the conversational response
-      const extractedValue = extractFieldValue(transcript, targetFieldId);
-      console.log("[VoiceCharterService] processTranscript: Capturing value", {
+      // LLM-DRIVEN CAPTURE: Do NOT capture user values directly here.
+      // The user's transcript is passed to the LLM via the realtime API.
+      // The LLM will respond with "CAPTURE: [value]" to trigger the actual capture.
+      // This prevents double-capture race conditions.
+      console.log("[VoiceCharterService] processTranscript: Waiting for LLM CAPTURE", {
         targetFieldId,
-        rawTranscript: transcript.substring(0, 50),
-        extractedValue: extractedValue.substring(0, 50),
+        transcript: transcript.substring(0, 50),
       });
-
-      // Capture the cleaned value to the form
-      this.captureValue(targetFieldId, extractedValue);
-
-      // Advance to the next field so subsequent transcripts go to the right place
-      // (The AI will ask about the next field in its spoken response)
-      this.advanceAskingField();
     } else {
       console.log("[VoiceCharterService] processTranscript: No targetFieldId, skipping capture");
     }
@@ -1961,11 +1955,16 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Capture user value
+    // LLM-DRIVEN CAPTURE: Do NOT capture user values directly here.
+    // The user's transcript is passed to the LLM via the realtime API.
+    // The LLM will respond with "CAPTURE: [value]" to trigger the actual capture.
+    // This prevents double-capture race conditions where both user transcript
+    // processing AND AI transcript processing would capture values.
     const targetFieldId = this.askingFieldId || this.state.currentFieldId;
 
     if (targetFieldId) {
-      // Check if this is a long-form field that needs AI reformulation
+      // For long-form fields, we still track pending reformulation so we can
+      // fall back to raw input if the AI doesn't use CAPTURE
       if (LONG_FORM_FIELDS.includes(targetFieldId)) {
         const rawValue = extractFieldValue(transcript, targetFieldId);
 
@@ -1984,11 +1983,9 @@ Keep it brief and conversational.`;
         return;
       }
 
-      // Extract and capture value for non-long-form fields
-      const extractedValue = extractFieldValue(transcript, targetFieldId);
-      console.log("[VoiceCharterService] [USER] Capturing value:", extractedValue.substring(0, 50));
-      this.captureValue(targetFieldId, extractedValue);
-      this.advanceAskingField();
+      // For regular fields: DO NOT capture directly - let the LLM handle it via CAPTURE:
+      // The transcript is automatically sent to the LLM via the realtime data channel
+      console.log("[VoiceCharterService] [USER] Waiting for LLM CAPTURE:", transcript.substring(0, 50));
     }
 
     this.updateState({ step: "listening", pendingValue: transcript });
@@ -2262,24 +2259,20 @@ Keep it brief and conversational.`;
             return false;
           }
 
-          // Extract clean value (apply filler removal)
-          const cleanValue = extractFieldValue(valuePart, targetField.id);
-          console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected", {
+          // LLM-DRIVEN CAPTURE: Do NOT capture the value directly here.
+          // Instead, navigate to the target field and let the LLM handle
+          // the capture via CAPTURE: pattern. Pass the full transcript
+          // so the LLM knows what value the user wants.
+          console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected, navigating to field", {
             targetFieldId: targetField.id,
-            originalValue: valuePart,
-            cleanValue: cleanValue,
             currentAskingFieldId: this.askingFieldId,
+            userTranscript: transcript.substring(0, 50),
           });
 
-          // Capture the corrected value to the target field
-          this.captureValue(targetField.id, cleanValue);
+          // Navigate to the field with the full user transcript as context
+          // The LLM will extract the value and use CAPTURE: to save it
+          this.goToField(targetField.id, transcript);
 
-          // Inform the AI about the correction
-          this.sendAIPrompt(
-            `[User corrected ${targetField.label} to: "${cleanValue}"] Acknowledge the correction briefly and continue asking about the current field.`
-          );
-
-          // Don't advance - stay on current field
           return true;
         }
       }

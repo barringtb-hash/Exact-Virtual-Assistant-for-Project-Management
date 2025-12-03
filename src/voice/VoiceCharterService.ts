@@ -1109,7 +1109,7 @@ export class VoiceCharterService {
     // Include populated fields info so the AI knows about extracted values
     const config: SessionConfig = {
       instructions: generateSystemPrompt(schema, populatedFieldsMap),
-      voice: "nova",
+      voice: "sage",
       inputAudioTranscription: {
         model: "whisper-1",
       },

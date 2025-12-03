@@ -191,12 +191,12 @@ The user can say these commands at any time:
 
 ## Long-Form Content (Vision, Problem, Description)
 For these narrative fields, you MUST reformulate the user's input into professional language.
-When responding, you MUST say: "CAPTURE: [your professional reformulation]" before moving to the next field.
+Use a natural capture phrase to save your reformulation (see Value Capture Protocol below).
 - Take their rough notes or conversational input
 - Transform it into polished, professional language suitable for a formal project charter
 - Maintain their intent and key points
 Example: User says "we want to test blood for cancer detection"
-→ You respond: "CAPTURE: Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis. Now, what problem does this project address?"
+→ You respond: "Noted: Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis. Now, what problem does this project address?"
 
 ## List Fields (Scope In/Out, Risks, Assumptions, Milestones, Team)
 For list-type fields:
@@ -205,12 +205,28 @@ For list-type fields:
 - After capturing items, ask "Would you like to add more, or shall we move on?"
 - Format the response as a bulleted list separated by newlines
 
+## CRITICAL: Value Capture Protocol
+To save a field value, use ONE of these natural phrases (the system detects them):
+- "Noted: [value]." - e.g., "Noted: Project Alpha. Who is the sponsor?"
+- "I'll save that as: [value]." - e.g., "I'll save that as: John Smith. What's the start date?"
+- "Recording: [value]." - e.g., "Recording: January 15th 2025. And the end date?"
+
+DO NOT say "CAPTURE:" out loud - it sounds robotic. Use the natural phrases above.
+
+This applies to ALL scenarios:
+- Initial value capture: "Noted: Project Alpha. Who is the sponsor?"
+- Corrections: User says "it should be Project Beta" → "Noted: Project Beta. Got it!"
+- Confirmations: User says "yes" to change → "Noted: [the value]. Done!"
+
+Without one of these phrases, the value will NOT be saved.
+
 ## Important Rules
 - Keep responses VERY short (1-2 sentences max) - NO verbose verbal confirmation needed
 - The user sees all captured values in real-time on the form - they can visually confirm
 - Move quickly through fields - just acknowledge and ask the next question
 - For dates, briefly clarify format only if needed
 - Trust that the user will correct any mistakes using the visual form
+- Always use a capture phrase (Noted:/Recording:/I'll save that as:) when saving any field value
 
 ## Current State
 You will receive context about the current field and any previously captured values.
@@ -517,15 +533,17 @@ const NAME_FIELDS = ["sponsor", "project_lead"];
 const LONG_FORM_FIELDS = ["vision", "problem", "description"];
 
 /**
- * Patterns to detect AI reformulation capture.
- * The AI should include one of these phrases when providing the reformulated text.
- * We try multiple patterns to catch variations in how Whisper transcribes the AI speech.
+ * Patterns to detect AI capture phrases.
+ * The AI uses natural phrases like "Noted:", "Recording:", "I'll save that as:" to signal value capture.
+ * Each pattern captures the value (stopping at period+space which indicates end of value).
  */
 const AI_CAPTURE_PATTERNS = [
+  // "CAPTURE: value." - legacy pattern
   /CAPTURE:\s*(.+?)(?:\.(?:\s|$)|$)/i,
-  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?:\s*[""]?([^""]+)[""]?/i,
-  // Require colon after Captured/Noted to avoid matching conversational "I captured the vision from your input"
-  /(?:Captured|Recording|Saving|Noted):\s*[""]?([^""]+)[""]?/i,
+  // "Noted: value." or "Recording: value." or "Saving: value."
+  /(?:Noted|Recording|Saving|Captured):\s*[""]?(.+?)[""]?(?:\.(?:\s|$)|$)/i,
+  // "I'll save that as: value." or "I'll record that as: value."
+  /(?:I'll|I will|Let me) (?:save|record)(?: (?:that|this|it))?(?: as)?:\s*[""]?(.+?)[""]?(?:\.(?:\s|$)|$)/i,
 ];
 
 /**
@@ -697,32 +715,24 @@ const AI_RESPONSE_PATTERNS = [
 
 /**
  * Short words/phrases that should be ignored as noise.
- * These are either user acknowledgments, farewells, or clipped AI speech.
+ * Only includes filler sounds and farewells.
+ *
+ * NOTE: Confirmation words (yes, no, okay, sure, etc.) are NOT filtered here
+ * because they may be meaningful responses to LLM questions (e.g., "Do you want
+ * to change it to Frank Thomas?"). The LLM interprets these in context.
  */
 const NOISE_WORDS = [
+  // Farewells only - these end the conversation
   /^bye\.?$/i,
   /^goodbye\.?$/i,
-  /^thanks\.?$/i,
-  /^thank you\.?$/i,
-  /^okay\.?$/i,
-  /^ok\.?$/i,
-  /^yes\.?$/i,
-  /^no\.?$/i,
-  /^yep\.?$/i,
-  /^nope\.?$/i,
-  /^sure\.?$/i,
-  /^right\.?$/i,
-  /^got it\.?$/i,
-  /^uh huh\.?$/i,
-  /^mm hmm\.?$/i,
-  /^hmm\.?$/i,
-  // Filler sounds and hesitations
+  // Filler sounds and hesitations - these carry no semantic meaning
   /^uh+\.{0,3}$/i,
   /^um+\.{0,3}$/i,
   /^er+\.{0,3}$/i,
   /^ah+\.{0,3}$/i,
   /^oh+\.{0,3}$/i,
   /^hm+\.{0,3}$/i,
+  /^hmm+\.{0,3}$/i,
   /^\.{1,3}$/,  // Just dots/ellipsis
   /^[.…]+$/,    // Ellipsis characters
 ];
@@ -876,6 +886,16 @@ export class VoiceCharterService {
    * Used as fallback if the AI doesn't provide a reformulated version.
    */
   private pendingReformulationRawValue: string | null = null;
+  /**
+   * Tracks the last captured field ID for data movement requests.
+   * Used when user says "move that to [field]".
+   */
+  private lastCapturedFieldId: string | null = null;
+  /**
+   * Tracks the last captured value for data movement requests.
+   * Used when user says "move that to [field]".
+   */
+  private lastCapturedValue: string | null = null;
   /**
    * Buffer for incomplete AI CAPTURE responses.
    * AI transcripts may arrive in chunks, so we buffer incomplete CAPTURE text
@@ -1632,13 +1652,11 @@ Keep it brief and conversational.`;
     // PRIORITY 3: Check for navigation commands
     // Now safe to process since we've filtered out AI responses
     if (this.handleNavigationCommand(normalizedTranscript)) {
-      // Clear pending reformulation if user navigates away
+      // Clear pending reformulation if user navigates away - do NOT capture it
+      // The pending value was likely conversational filler, not real content
+      // If it was real content, the LLM would have captured it before navigation
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] processTranscript: Navigation detected, capturing pending raw value as fallback", {
-          fieldId: this.pendingReformulationFieldId,
-        });
-        // Capture the raw value before navigating
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        console.log("[VoiceCharterService] processTranscript: Navigation detected, discarding pending raw value (not capturing)");
         this.pendingReformulationFieldId = null;
         this.pendingReformulationRawValue = null;
       }
@@ -1744,20 +1762,14 @@ Keep it brief and conversational.`;
         return;
       }
 
-      // Extract the relevant value from the conversational response
-      const extractedValue = extractFieldValue(transcript, targetFieldId);
-      console.log("[VoiceCharterService] processTranscript: Capturing value", {
+      // LLM-DRIVEN CAPTURE: Do NOT capture user values directly here.
+      // The user's transcript is passed to the LLM via the realtime API.
+      // The LLM will respond with "CAPTURE: [value]" to trigger the actual capture.
+      // This prevents double-capture race conditions.
+      console.log("[VoiceCharterService] processTranscript: Waiting for LLM CAPTURE", {
         targetFieldId,
-        rawTranscript: transcript.substring(0, 50),
-        extractedValue: extractedValue.substring(0, 50),
+        transcript: transcript.substring(0, 50),
       });
-
-      // Capture the cleaned value to the form
-      this.captureValue(targetFieldId, extractedValue);
-
-      // Advance to the next field so subsequent transcripts go to the right place
-      // (The AI will ask about the next field in its spoken response)
-      this.advanceAskingField();
     } else {
       console.log("[VoiceCharterService] processTranscript: No targetFieldId, skipping capture");
     }
@@ -1770,18 +1782,23 @@ Keep it brief and conversational.`;
 
   /**
    * Process a transcript that is known to be from AI speech.
-   * Only handles CAPTURE patterns - all user input handling is skipped.
+   * Handles CAPTURE patterns for ALL fields - the LLM uses CAPTURE: to signal value updates.
+   * This includes initial captures, corrections, and confirmations.
    */
   private processAITranscript(transcript: string): void {
     console.log("[VoiceCharterService] [AI] Processing AI transcript:", transcript.substring(0, 80));
 
     // Check if we're waiting for reformulation OR if current field is a long-form field
     const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
-    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+    const waitingForReformulation = this.pendingReformulationFieldId || currentFieldIsLongForm;
 
-    if (!shouldCheckForCapture) {
-      // No CAPTURE expected, just skip
-      console.log("[VoiceCharterService] [AI] No CAPTURE expected, skipping");
+    // Check for ANY capture pattern - including natural phrases like "Noted:", "Recording:", etc.
+    // This regex matches all patterns in AI_CAPTURE_PATTERNS
+    const hasCapturePattern = /(?:CAPTURE:|Noted:|Recording:|Saving:|Captured:|I'll save that as:|I will save that as:|Let me save|I'll record|I will record)/i.test(transcript);
+
+    // Skip only if there's no capture pattern AND we're not waiting for reformulation
+    if (!hasCapturePattern && !waitingForReformulation) {
+      console.log("[VoiceCharterService] [AI] No CAPTURE pattern found, skipping");
       return;
     }
 
@@ -1823,40 +1840,97 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Try to extract CAPTURE value
+    // Try to extract CAPTURE value from AI transcript
     let reformulatedValue: string | null = null;
-    for (const pattern of AI_CAPTURE_PATTERNS) {
+    let matchedPatternIndex = -1;
+    for (let i = 0; i < AI_CAPTURE_PATTERNS.length; i++) {
+      const pattern = AI_CAPTURE_PATTERNS[i];
       const match = transcript.match(pattern);
       if (match && match[1]) {
         reformulatedValue = this.sanitizeCapturedValue(match[1].trim());
+        matchedPatternIndex = i;
+        console.log("[VoiceCharterService] [AI] Pattern", i, "matched. Extracted value:", reformulatedValue);
         break;
       }
     }
 
-    if (reformulatedValue) {
-      const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
-      const looksComplete = /\.\s*$/.test(reformulatedValue) ||
-        /(?:now|next)[,.]?\s+what/i.test(transcript);
+    if (!reformulatedValue) {
+      console.log("[VoiceCharterService] [AI] No capture pattern matched for transcript:", transcript.substring(0, 60));
+      return;
+    }
 
-      if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
-        // Buffer incomplete CAPTURE
-        console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
-        this.pendingCaptureText = reformulatedValue;
-        this.pendingCaptureFieldId = targetFieldId;
-        return;
+    // Check if the AI explicitly mentions a field name in the transcript
+    // E.g., "we're updating the project lead field" or "for the sponsor field"
+    // If so, capture to THAT field, not the current askingFieldId
+    let explicitFieldId: string | null = null;
+    if (this.schema) {
+      const lowerTranscript = transcript.toLowerCase();
+      // Patterns that indicate AI is referencing a specific field
+      const fieldMentionPatterns = [
+        /(?:updating|updating the|for the|for|saving to|saving to the|the)\s+([a-z\s]+?)\s+(?:field|value)/i,
+        /(?:updating|updating the|for the|for|saving to|saving to the)\s+([a-z\s]+?)(?:\.|,|$)/i,
+      ];
+
+      for (const pattern of fieldMentionPatterns) {
+        const fieldMentionMatch = lowerTranscript.match(pattern);
+        if (fieldMentionMatch) {
+          const mentionedFieldName = fieldMentionMatch[1].trim();
+          // Try to find a matching field
+          const matchedField = this.schema.fields.find(
+            (f) =>
+              f.label.toLowerCase() === mentionedFieldName ||
+              f.label.toLowerCase().includes(mentionedFieldName) ||
+              mentionedFieldName.includes(f.label.toLowerCase()) ||
+              f.id.toLowerCase().replace(/_/g, " ") === mentionedFieldName
+          );
+          if (matchedField && matchedField.id !== this.askingFieldId) {
+            console.log("[VoiceCharterService] [AI] Detected explicit field mention:", {
+              mentionedField: mentionedFieldName,
+              resolvedFieldId: matchedField.id,
+              currentAskingFieldId: this.askingFieldId,
+            });
+            explicitFieldId = matchedField.id;
+            break;
+          }
+        }
       }
+    }
 
-      if (targetFieldId) {
-        console.log("[VoiceCharterService] [AI] Capturing reformulated value:", reformulatedValue.substring(0, 80));
-        this.captureValue(targetFieldId, reformulatedValue);
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.pendingCaptureText = null;
-        this.pendingCaptureFieldId = null;
+    const targetFieldId = explicitFieldId || this.pendingReformulationFieldId || this.askingFieldId;
+    const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+      /(?:now|next)[,.]?\s+what/i.test(transcript);
+
+    if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+      // Buffer incomplete CAPTURE
+      console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
+      this.pendingCaptureText = reformulatedValue;
+      this.pendingCaptureFieldId = targetFieldId;
+      return;
+    }
+
+    if (targetFieldId) {
+      console.log("[VoiceCharterService] [AI] CAPTURING VALUE:", {
+        fieldId: targetFieldId,
+        value: reformulatedValue,
+        patternUsed: matchedPatternIndex,
+        explicitFieldDetected: !!explicitFieldId,
+      });
+      this.captureValue(targetFieldId, reformulatedValue);
+      this.pendingReformulationFieldId = null;
+      this.pendingReformulationRawValue = null;
+      this.pendingCaptureText = null;
+      this.pendingCaptureFieldId = null;
+
+      // Only advance if we captured to the current asking field (not an explicit field correction)
+      // If the AI explicitly mentioned a different field (e.g., "updating the project lead field"),
+      // we're correcting a previous field, NOT answering the current field - so don't advance
+      if (!explicitFieldId) {
         this.advanceAskingField();
-        this.updateState({ step: "listening", pendingValue: reformulatedValue });
-        return;
+      } else {
+        console.log("[VoiceCharterService] [AI] Not advancing - captured to explicit field, not current asking field");
       }
+      this.updateState({ step: "listening", pendingValue: reformulatedValue });
+      return;
     }
 
     // Check if AI moved on without CAPTURE - use raw input as fallback
@@ -1895,12 +1969,13 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Check for navigation commands
-    if (this.handleNavigationCommand(normalizedTranscript)) {
-      // Clear pending reformulation if user navigates away
+    // Check for navigation commands - pass original transcript for LLM context
+    if (this.handleNavigationCommand(normalizedTranscript, transcript)) {
+      // Clear pending reformulation if user navigates away - do NOT capture it
+      // The pending value was likely conversational filler, not real content
+      // If it was real content, the LLM would have captured it before navigation
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] [USER] Navigation detected, capturing pending raw value");
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        console.log("[VoiceCharterService] [USER] Navigation detected, discarding pending raw value (not capturing)");
         this.pendingReformulationFieldId = null;
         this.pendingReformulationRawValue = null;
       }
@@ -1952,11 +2027,16 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Capture user value
+    // LLM-DRIVEN CAPTURE: Do NOT capture user values directly here.
+    // The user's transcript is passed to the LLM via the realtime API.
+    // The LLM will respond with "CAPTURE: [value]" to trigger the actual capture.
+    // This prevents double-capture race conditions where both user transcript
+    // processing AND AI transcript processing would capture values.
     const targetFieldId = this.askingFieldId || this.state.currentFieldId;
 
     if (targetFieldId) {
-      // Check if this is a long-form field that needs AI reformulation
+      // For long-form fields, we still track pending reformulation so we can
+      // fall back to raw input if the AI doesn't use CAPTURE
       if (LONG_FORM_FIELDS.includes(targetFieldId)) {
         const rawValue = extractFieldValue(transcript, targetFieldId);
 
@@ -1975,11 +2055,9 @@ Keep it brief and conversational.`;
         return;
       }
 
-      // Extract and capture value for non-long-form fields
-      const extractedValue = extractFieldValue(transcript, targetFieldId);
-      console.log("[VoiceCharterService] [USER] Capturing value:", extractedValue.substring(0, 50));
-      this.captureValue(targetFieldId, extractedValue);
-      this.advanceAskingField();
+      // For regular fields: DO NOT capture directly - let the LLM handle it via CAPTURE:
+      // The transcript is automatically sent to the LLM via the realtime data channel
+      console.log("[VoiceCharterService] [USER] Waiting for LLM CAPTURE:", transcript.substring(0, 50));
     }
 
     this.updateState({ step: "listening", pendingValue: transcript });
@@ -2076,14 +2154,19 @@ Keep it brief and conversational.`;
 
   /**
    * Handle navigation commands.
+   * @param transcript - Normalized transcript for pattern matching
+   * @param originalTranscript - Original transcript to pass to LLM for context
    */
-  private handleNavigationCommand(transcript: string): boolean {
+  private handleNavigationCommand(transcript: string, originalTranscript?: string): boolean {
     console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
 
     // Check for "back to [field]" pattern - navigate to specific field
     // Handles: "go back to the title", "back to project title", "no, back to the title, please"
     // Also handles: "can you go back to...", "could you go back to..."
     // Made more flexible to match "back to" without requiring "go" prefix
+    // Use original transcript for LLM context (may contain correction info)
+    const userContext = originalTranscript || transcript;
+
     const backToMatch = transcript.match(/(?:can\s+you\s+|could\s+you\s+)?(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
     if (backToMatch) {
       const fieldName = backToMatch[1].toLowerCase().trim();
@@ -2095,7 +2178,7 @@ Keep it brief and conversational.`;
           fieldName.includes(f.label.toLowerCase())
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
@@ -2112,14 +2195,15 @@ Keep it brief and conversational.`;
           fieldName.includes(f.label.toLowerCase())
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
 
     // Check for "go to [field]" pattern (without "back")
     // Handles: "go to the start date", "go to start date field", "go to project name"
-    const goToMatch = transcript.match(/^(?:can\s+you\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    // Also handles: "can we go to", "can you go to", "could we go to", "let's go to"
+    const goToMatch = transcript.match(/^(?:(?:can|could)\s+(?:you|we)\s+)?(?:let'?s?\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
     if (goToMatch) {
       const fieldName = goToMatch[1].toLowerCase().trim();
       // Skip if this looks like "go to back" which should be handled by back-to pattern
@@ -2132,7 +2216,7 @@ Keep it brief and conversational.`;
             fieldName.includes(f.label.toLowerCase())
         );
         if (field) {
-          this.goToField(field.id);
+          this.goToField(field.id, userContext);
           return true;
         }
       }
@@ -2152,13 +2236,13 @@ Keep it brief and conversational.`;
             fieldName.includes(f.label.toLowerCase())
         );
         if (field) {
-          this.goToField(field.id);
+          this.goToField(field.id, userContext);
           return true;
         }
       } else {
-        // Just "no, go back" without specific field
+        // Just "no, go back" without specific field - pass context to goToPreviousField
         console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + go back");
-        this.goToPreviousField();
+        this.goToPreviousField(userContext);
         return true;
       }
     }
@@ -2170,8 +2254,45 @@ Keep it brief and conversational.`;
       transcript.includes("back one")
     ) {
       console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back'");
-      this.goToPreviousField();
+      this.goToPreviousField(userContext);
       return true;
+    }
+
+    // Check for data movement requests: "move that to vision", "put that in the vision field"
+    // This handles cases where the user wants to relocate a recently captured value to a different field
+    const moveDataMatch = transcript.match(/(?:can\s+you\s+)?(?:move|put|place)\s+(?:that|this|the|it)(?:\s+(?:information|data|value|text))?\s+(?:to|in|into)\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (moveDataMatch) {
+      const targetFieldName = moveDataMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'move data to' field:", targetFieldName);
+      const targetField = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(targetFieldName) ||
+          f.id.toLowerCase().includes(targetFieldName.replace(/\s+/g, "_")) ||
+          targetFieldName.includes(f.label.toLowerCase())
+      );
+      if (targetField && this.lastCapturedFieldId && this.lastCapturedValue) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Moving data from", this.lastCapturedFieldId, "to", targetField.id);
+        // Clear the source field
+        const sourceFieldId = this.lastCapturedFieldId;
+        const valueToMove = this.lastCapturedValue;
+        this.state.capturedValues.delete(sourceFieldId);
+        // Capture to the target field
+        this.captureValue(targetField.id, valueToMove);
+        // Navigate to the target field and tell LLM what happened
+        this.goToField(targetField.id);
+        this.sendAIPrompt(
+          `[Data moved successfully] The value "${valueToMove.substring(0, 50)}..." was moved from ${sourceFieldId} to ${targetField.label}. ` +
+          `The ${sourceFieldId} field is now empty. Briefly confirm this to the user and ask for the ${sourceFieldId} value if needed.`
+        );
+        return true;
+      } else if (targetField) {
+        // No recent capture to move - tell LLM to handle it
+        this.sendAIPrompt(
+          `[User wants to move data to ${targetField.label}] User said: "${userContext}". ` +
+          `There's no recent value to move. Ask the user to clarify what they want to move.`
+        );
+        return true;
+      }
     }
 
     // Check for correction patterns like "No, project title should be X"
@@ -2191,7 +2312,7 @@ Keep it brief and conversational.`;
           f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_"))
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
@@ -2223,6 +2344,9 @@ Keep it brief and conversational.`;
       /^(?:make|put)\s+(?:the\s+)?(.+?)\s+(?:as\s+)?(.+)$/i,
       // Field mention without indicator: "The title should be X" (only treated as correction if different field)
       /^(?:the\s+)?(.+?)\s+(?:should be|needs to be)\s+(.+)$/i,
+      // Field-targeted input: "The vision is X" or "The problem is X" (when field differs from current)
+      // This catches natural phrasing like "The vision is to create..." when on a different field
+      /^(?:the\s+)(.+?)\s+is\s+(?:to\s+)?(.+)$/i,
     ];
 
     for (const pattern of correctionPatterns) {
@@ -2248,24 +2372,20 @@ Keep it brief and conversational.`;
             return false;
           }
 
-          // Extract clean value (apply filler removal)
-          const cleanValue = extractFieldValue(valuePart, targetField.id);
-          console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected", {
+          // LLM-DRIVEN CAPTURE: Do NOT capture the value directly here.
+          // Instead, navigate to the target field and let the LLM handle
+          // the capture via CAPTURE: pattern. Pass the full transcript
+          // so the LLM knows what value the user wants.
+          console.log("[VoiceCharterService] handleCorrectionCommand: Correction detected, navigating to field", {
             targetFieldId: targetField.id,
-            originalValue: valuePart,
-            cleanValue: cleanValue,
             currentAskingFieldId: this.askingFieldId,
+            userTranscript: transcript.substring(0, 50),
           });
 
-          // Capture the corrected value to the target field
-          this.captureValue(targetField.id, cleanValue);
+          // Navigate to the field with the full user transcript as context
+          // The LLM will extract the value and use CAPTURE: to save it
+          this.goToField(targetField.id, transcript);
 
-          // Inform the AI about the correction
-          this.sendAIPrompt(
-            `[User corrected ${targetField.label} to: "${cleanValue}"] Acknowledge the correction briefly and continue asking about the current field.`
-          );
-
-          // Don't advance - stay on current field
           return true;
         }
       }
@@ -2334,12 +2454,14 @@ Keep it brief and conversational.`;
 
   /**
    * Move to the previous field.
+   * @param userContext - Optional user transcript that triggered the navigation (may contain correction info)
    */
-  goToPreviousField(): void {
+  goToPreviousField(userContext?: string): void {
     console.log("[VoiceCharterService] goToPreviousField called:", {
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
       askingFieldId: this.askingFieldId,
+      userContext: userContext?.substring(0, 50),
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -2381,12 +2503,45 @@ Keep it brief and conversational.`;
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(prevField.id);
 
-    // Prompt AI to ask about previous field, mentioning existing value if any
+    // Prompt AI with user context so it can extract any embedded corrections
     let prompt = `[Going back to previous field: ${prevField.label}]`;
+    if (userContext) {
+      prompt += ` User said: "${userContext}".`;
+    }
     if (existingValue) {
-      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+      prompt += ` The current value is: "${existingValue.value}".`;
+      if (!userContext) {
+        prompt += ` Ask if they want to change it.`;
+      } else {
+        prompt += ` If the user indicated a new value, use a capture phrase (Noted:/Recording:/I'll save that as:) to save it. Otherwise ask if they want to change it.`;
+      }
     } else {
       prompt += ` ${generateFieldPrompt(prevField, false)}`;
+    }
+
+    // Find the next UNFILLED field after this one (to tell LLM what to ask about next)
+    // This prevents desync when navigating back - LLM needs to know to skip filled fields
+    let nextUnfilledField: CharterFormField | null = null;
+    const filledFieldsToSkip: string[] = [];
+    for (let i = prevIndex + 1; i < this.schema.fields.length; i++) {
+      const candidateField = this.schema.fields[i];
+      if (this.state.capturedValues.has(candidateField.id)) {
+        filledFieldsToSkip.push(candidateField.label);
+      } else {
+        nextUnfilledField = candidateField;
+        break;
+      }
+    }
+
+    // If there are filled fields between this one and the next unfilled, tell the LLM
+    if (filledFieldsToSkip.length > 0 && nextUnfilledField) {
+      prompt += ` IMPORTANT: After updating this field, the following fields are already filled: ${filledFieldsToSkip.join(", ")}. `;
+      prompt += `Skip them and ask about "${nextUnfilledField.label}" next.`;
+    } else if (nextUnfilledField) {
+      prompt += ` After this, ask about "${nextUnfilledField.label}".`;
+    } else if (filledFieldsToSkip.length > 0) {
+      // All remaining fields are filled
+      prompt += ` All remaining fields are already filled. After updating this field, ask if they want to review or make any other changes.`;
     }
 
     this.sendAIPrompt(prompt);
@@ -2400,13 +2555,16 @@ Keep it brief and conversational.`;
 
   /**
    * Jump to a specific field.
+   * @param fieldId - The field to jump to
+   * @param userContext - Optional user transcript that triggered the navigation (may contain correction info)
    */
-  goToField(fieldId: string): void {
+  goToField(fieldId: string, userContext?: string): void {
     console.log("[VoiceCharterService] goToField called:", {
       targetFieldId: fieldId,
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
       askingFieldId: this.askingFieldId,
+      userContext: userContext?.substring(0, 50),
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -2446,11 +2604,47 @@ Keep it brief and conversational.`;
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(fieldId);
 
+    // Build prompt with user context so LLM can extract any embedded corrections
     let prompt = `[Jumping to field: ${field.label}]`;
+    if (userContext) {
+      // Pass the user's full request to the LLM so it can interpret embedded corrections
+      prompt += ` User said: "${userContext}".`;
+    }
     if (existingValue) {
-      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+      prompt += ` The current value is: "${existingValue.value}".`;
+      if (!userContext) {
+        prompt += ` Ask if they want to change it.`;
+      } else {
+        // User provided context, so LLM should extract the correction if present
+        prompt += ` If the user indicated a new value, use a capture phrase (Noted:/Recording:/I'll save that as:) to save it. Otherwise ask if they want to change it.`;
+      }
     } else {
       prompt += ` ${generateFieldPrompt(field, false)}`;
+    }
+
+    // Find the next UNFILLED field after this one (to tell LLM what to ask about next)
+    // This prevents desync when navigating back - LLM needs to know to skip filled fields
+    let nextUnfilledField: CharterFormField | null = null;
+    const filledFieldsToSkip: string[] = [];
+    for (let i = fieldIndex + 1; i < this.schema.fields.length; i++) {
+      const candidateField = this.schema.fields[i];
+      if (this.state.capturedValues.has(candidateField.id)) {
+        filledFieldsToSkip.push(candidateField.label);
+      } else {
+        nextUnfilledField = candidateField;
+        break;
+      }
+    }
+
+    // If there are filled fields between this one and the next unfilled, tell the LLM
+    if (filledFieldsToSkip.length > 0 && nextUnfilledField) {
+      prompt += ` IMPORTANT: After updating this field, the following fields are already filled: ${filledFieldsToSkip.join(", ")}. `;
+      prompt += `Skip them and ask about "${nextUnfilledField.label}" next.`;
+    } else if (nextUnfilledField) {
+      prompt += ` After this, ask about "${nextUnfilledField.label}".`;
+    } else if (filledFieldsToSkip.length > 0) {
+      // All remaining fields are filled
+      prompt += ` All remaining fields are already filled. After updating this field, ask if they want to review or make any other changes.`;
     }
 
     this.sendAIPrompt(prompt);
@@ -2492,6 +2686,10 @@ Keep it brief and conversational.`;
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
     });
+
+    // Track last captured value for data movement requests (e.g., "move that to vision")
+    this.lastCapturedFieldId = fieldId;
+    this.lastCapturedValue = sanitizedValue;
 
     // Log value captured for field tracking (detect desync when askingFieldId !== fieldId)
     voiceCharterActions.logValueCaptured({

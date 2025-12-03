@@ -533,15 +533,17 @@ const NAME_FIELDS = ["sponsor", "project_lead"];
 const LONG_FORM_FIELDS = ["vision", "problem", "description"];
 
 /**
- * Patterns to detect AI reformulation capture.
- * The AI should include one of these phrases when providing the reformulated text.
- * We try multiple patterns to catch variations in how Whisper transcribes the AI speech.
+ * Patterns to detect AI capture phrases.
+ * The AI uses natural phrases like "Noted:", "Recording:", "I'll save that as:" to signal value capture.
+ * Each pattern captures the value (stopping at period+space which indicates end of value).
  */
 const AI_CAPTURE_PATTERNS = [
+  // "CAPTURE: value." - legacy pattern
   /CAPTURE:\s*(.+?)(?:\.(?:\s|$)|$)/i,
-  /(?:I'll|I will|Let me) (?:capture|record|save)(?: (?:that|this|it))?(?: as)?:\s*[""]?([^""]+)[""]?/i,
-  // Require colon after Captured/Noted to avoid matching conversational "I captured the vision from your input"
-  /(?:Captured|Recording|Saving|Noted):\s*[""]?([^""]+)[""]?/i,
+  // "Noted: value." or "Recording: value." or "Saving: value."
+  /(?:Noted|Recording|Saving|Captured):\s*[""]?(.+?)[""]?(?:\.(?:\s|$)|$)/i,
+  // "I'll save that as: value." or "I'll record that as: value."
+  /(?:I'll|I will|Let me) (?:save|record)(?: (?:that|this|it))?(?: as)?:\s*[""]?(.+?)[""]?(?:\.(?:\s|$)|$)/i,
 ];
 
 /**
@@ -1782,12 +1784,11 @@ Keep it brief and conversational.`;
     const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
     const waitingForReformulation = this.pendingReformulationFieldId || currentFieldIsLongForm;
 
-    // Always check for CAPTURE patterns - the LLM uses CAPTURE: for ALL value updates
-    // including corrections and confirmations
-    const hasCapturePattern = /CAPTURE:/i.test(transcript);
+    // Check for ANY capture pattern - including natural phrases like "Noted:", "Recording:", etc.
+    // This regex matches all patterns in AI_CAPTURE_PATTERNS
+    const hasCapturePattern = /(?:CAPTURE:|Noted:|Recording:|Saving:|Captured:|I'll save that as:|I will save that as:|Let me save|I'll record|I will record)/i.test(transcript);
 
-    // Skip only if there's no CAPTURE pattern AND we're not waiting for reformulation
-    // This allows the LLM to use CAPTURE: for corrections on any field type
+    // Skip only if there's no capture pattern AND we're not waiting for reformulation
     if (!hasCapturePattern && !waitingForReformulation) {
       console.log("[VoiceCharterService] [AI] No CAPTURE pattern found, skipping");
       return;
@@ -1831,40 +1832,51 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Try to extract CAPTURE value
+    // Try to extract CAPTURE value from AI transcript
     let reformulatedValue: string | null = null;
-    for (const pattern of AI_CAPTURE_PATTERNS) {
+    let matchedPatternIndex = -1;
+    for (let i = 0; i < AI_CAPTURE_PATTERNS.length; i++) {
+      const pattern = AI_CAPTURE_PATTERNS[i];
       const match = transcript.match(pattern);
       if (match && match[1]) {
         reformulatedValue = this.sanitizeCapturedValue(match[1].trim());
+        matchedPatternIndex = i;
+        console.log("[VoiceCharterService] [AI] Pattern", i, "matched. Extracted value:", reformulatedValue);
         break;
       }
     }
 
-    if (reformulatedValue) {
-      const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
-      const looksComplete = /\.\s*$/.test(reformulatedValue) ||
-        /(?:now|next)[,.]?\s+what/i.test(transcript);
+    if (!reformulatedValue) {
+      console.log("[VoiceCharterService] [AI] No capture pattern matched for transcript:", transcript.substring(0, 60));
+      return;
+    }
 
-      if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
-        // Buffer incomplete CAPTURE
-        console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
-        this.pendingCaptureText = reformulatedValue;
-        this.pendingCaptureFieldId = targetFieldId;
-        return;
-      }
+    const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+    const looksComplete = /\.\s*$/.test(reformulatedValue) ||
+      /(?:now|next)[,.]?\s+what/i.test(transcript);
 
-      if (targetFieldId) {
-        console.log("[VoiceCharterService] [AI] Capturing reformulated value:", reformulatedValue.substring(0, 80));
-        this.captureValue(targetFieldId, reformulatedValue);
-        this.pendingReformulationFieldId = null;
-        this.pendingReformulationRawValue = null;
-        this.pendingCaptureText = null;
-        this.pendingCaptureFieldId = null;
-        this.advanceAskingField();
-        this.updateState({ step: "listening", pendingValue: reformulatedValue });
-        return;
-      }
+    if (!looksComplete && targetFieldId && LONG_FORM_FIELDS.includes(targetFieldId)) {
+      // Buffer incomplete CAPTURE
+      console.log("[VoiceCharterService] [AI] Buffering incomplete CAPTURE:", reformulatedValue.substring(0, 80));
+      this.pendingCaptureText = reformulatedValue;
+      this.pendingCaptureFieldId = targetFieldId;
+      return;
+    }
+
+    if (targetFieldId) {
+      console.log("[VoiceCharterService] [AI] CAPTURING VALUE:", {
+        fieldId: targetFieldId,
+        value: reformulatedValue,
+        patternUsed: matchedPatternIndex,
+      });
+      this.captureValue(targetFieldId, reformulatedValue);
+      this.pendingReformulationFieldId = null;
+      this.pendingReformulationRawValue = null;
+      this.pendingCaptureText = null;
+      this.pendingCaptureFieldId = null;
+      this.advanceAskingField();
+      this.updateState({ step: "listening", pendingValue: reformulatedValue });
+      return;
     }
 
     // Check if AI moved on without CAPTURE - use raw input as fallback

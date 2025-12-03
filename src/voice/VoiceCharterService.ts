@@ -1642,13 +1642,11 @@ Keep it brief and conversational.`;
     // PRIORITY 3: Check for navigation commands
     // Now safe to process since we've filtered out AI responses
     if (this.handleNavigationCommand(normalizedTranscript)) {
-      // Clear pending reformulation if user navigates away
+      // Clear pending reformulation if user navigates away - do NOT capture it
+      // The pending value was likely conversational filler, not real content
+      // If it was real content, the LLM would have captured it before navigation
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] processTranscript: Navigation detected, capturing pending raw value as fallback", {
-          fieldId: this.pendingReformulationFieldId,
-        });
-        // Capture the raw value before navigating
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        console.log("[VoiceCharterService] processTranscript: Navigation detected, discarding pending raw value (not capturing)");
         this.pendingReformulationFieldId = null;
         this.pendingReformulationRawValue = null;
       }
@@ -1917,10 +1915,11 @@ Keep it brief and conversational.`;
 
     // Check for navigation commands - pass original transcript for LLM context
     if (this.handleNavigationCommand(normalizedTranscript, transcript)) {
-      // Clear pending reformulation if user navigates away
+      // Clear pending reformulation if user navigates away - do NOT capture it
+      // The pending value was likely conversational filler, not real content
+      // If it was real content, the LLM would have captured it before navigation
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
-        console.log("[VoiceCharterService] [USER] Navigation detected, capturing pending raw value");
-        this.captureValue(this.pendingReformulationFieldId, this.pendingReformulationRawValue);
+        console.log("[VoiceCharterService] [USER] Navigation detected, discarding pending raw value (not capturing)");
         this.pendingReformulationFieldId = null;
         this.pendingReformulationRawValue = null;
       }
@@ -2418,10 +2417,35 @@ Keep it brief and conversational.`;
       if (!userContext) {
         prompt += ` Ask if they want to change it.`;
       } else {
-        prompt += ` If the user indicated a new value, use CAPTURE: to save it. Otherwise ask if they want to change it.`;
+        prompt += ` If the user indicated a new value, use a capture phrase (Noted:/Recording:/I'll save that as:) to save it. Otherwise ask if they want to change it.`;
       }
     } else {
       prompt += ` ${generateFieldPrompt(prevField, false)}`;
+    }
+
+    // Find the next UNFILLED field after this one (to tell LLM what to ask about next)
+    // This prevents desync when navigating back - LLM needs to know to skip filled fields
+    let nextUnfilledField: CharterFormField | null = null;
+    const filledFieldsToSkip: string[] = [];
+    for (let i = prevIndex + 1; i < this.schema.fields.length; i++) {
+      const candidateField = this.schema.fields[i];
+      if (this.state.capturedValues.has(candidateField.id)) {
+        filledFieldsToSkip.push(candidateField.label);
+      } else {
+        nextUnfilledField = candidateField;
+        break;
+      }
+    }
+
+    // If there are filled fields between this one and the next unfilled, tell the LLM
+    if (filledFieldsToSkip.length > 0 && nextUnfilledField) {
+      prompt += ` IMPORTANT: After updating this field, the following fields are already filled: ${filledFieldsToSkip.join(", ")}. `;
+      prompt += `Skip them and ask about "${nextUnfilledField.label}" next.`;
+    } else if (nextUnfilledField) {
+      prompt += ` After this, ask about "${nextUnfilledField.label}".`;
+    } else if (filledFieldsToSkip.length > 0) {
+      // All remaining fields are filled
+      prompt += ` All remaining fields are already filled. After updating this field, ask if they want to review or make any other changes.`;
     }
 
     this.sendAIPrompt(prompt);
@@ -2496,10 +2520,35 @@ Keep it brief and conversational.`;
         prompt += ` Ask if they want to change it.`;
       } else {
         // User provided context, so LLM should extract the correction if present
-        prompt += ` If the user indicated a new value, use CAPTURE: to save it. Otherwise ask if they want to change it.`;
+        prompt += ` If the user indicated a new value, use a capture phrase (Noted:/Recording:/I'll save that as:) to save it. Otherwise ask if they want to change it.`;
       }
     } else {
       prompt += ` ${generateFieldPrompt(field, false)}`;
+    }
+
+    // Find the next UNFILLED field after this one (to tell LLM what to ask about next)
+    // This prevents desync when navigating back - LLM needs to know to skip filled fields
+    let nextUnfilledField: CharterFormField | null = null;
+    const filledFieldsToSkip: string[] = [];
+    for (let i = fieldIndex + 1; i < this.schema.fields.length; i++) {
+      const candidateField = this.schema.fields[i];
+      if (this.state.capturedValues.has(candidateField.id)) {
+        filledFieldsToSkip.push(candidateField.label);
+      } else {
+        nextUnfilledField = candidateField;
+        break;
+      }
+    }
+
+    // If there are filled fields between this one and the next unfilled, tell the LLM
+    if (filledFieldsToSkip.length > 0 && nextUnfilledField) {
+      prompt += ` IMPORTANT: After updating this field, the following fields are already filled: ${filledFieldsToSkip.join(", ")}. `;
+      prompt += `Skip them and ask about "${nextUnfilledField.label}" next.`;
+    } else if (nextUnfilledField) {
+      prompt += ` After this, ask about "${nextUnfilledField.label}".`;
+    } else if (filledFieldsToSkip.length > 0) {
+      // All remaining fields are filled
+      prompt += ` All remaining fields are already filled. After updating this field, ask if they want to review or make any other changes.`;
     }
 
     this.sendAIPrompt(prompt);

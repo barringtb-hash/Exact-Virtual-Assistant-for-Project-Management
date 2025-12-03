@@ -887,6 +887,16 @@ export class VoiceCharterService {
    */
   private pendingReformulationRawValue: string | null = null;
   /**
+   * Tracks the last captured field ID for data movement requests.
+   * Used when user says "move that to [field]".
+   */
+  private lastCapturedFieldId: string | null = null;
+  /**
+   * Tracks the last captured value for data movement requests.
+   * Used when user says "move that to [field]".
+   */
+  private lastCapturedValue: string | null = null;
+  /**
    * Buffer for incomplete AI CAPTURE responses.
    * AI transcripts may arrive in chunks, so we buffer incomplete CAPTURE text
    * and wait for a complete sentence (ends with period) before capturing.
@@ -2202,6 +2212,43 @@ Keep it brief and conversational.`;
       return true;
     }
 
+    // Check for data movement requests: "move that to vision", "put that in the vision field"
+    // This handles cases where the user wants to relocate a recently captured value to a different field
+    const moveDataMatch = transcript.match(/(?:can\s+you\s+)?(?:move|put|place)\s+(?:that|this|the|it)(?:\s+(?:information|data|value|text))?\s+(?:to|in|into)\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    if (moveDataMatch) {
+      const targetFieldName = moveDataMatch[1].toLowerCase().trim();
+      console.log("[VoiceCharterService] handleNavigationCommand: Detected 'move data to' field:", targetFieldName);
+      const targetField = this.schema?.fields.find(
+        (f) =>
+          f.label.toLowerCase().includes(targetFieldName) ||
+          f.id.toLowerCase().includes(targetFieldName.replace(/\s+/g, "_")) ||
+          targetFieldName.includes(f.label.toLowerCase())
+      );
+      if (targetField && this.lastCapturedFieldId && this.lastCapturedValue) {
+        console.log("[VoiceCharterService] handleNavigationCommand: Moving data from", this.lastCapturedFieldId, "to", targetField.id);
+        // Clear the source field
+        const sourceFieldId = this.lastCapturedFieldId;
+        const valueToMove = this.lastCapturedValue;
+        this.state.capturedValues.delete(sourceFieldId);
+        // Capture to the target field
+        this.captureValue(targetField.id, valueToMove);
+        // Navigate to the target field and tell LLM what happened
+        this.goToField(targetField.id);
+        this.sendAIPrompt(
+          `[Data moved successfully] The value "${valueToMove.substring(0, 50)}..." was moved from ${sourceFieldId} to ${targetField.label}. ` +
+          `The ${sourceFieldId} field is now empty. Briefly confirm this to the user and ask for the ${sourceFieldId} value if needed.`
+        );
+        return true;
+      } else if (targetField) {
+        // No recent capture to move - tell LLM to handle it
+        this.sendAIPrompt(
+          `[User wants to move data to ${targetField.label}] User said: "${userContext}". ` +
+          `There's no recent value to move. Ask the user to clarify what they want to move.`
+        );
+        return true;
+      }
+    }
+
     // Check for correction patterns like "No, project title should be X"
     // or "Actually, the sponsor is Y" or "The title should be X"
     const correctionHandled = this.handleCorrectionCommand(transcript);
@@ -2251,6 +2298,9 @@ Keep it brief and conversational.`;
       /^(?:make|put)\s+(?:the\s+)?(.+?)\s+(?:as\s+)?(.+)$/i,
       // Field mention without indicator: "The title should be X" (only treated as correction if different field)
       /^(?:the\s+)?(.+?)\s+(?:should be|needs to be)\s+(.+)$/i,
+      // Field-targeted input: "The vision is X" or "The problem is X" (when field differs from current)
+      // This catches natural phrasing like "The vision is to create..." when on a different field
+      /^(?:the\s+)(.+?)\s+is\s+(?:to\s+)?(.+)$/i,
     ];
 
     for (const pattern of correctionPatterns) {
@@ -2590,6 +2640,10 @@ Keep it brief and conversational.`;
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
     });
+
+    // Track last captured value for data movement requests (e.g., "move that to vision")
+    this.lastCapturedFieldId = fieldId;
+    this.lastCapturedValue = sanitizedValue;
 
     // Log value captured for field tracking (detect desync when askingFieldId !== fieldId)
     voiceCharterActions.logValueCaptured({

@@ -13,7 +13,7 @@ function withCharterContext(req) {
     body = { ...body, docType: DOC_TYPE };
   }
 
-  return { ...req, query, body };
+  return { ...req, headers: req.headers, query, body };
 }
 
 export default async function handler(req, res) {

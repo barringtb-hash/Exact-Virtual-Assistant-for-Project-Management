@@ -38,6 +38,8 @@ export default async function handler(req, res) {
     // Always use env voice to avoid client confusion
     const voice = defaultVoice;
 
+    console.log("[SDP] Creating realtime session:", { model, voice, envVoice: process.env.OPENAI_REALTIME_VOICE || "(not set)" });
+
     const betaHeader = /preview/i.test(model) ? { "OpenAI-Beta": "realtime=v1" } : {};
 
     const resp = await fetch(

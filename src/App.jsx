@@ -4816,10 +4816,7 @@ const resolveDocTypeForManualSync = useCallback(
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/favicon.png" alt="Exact Sciences" className="h-9 w-9 rounded-xl shadow-md" />
-            <div className="flex flex-col">
-              <span className="text-slate-900 font-semibold text-sm leading-tight dark:text-white">EVA - Exact Sciences Virtual Assistant</span>
-              <span className="text-slate-500 text-xs leading-tight dark:text-slate-400">Exact Sciences</span>
-            </div>
+            <span className="text-slate-900 font-semibold text-sm dark:text-white">EVA - Exact Sciences Virtual Assistant</span>
           </div>
           <div className="flex items-center gap-3">
             <ThemeSelect mode={themeMode} resolvedMode={resolvedTheme} onChange={handleThemeModeChange} />

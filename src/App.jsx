@@ -3614,15 +3614,17 @@ const resolveDocTypeForManualSync = useCallback(
 
         // Enable user input audio transcription by sending session.update
         // This is required for OpenAI Realtime API to transcribe user speech
+        // Also explicitly set voice to ensure it's not reset to default
         const sessionUpdate = {
           type: "session.update",
           session: {
+            voice: "shimmer",
             input_audio_transcription: {
               model: "whisper-1"
             }
           }
         };
-        console.log("[Voice Debug - Realtime] Sending session.update to enable input transcription");
+        console.log("[Voice Debug - Realtime] Sending session.update with voice:", sessionUpdate.session.voice);
         dataChannel.send(JSON.stringify(sessionUpdate));
       };
 

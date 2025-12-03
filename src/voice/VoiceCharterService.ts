@@ -27,6 +27,8 @@ import { draftActions, draftStoreApi } from "../state/draftStore.ts";
 export type VoiceCharterStep =
   | "idle"
   | "initializing"
+  | "awaiting_extraction_decision"
+  | "extracting"
   | "asking"
   | "listening"
   | "confirming"
@@ -67,6 +69,19 @@ export interface CapturedFieldValue {
 }
 
 /**
+ * Attachment info passed to voice charter for extraction detection.
+ */
+export interface VoiceCharterAttachment {
+  name: string;
+  type?: string;
+}
+
+/**
+ * Callback to trigger document extraction from voice charter.
+ */
+export type ExtractionCallback = () => Promise<Record<string, unknown> | null>;
+
+/**
  * Voice charter session state.
  */
 export interface VoiceCharterState {
@@ -80,6 +95,8 @@ export interface VoiceCharterState {
   populatedFields: Map<string, PopulatedFieldInfo>;
   /** Whether we're currently awaiting confirmation for a pre-populated field */
   awaitingFieldConfirmation: boolean;
+  /** Whether there are unprocessed attachments that could be extracted */
+  hasUnextractedAttachments: boolean;
 }
 
 /**
@@ -90,6 +107,8 @@ export type VoiceCharterEvent =
   | { type: "field_captured"; fieldId: string; value: string }
   | { type: "field_confirmed"; fieldId: string; value: string }
   | { type: "field_confirmation_requested"; fieldId: string; value: string }
+  | { type: "extraction_requested" }
+  | { type: "extraction_completed"; fields: Record<string, unknown> }
   | { type: "navigation"; direction: "next" | "previous"; fieldId: string }
   | { type: "completed" }
   | { type: "error"; message: string };
@@ -863,6 +882,15 @@ export class VoiceCharterService {
    */
   private pendingCaptureText: string | null = null;
   private pendingCaptureFieldId: string | null = null;
+  /**
+   * Callback to trigger document extraction from App.jsx.
+   * This allows voice charter to request extraction when user agrees.
+   */
+  private extractionCallback: ExtractionCallback | null = null;
+  /**
+   * Attachment names for display in extraction prompt.
+   */
+  private attachmentNames: string[] = [];
 
   constructor() {
     this.state = this.createInitialState();
@@ -878,6 +906,7 @@ export class VoiceCharterService {
       error: null,
       populatedFields: new Map(),
       awaitingFieldConfirmation: false,
+      hasUnextractedAttachments: false,
     };
   }
 
@@ -971,14 +1000,29 @@ export class VoiceCharterService {
    * @param schema - The charter form schema
    * @param dataChannel - The WebRTC data channel for Realtime API
    * @param populatedFields - Array of pre-populated field info (from extraction or manual input)
+   * @param options - Additional options for initialization
+   * @param options.attachments - List of attached files (for extraction prompt detection)
+   * @param options.extractionCallback - Callback to trigger extraction when user agrees
    */
   initialize(
     schema: CharterFormSchema,
     dataChannel: RTCDataChannel,
-    populatedFields?: PopulatedFieldInfo[]
+    populatedFields?: PopulatedFieldInfo[],
+    options?: {
+      attachments?: VoiceCharterAttachment[];
+      extractionCallback?: ExtractionCallback;
+    }
   ): boolean {
     this.schema = schema;
     this.dataChannel = dataChannel;
+    this.extractionCallback = options?.extractionCallback ?? null;
+    this.attachmentNames = options?.attachments?.map(a => a.name) ?? [];
+
+    // Determine if there are unextracted attachments
+    // (attachments present but no populated fields from extraction)
+    const hasAttachments = this.attachmentNames.length > 0;
+    const hasExtractedFields = populatedFields?.some(f => f.source === "extraction") ?? false;
+    const hasUnextractedAttachments = hasAttachments && !hasExtractedFields;
 
     // Build populated fields map and captured values from provided fields
     const populatedFieldsMap = new Map<string, PopulatedFieldInfo>();
@@ -1015,6 +1059,7 @@ export class VoiceCharterService {
       error: null,
       populatedFields: populatedFieldsMap,
       awaitingFieldConfirmation: false,
+      hasUnextractedAttachments,
     });
 
     // Ensure conversation store session exists and sync existing values
@@ -1079,6 +1124,8 @@ export class VoiceCharterService {
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
       populatedFieldsCount: this.state.populatedFields?.size ?? 0,
+      hasUnextractedAttachments: this.state.hasUnextractedAttachments,
+      attachmentNames: this.attachmentNames,
     });
 
     if (!this.dataChannel || !this.schema) {
@@ -1086,13 +1133,218 @@ export class VoiceCharterService {
       return false;
     }
 
-    const firstField = this.getCurrentField();
-    if (!firstField) {
-      console.log("[VoiceCharterService] start: No first field found");
+    // Check if there are unextracted attachments - prompt user first
+    if (this.state.hasUnextractedAttachments && this.extractionCallback) {
+      console.log("[VoiceCharterService] start: Detected unextracted attachments, prompting user");
+      this.promptForExtraction();
+      return true;
+    }
+
+    // Continue with normal field collection flow
+    return this.startFieldCollection();
+  }
+
+  /**
+   * Prompt user to decide if they want to extract from uploaded document.
+   */
+  private promptForExtraction(): void {
+    const attachmentList = this.attachmentNames.length === 1
+      ? `"${this.attachmentNames[0]}"`
+      : this.attachmentNames.map(n => `"${n}"`).join(", ");
+
+    const prompt = `[EXTRACTION DECISION NEEDED]
+The user has uploaded a document (${attachmentList}) but hasn't extracted project information from it yet.
+
+Your task: Ask the user if they would like you to extract project information from the uploaded document first.
+
+Say something like: "I see you've uploaded ${attachmentList}. Would you like me to extract project information from it to help fill out the charter? Just say yes or no."
+
+Wait for their response:
+- If they say "yes", "sure", "please", "extract" → We'll extract the information
+- If they say "no", "skip", "start fresh" → We'll proceed without extraction
+
+Keep it brief and conversational.`;
+
+    this.updateState({ step: "awaiting_extraction_decision" });
+    this.sendAIPrompt(prompt);
+  }
+
+  /**
+   * Handle user's response to the extraction decision prompt.
+   */
+  private handleExtractionDecision(transcript: string): void {
+    console.log("[VoiceCharterService] handleExtractionDecision:", transcript);
+
+    // Check for affirmative response (wants extraction)
+    const yesPatterns = [
+      /^(?:yes|yeah|yep|yup|sure|please|okay|ok|absolutely|definitely)(?:\s|$|[,.])/i,
+      /extract/i,
+      /pull\s+(?:out|from)/i,
+      /get\s+(?:the\s+)?(?:info|information)/i,
+      /sounds?\s+good/i,
+      /let'?s?\s+do\s+(?:it|that)/i,
+      /go\s+ahead/i,
+      /that\s+would\s+(?:be\s+)?(?:great|helpful|good)/i,
+    ];
+
+    const wantsExtraction = yesPatterns.some(p => p.test(transcript));
+
+    // Check for negative response (skip extraction)
+    const noPatterns = [
+      /^(?:no|nope|nah|skip|don'?t|start\s+fresh)(?:\s|$|[,.])/i,
+      /without\s+(?:it|extraction)/i,
+      /from\s+scratch/i,
+      /manually/i,
+      /i'?ll\s+(?:do\s+it|enter)/i,
+    ];
+
+    const skipExtraction = noPatterns.some(p => p.test(transcript));
+
+    if (wantsExtraction) {
+      console.log("[VoiceCharterService] User wants extraction, triggering callback");
+      this.triggerExtraction();
+    } else if (skipExtraction) {
+      console.log("[VoiceCharterService] User skipped extraction, starting field collection");
+      this.updateState({ hasUnextractedAttachments: false });
+
+      // Send AI acknowledgment and start field collection
+      this.sendAIPrompt(
+        "[User declined extraction] Say 'Okay, no problem!' or similar, then ask about the first field: " +
+        `${this.schema?.fields[0]?.label ?? "Project Name"}.\n` +
+        generateFieldPrompt(this.schema?.fields[0]!, true)
+      );
+      this.updateState({ step: "asking" });
+      this.askingFieldId = this.schema?.fields[0]?.id ?? null;
+    } else {
+      // Ambiguous response - ask again
+      console.log("[VoiceCharterService] Ambiguous extraction decision response");
+      this.sendAIPrompt(
+        "[Unclear response] The user's response was unclear. " +
+        "Ask them again simply: 'Would you like me to extract information from your document? Yes or no?'"
+      );
+    }
+  }
+
+  /**
+   * Trigger document extraction and wait for results.
+   */
+  private async triggerExtraction(): Promise<void> {
+    if (!this.extractionCallback) {
+      console.error("[VoiceCharterService] No extraction callback available");
+      this.updateState({ hasUnextractedAttachments: false });
+      this.startFieldCollection();
+      return;
+    }
+
+    // Update state and notify
+    this.updateState({ step: "extracting" });
+    this.emit({ type: "extraction_requested" });
+
+    // Tell AI we're extracting
+    this.sendAIPrompt(
+      "[EXTRACTING] Say something like: 'Great, let me extract the project information from your document. This will just take a moment...'"
+    );
+
+    try {
+      console.log("[VoiceCharterService] Calling extraction callback");
+      const extractedFields = await this.extractionCallback();
+
+      if (extractedFields) {
+        console.log("[VoiceCharterService] Extraction completed:", Object.keys(extractedFields));
+
+        // Update captured values with extracted data
+        const newCapturedValues = new Map(this.state.capturedValues);
+        const newPopulatedFields = new Map(this.state.populatedFields);
+
+        for (const [fieldId, value] of Object.entries(extractedFields)) {
+          if (value !== null && value !== undefined && value !== "") {
+            const displayValue = typeof value === "string" ? value :
+              Array.isArray(value) ? value.join(", ") : JSON.stringify(value);
+
+            newPopulatedFields.set(fieldId, {
+              fieldId,
+              value,
+              displayValue,
+              source: "extraction",
+              needsConfirmation: true,
+            });
+
+            newCapturedValues.set(fieldId, {
+              fieldId,
+              value: displayValue,
+              source: "extraction",
+              userConfirmed: false,
+            });
+          }
+        }
+
+        this.updateState({
+          capturedValues: newCapturedValues,
+          populatedFields: newPopulatedFields,
+          hasUnextractedAttachments: false,
+        });
+
+        this.emit({ type: "extraction_completed", fields: extractedFields });
+
+        // Notify AI and start field collection with confirmation flow
+        const extractedCount = Object.keys(extractedFields).filter(k =>
+          extractedFields[k] !== null && extractedFields[k] !== undefined && extractedFields[k] !== ""
+        ).length;
+
+        this.sendAIPrompt(
+          `[EXTRACTION COMPLETE] I extracted ${extractedCount} field(s) from the document. ` +
+          "Now start the confirmation flow. For the first extracted field, say something like: " +
+          "'Great, I found some information! Let me confirm what I extracted. " +
+          `Based on the document, the ${this.schema?.fields[0]?.label?.toLowerCase() ?? "project name"} is...' ` +
+          "and ask if they want to keep it or change it."
+        );
+
+        // Start field collection (will now use confirmation flow)
+        setTimeout(() => {
+          this.startFieldCollection();
+        }, 500);
+      } else {
+        console.log("[VoiceCharterService] Extraction returned no results");
+        this.updateState({ hasUnextractedAttachments: false });
+
+        this.sendAIPrompt(
+          "[EXTRACTION FAILED] The extraction didn't find usable information. " +
+          "Say something like: 'I wasn't able to extract much from that document. " +
+          "Let's go through the fields together.' Then ask about the first field."
+        );
+
+        this.startFieldCollection();
+      }
+    } catch (error) {
+      console.error("[VoiceCharterService] Extraction error:", error);
+      this.updateState({ hasUnextractedAttachments: false });
+
+      this.sendAIPrompt(
+        "[EXTRACTION ERROR] Something went wrong with the extraction. " +
+        "Say something like: 'Sorry, I had trouble reading that document. " +
+        "Let's just go through the fields together.' Then ask about the first field."
+      );
+
+      this.startFieldCollection();
+    }
+  }
+
+  /**
+   * Start the normal field collection flow.
+   * Called after extraction decision is made or if no extraction prompt needed.
+   */
+  private startFieldCollection(): boolean {
+    if (!this.dataChannel || !this.schema) {
       return false;
     }
 
-    console.log("[VoiceCharterService] start: Setting askingFieldId to", firstField.id);
+    const firstField = this.getCurrentField();
+    if (!firstField) {
+      console.log("[VoiceCharterService] startFieldCollection: No first field found");
+      return false;
+    }
+
+    console.log("[VoiceCharterService] startFieldCollection: Setting askingFieldId to", firstField.id);
 
     // Track which field we're asking about
     this.askingFieldId = firstField.id;
@@ -1619,6 +1871,12 @@ export class VoiceCharterService {
 
     // Normalize for command detection
     const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
+
+    // Handle extraction decision if we're waiting for it
+    if (this.state.step === "awaiting_extraction_decision") {
+      this.handleExtractionDecision(normalizedTranscript);
+      return;
+    }
 
     // Check for navigation commands
     if (this.handleNavigationCommand(normalizedTranscript)) {

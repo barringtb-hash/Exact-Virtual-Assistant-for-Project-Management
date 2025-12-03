@@ -3734,17 +3734,52 @@ const resolveDocTypeForManualSync = useCallback(
       }
     }
 
+    // Build attachment list for voice charter
+    const voiceCharterAttachments = hasAttachments
+      ? attachmentsRef.current.map(a => ({ name: a.name || "document", type: a.type }))
+      : [];
+
     console.log("[VoiceCharter] Initializing with populated fields:", {
       count: populatedFields.length,
       hasAttachments,
+      attachmentCount: voiceCharterAttachments.length,
       fields: populatedFields.map(f => ({ fieldId: f.fieldId, source: f.source })),
     });
+
+    // Create extraction callback for voice charter to trigger extraction
+    // Note: This callback captures the current triggerExtraction function
+    const extractionCallback = async () => {
+      console.log("[VoiceCharter] Extraction callback triggered");
+      try {
+        const result = await triggerExtraction({
+          intent: "create_charter",
+          docType: "charter",
+          messages: messagesRef.current,
+          attachments: attachmentsRef.current,
+        });
+
+        if (result && result.extracted) {
+          console.log("[VoiceCharter] Extraction result:", result.extracted);
+          // Merge extracted values into draft
+          draftActions.merge(result.extracted);
+          return result.extracted;
+        }
+        return null;
+      } catch (error) {
+        console.error("[VoiceCharter] Extraction failed:", error);
+        return null;
+      }
+    };
 
     // Initialize and start voice charter service
     const initialized = voiceCharterService.initialize(
       schema,
       dataRef.current,
-      populatedFields
+      populatedFields,
+      {
+        attachments: voiceCharterAttachments,
+        extractionCallback: hasAttachments && populatedFields.length === 0 ? extractionCallback : undefined,
+      }
     );
 
     if (initialized) {
@@ -3756,7 +3791,7 @@ const resolveDocTypeForManualSync = useCallback(
       return true;
     }
     return false;
-  }, []);
+  }, [triggerExtraction]);
 
   // Handle voice charter prompt confirmation
   const handleVoiceCharterConfirm = useCallback(() => {

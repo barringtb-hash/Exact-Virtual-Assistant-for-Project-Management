@@ -88,13 +88,16 @@ export async function processGuidedConfirmation(guidedConfirmation) {
   let statusCode = 200;
   let auditStatus = null;
 
+  // Safely handle warnings array - may be undefined or empty
+  const warnings = Array.isArray(guidedConfirmation.warnings)
+    ? guidedConfirmation.warnings
+    : [];
+
   if (guidedConfirmation.decision === "approve") {
     payload = {
       status: "ok",
       fields: guidedConfirmation.fields,
-      ...(guidedConfirmation.warnings.length > 0
-        ? { warnings: guidedConfirmation.warnings }
-        : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
     statusCode = 200;
     auditStatus = "confirmed";
@@ -112,9 +115,7 @@ export async function processGuidedConfirmation(guidedConfirmation) {
           message: "Pending extraction proposal was rejected.",
         },
       fields: {},
-      ...(guidedConfirmation.warnings.length > 0
-        ? { warnings: guidedConfirmation.warnings }
-        : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
     auditStatus = confirmationError?.code || "rejected";
   }

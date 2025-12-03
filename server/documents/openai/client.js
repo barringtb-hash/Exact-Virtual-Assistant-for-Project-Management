@@ -107,7 +107,7 @@ export async function executeOpenAIExtraction({
 
     if (status === 401) {
       const error = new Error("OpenAI API key is invalid. Please check your OPENAI_API_KEY configuration.");
-      error.statusCode = 500;
+      error.statusCode = 401;
       error.code = "invalid_api_key";
       throw error;
     }

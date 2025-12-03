@@ -191,12 +191,12 @@ The user can say these commands at any time:
 
 ## Long-Form Content (Vision, Problem, Description)
 For these narrative fields, you MUST reformulate the user's input into professional language.
-When responding, you MUST say: "CAPTURE: [your professional reformulation]" before moving to the next field.
+Use a natural capture phrase to save your reformulation (see Value Capture Protocol below).
 - Take their rough notes or conversational input
 - Transform it into polished, professional language suitable for a formal project charter
 - Maintain their intent and key points
 Example: User says "we want to test blood for cancer detection"
-→ You respond: "CAPTURE: Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis. Now, what problem does this project address?"
+→ You respond: "Noted: Develop and validate a liquid biopsy platform for the early detection and monitoring of cancer biomarkers through advanced blood analysis. Now, what problem does this project address?"
 
 ## List Fields (Scope In/Out, Risks, Assumptions, Milestones, Team)
 For list-type fields:
@@ -206,14 +206,19 @@ For list-type fields:
 - Format the response as a bulleted list separated by newlines
 
 ## CRITICAL: Value Capture Protocol
-Whenever you update or correct ANY field value, you MUST say "CAPTURE: [value]" to save it.
-This applies to ALL scenarios:
-- Initial value capture: "CAPTURE: Project Alpha. Great! Who is the sponsor?"
-- Corrections during navigation: User says "go back to title, it should be Project Beta" → "CAPTURE: Project Beta. Got it, updated the title."
-- Confirmations with changes: User says "change it to John Smith" → "CAPTURE: John Smith. Updated! Now, what's the start date?"
-- Yes/No confirmations: If user says "yes" to change a value you proposed → "CAPTURE: [the value]. Done!"
+To save a field value, use ONE of these natural phrases (the system detects them):
+- "Noted: [value]." - e.g., "Noted: Project Alpha. Who is the sponsor?"
+- "I'll save that as: [value]." - e.g., "I'll save that as: John Smith. What's the start date?"
+- "Recording: [value]." - e.g., "Recording: January 15th 2025. And the end date?"
 
-Without "CAPTURE:", the value will NOT be saved. The system only updates fields when it sees your CAPTURE command.
+DO NOT say "CAPTURE:" out loud - it sounds robotic. Use the natural phrases above.
+
+This applies to ALL scenarios:
+- Initial value capture: "Noted: Project Alpha. Who is the sponsor?"
+- Corrections: User says "it should be Project Beta" → "Noted: Project Beta. Got it!"
+- Confirmations: User says "yes" to change → "Noted: [the value]. Done!"
+
+Without one of these phrases, the value will NOT be saved.
 
 ## Important Rules
 - Keep responses VERY short (1-2 sentences max) - NO verbose verbal confirmation needed
@@ -221,7 +226,7 @@ Without "CAPTURE:", the value will NOT be saved. The system only updates fields 
 - Move quickly through fields - just acknowledge and ask the next question
 - For dates, briefly clarify format only if needed
 - Trust that the user will correct any mistakes using the visual form
-- Always use CAPTURE: when saving or updating any field value
+- Always use a capture phrase (Noted:/Recording:/I'll save that as:) when saving any field value
 
 ## Current State
 You will receive context about the current field and any previously captured values.
@@ -2130,7 +2135,8 @@ Keep it brief and conversational.`;
 
     // Check for "go to [field]" pattern (without "back")
     // Handles: "go to the start date", "go to start date field", "go to project name"
-    const goToMatch = transcript.match(/^(?:can\s+you\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
+    // Also handles: "can we go to", "can you go to", "could we go to", "let's go to"
+    const goToMatch = transcript.match(/^(?:(?:can|could)\s+(?:you|we)\s+)?(?:let'?s?\s+)?go\s+to\s+(?:the\s+)?(.+?)(?:\s+field)?(?:\s*[,.]?\s*please|\s*\?|$)/i);
     if (goToMatch) {
       const fieldName = goToMatch[1].toLowerCase().trim();
       // Skip if this looks like "go to back" which should be handled by back-to pattern

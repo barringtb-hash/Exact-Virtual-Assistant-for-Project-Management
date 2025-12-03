@@ -30,7 +30,7 @@ export function createSessionUpdateEvent(config: SessionConfig): string {
     session: {
       modalities: ["text", "audio"],
       instructions: config.instructions,
-      voice: config.voice ?? "coral",
+      voice: config.voice ?? "shimmer",
       input_audio_transcription: config.inputAudioTranscription ?? {
         model: "whisper-1",
       },

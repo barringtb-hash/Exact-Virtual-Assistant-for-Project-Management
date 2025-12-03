@@ -14,6 +14,8 @@ import {
   type VoiceCharterEvent,
   type VoiceCharterState,
   type VoiceCharterStep,
+  type CapturedFieldValue,
+  type FieldValueSource,
 } from "../voice/VoiceCharterService";
 import type { CharterFormField } from "../features/charter/utils/formSchema";
 
@@ -153,36 +155,74 @@ function getStatusText(step: VoiceCharterStep, aiSpeaking: boolean): string {
 }
 
 /**
- * Field badge showing current field.
+ * Field badge showing current field with optional confirmation indicator.
  */
-const FieldBadge = React.memo(({ field }: { field: CharterFormField | null }) => {
-  if (!field) {
-    return null;
-  }
+const FieldBadge = React.memo(
+  ({
+    field,
+    awaitingConfirmation,
+    capturedValue,
+  }: {
+    field: CharterFormField | null;
+    awaitingConfirmation?: boolean;
+    capturedValue?: CapturedFieldValue | null;
+  }) => {
+    if (!field) {
+      return null;
+    }
 
-  return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm dark:bg-slate-800/80 dark:text-slate-200">
-      <span className="h-2 w-2 rounded-full bg-indigo-500" />
-      {field.label}
-      {field.required && (
-        <span className="text-xs text-red-500 dark:text-red-400">*</span>
-      )}
-    </div>
-  );
-});
+    const isExtracted = capturedValue?.source === "extraction";
+    const needsConfirmation = awaitingConfirmation && isExtracted && !capturedValue?.userConfirmed;
+
+    return (
+      <div
+        className={classNames(
+          "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-sm",
+          needsConfirmation
+            ? "animate-pulse border border-amber-400/50 bg-amber-50/80 text-amber-800 dark:border-amber-500/30 dark:bg-amber-900/30 dark:text-amber-200"
+            : "bg-white/80 text-slate-700 dark:bg-slate-800/80 dark:text-slate-200"
+        )}
+      >
+        <span
+          className={classNames(
+            "h-2 w-2 rounded-full",
+            needsConfirmation ? "bg-amber-500" : "bg-indigo-500"
+          )}
+        />
+        {field.label}
+        {field.required && (
+          <span className="text-xs text-red-500 dark:text-red-400">*</span>
+        )}
+        {needsConfirmation && (
+          <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
+            (confirm?)
+          </span>
+        )}
+      </div>
+    );
+  }
+);
 
 FieldBadge.displayName = "FieldBadge";
 
 /**
- * Captured values list.
+ * Captured values list with source badges and confirmation status.
  */
 const CapturedValuesList = React.memo(
   ({
     values,
     fields,
+    currentFieldId,
+    awaitingFieldConfirmation,
+    onConfirm,
+    onChange,
   }: {
-    values: Map<string, { value: string }>;
+    values: Map<string, CapturedFieldValue>;
     fields: CharterFormField[];
+    currentFieldId?: string | null;
+    awaitingFieldConfirmation?: boolean;
+    onConfirm?: (fieldId: string) => void;
+    onChange?: (fieldId: string) => void;
   }) => {
     const capturedFields = fields.filter((f) => values.has(f.id));
 
@@ -191,21 +231,78 @@ const CapturedValuesList = React.memo(
     }
 
     return (
-      <div className="mt-4 max-h-32 overflow-y-auto rounded-xl bg-white/60 p-3 dark:bg-slate-800/60">
+      <div className="mt-4 max-h-40 overflow-y-auto rounded-xl bg-white/60 p-3 dark:bg-slate-800/60">
         <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Captured
         </h4>
-        <ul className="space-y-1 text-xs">
+        <ul className="space-y-2 text-xs">
           {capturedFields.map((field) => {
             const captured = values.get(field.id);
+            const isCurrentField = field.id === currentFieldId;
+            const isAwaitingConfirmation = isCurrentField && awaitingFieldConfirmation && captured?.source === "extraction" && !captured?.userConfirmed;
+
             return (
               <li
                 key={field.id}
-                className="flex items-start gap-2 text-slate-600 dark:text-slate-300"
+                className={classNames(
+                  "rounded-lg p-2 transition-all",
+                  isAwaitingConfirmation
+                    ? "animate-pulse border border-amber-400/50 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-900/20"
+                    : "bg-slate-50/50 dark:bg-slate-700/30"
+                )}
               >
-                <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-500" />
-                <span className="font-medium">{field.label}:</span>
-                <span className="truncate">{captured?.value}</span>
+                <div className="flex items-start gap-2 text-slate-600 dark:text-slate-300">
+                  <span
+                    className={classNames(
+                      "mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full",
+                      captured?.userConfirmed ? "bg-emerald-500" : captured?.source === "extraction" ? "bg-amber-500" : "bg-emerald-500"
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium">{field.label}:</span>
+                      <FieldSourceBadge source={captured?.source} />
+                      <ConfirmationStatusIndicator
+                        source={captured?.source}
+                        userConfirmed={captured?.userConfirmed}
+                      />
+                    </div>
+                    <span className="mt-0.5 block truncate text-slate-500 dark:text-slate-400">
+                      {captured?.value}
+                    </span>
+                    {/* Quick action buttons for fields awaiting confirmation */}
+                    {isAwaitingConfirmation && (onConfirm || onChange) && (
+                      <div className="mt-2 flex gap-2">
+                        {onConfirm && (
+                          <button
+                            type="button"
+                            onClick={() => onConfirm(field.id)}
+                            className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[10px] font-medium text-emerald-700 transition hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
+                            aria-label={`Keep value for ${field.label}`}
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Keep
+                          </button>
+                        )}
+                        {onChange && (
+                          <button
+                            type="button"
+                            onClick={() => onChange(field.id)}
+                            className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-700"
+                            aria-label={`Change value for ${field.label}`}
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                            Change
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </li>
             );
           })}
@@ -228,6 +325,93 @@ const VoiceCommandsHint = React.memo(() => (
 ));
 
 VoiceCommandsHint.displayName = "VoiceCommandsHint";
+
+/**
+ * Badge indicating the source of a captured field value.
+ */
+const FieldSourceBadge = React.memo(({ source }: { source?: FieldValueSource }) => {
+  if (!source || source === "manual") {
+    return null;
+  }
+
+  if (source === "extraction") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+        aria-label="Value from document"
+      >
+        <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        From document
+      </span>
+    );
+  }
+
+  if (source === "voice") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+        aria-label="Value from voice"
+      >
+        <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z" />
+          <path d="M6 10.5a.75.75 0 01.75.75v1.5a5.25 5.25 0 1010.5 0v-1.5a.75.75 0 011.5 0v1.5a6.751 6.751 0 01-6 6.709v2.291h3a.75.75 0 010 1.5h-7.5a.75.75 0 010-1.5h3v-2.291a6.751 6.751 0 01-6-6.709v-1.5A.75.75 0 016 10.5z" />
+        </svg>
+        Voice
+      </span>
+    );
+  }
+
+  return null;
+});
+
+FieldSourceBadge.displayName = "FieldSourceBadge";
+
+/**
+ * Indicator showing confirmation status for extracted fields.
+ */
+const ConfirmationStatusIndicator = React.memo(
+  ({ source, userConfirmed }: { source?: FieldValueSource; userConfirmed?: boolean }) => {
+    // Only show for extracted fields
+    if (source !== "extraction") {
+      return null;
+    }
+
+    if (userConfirmed) {
+      return (
+        <span
+          className="inline-flex items-center text-emerald-600 dark:text-emerald-400"
+          aria-label="Confirmed"
+          title="Confirmed"
+        >
+          <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path
+              fillRule="evenodd"
+              d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400"
+        aria-label="Needs confirmation"
+        title="Needs confirmation"
+      >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span className="text-[10px]">Unconfirmed</span>
+      </span>
+    );
+  }
+);
+
+ConfirmationStatusIndicator.displayName = "ConfirmationStatusIndicator";
 
 export interface VoiceCharterSessionProps {
   className?: string;
@@ -293,6 +477,18 @@ export const VoiceCharterSession = React.memo(
       onExit?.();
     }, [onExit]);
 
+    // Handle confirm button click - triggers voice service to keep extracted value
+    const handleConfirmField = useCallback((fieldId: string) => {
+      // Send "keep it" as a user transcript to trigger the confirmation flow
+      voiceCharterService.processTranscript("keep it", "user");
+    }, []);
+
+    // Handle change button click - triggers voice service to request new value
+    const handleChangeField = useCallback((fieldId: string) => {
+      // Send "change it" as a user transcript to trigger the edit flow
+      voiceCharterService.processTranscript("change it", "user");
+    }, []);
+
     if (!visible) {
       return null;
     }
@@ -349,10 +545,24 @@ export const VoiceCharterSession = React.memo(
                   Voice Charter
                 </span>
                 {state.step !== "completed" && state.step !== "idle" && currentField && (
-                  <span className="truncate text-xs text-indigo-600 dark:text-indigo-400">
-                    {currentField.label}
-                    {currentField.required && <span className="text-red-500">*</span>}
-                  </span>
+                  <>
+                    <span
+                      className={classNames(
+                        "truncate text-xs",
+                        state.awaitingFieldConfirmation && state.capturedValues.get(currentField.id)?.source === "extraction"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-indigo-600 dark:text-indigo-400"
+                      )}
+                    >
+                      {currentField.label}
+                      {currentField.required && <span className="text-red-500">*</span>}
+                    </span>
+                    {state.awaitingFieldConfirmation && state.capturedValues.get(currentField.id)?.source === "extraction" && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                        Confirm?
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               <p className="truncate text-xs text-slate-500 dark:text-slate-400">
@@ -418,7 +628,11 @@ export const VoiceCharterSession = React.memo(
 
         {/* Current field badge */}
         {state.step !== "completed" && state.step !== "idle" && (
-          <FieldBadge field={currentField} />
+          <FieldBadge
+            field={currentField}
+            awaitingConfirmation={state.awaitingFieldConfirmation}
+            capturedValue={currentField ? state.capturedValues.get(currentField.id) : null}
+          />
         )}
 
         {/* Main visual indicator */}
@@ -467,7 +681,14 @@ export const VoiceCharterSession = React.memo(
 
         {/* Captured values preview */}
         {state.capturedValues.size > 0 && state.step !== "completed" && (
-          <CapturedValuesList values={state.capturedValues} fields={fields} />
+          <CapturedValuesList
+            values={state.capturedValues}
+            fields={fields}
+            currentFieldId={state.currentFieldId}
+            awaitingFieldConfirmation={state.awaitingFieldConfirmation}
+            onConfirm={handleConfirmField}
+            onChange={handleChangeField}
+          />
         )}
 
         {/* Voice commands hint */}

@@ -70,9 +70,11 @@ export async function handleDocMakeLink(req, res, options = {}) {
       return res.status(400).json(responsePayload);
     }
 
-    const host = req.headers?.host;
+    const host = req.headers?.host || req.headers?.["x-forwarded-host"];
     if (!host) {
-      console.error("request host header missing");
+      console.error("request host header missing", {
+        headers: req.headers ? Object.keys(req.headers) : "no headers",
+      });
       return res.status(500).json({ error: "Link configuration unavailable" });
     }
 

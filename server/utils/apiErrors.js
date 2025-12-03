@@ -188,6 +188,26 @@ export class InvalidPayloadError extends ApiError {
 }
 
 /**
+ * Invalid request body error (400)
+ * Used when the request body is malformed (invalid JSON, wrong type, etc.)
+ */
+export class InvalidRequestBodyError extends ApiError {
+  /**
+   * @param {string} [message] - Error message
+   * @param {string} [parseError] - The underlying parse error message
+   */
+  constructor(message = 'Request body must be valid JSON', parseError = null) {
+    super(
+      ERROR_CODES.INVALID_PAYLOAD,
+      message,
+      400,
+      parseError ? { parseError } : null
+    );
+    this.name = 'InvalidRequestBodyError';
+  }
+}
+
+/**
  * Insufficient context error (422)
  */
 export class InsufficientContextError extends ApiError {

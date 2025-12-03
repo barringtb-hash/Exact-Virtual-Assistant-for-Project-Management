@@ -1859,7 +1859,44 @@ Keep it brief and conversational.`;
       return;
     }
 
-    const targetFieldId = this.pendingReformulationFieldId || this.askingFieldId;
+    // Check if the AI explicitly mentions a field name in the transcript
+    // E.g., "we're updating the project lead field" or "for the sponsor field"
+    // If so, capture to THAT field, not the current askingFieldId
+    let explicitFieldId: string | null = null;
+    if (this.schema) {
+      const lowerTranscript = transcript.toLowerCase();
+      // Patterns that indicate AI is referencing a specific field
+      const fieldMentionPatterns = [
+        /(?:updating|updating the|for the|for|saving to|saving to the|the)\s+([a-z\s]+?)\s+(?:field|value)/i,
+        /(?:updating|updating the|for the|for|saving to|saving to the)\s+([a-z\s]+?)(?:\.|,|$)/i,
+      ];
+
+      for (const pattern of fieldMentionPatterns) {
+        const fieldMentionMatch = lowerTranscript.match(pattern);
+        if (fieldMentionMatch) {
+          const mentionedFieldName = fieldMentionMatch[1].trim();
+          // Try to find a matching field
+          const matchedField = this.schema.fields.find(
+            (f) =>
+              f.label.toLowerCase() === mentionedFieldName ||
+              f.label.toLowerCase().includes(mentionedFieldName) ||
+              mentionedFieldName.includes(f.label.toLowerCase()) ||
+              f.id.toLowerCase().replace(/_/g, " ") === mentionedFieldName
+          );
+          if (matchedField && matchedField.id !== this.askingFieldId) {
+            console.log("[VoiceCharterService] [AI] Detected explicit field mention:", {
+              mentionedField: mentionedFieldName,
+              resolvedFieldId: matchedField.id,
+              currentAskingFieldId: this.askingFieldId,
+            });
+            explicitFieldId = matchedField.id;
+            break;
+          }
+        }
+      }
+    }
+
+    const targetFieldId = explicitFieldId || this.pendingReformulationFieldId || this.askingFieldId;
     const looksComplete = /\.\s*$/.test(reformulatedValue) ||
       /(?:now|next)[,.]?\s+what/i.test(transcript);
 
@@ -1876,13 +1913,22 @@ Keep it brief and conversational.`;
         fieldId: targetFieldId,
         value: reformulatedValue,
         patternUsed: matchedPatternIndex,
+        explicitFieldDetected: !!explicitFieldId,
       });
       this.captureValue(targetFieldId, reformulatedValue);
       this.pendingReformulationFieldId = null;
       this.pendingReformulationRawValue = null;
       this.pendingCaptureText = null;
       this.pendingCaptureFieldId = null;
-      this.advanceAskingField();
+
+      // Only advance if we captured to the current asking field (not an explicit field correction)
+      // If the AI explicitly mentioned a different field (e.g., "updating the project lead field"),
+      // we're correcting a previous field, NOT answering the current field - so don't advance
+      if (!explicitFieldId) {
+        this.advanceAskingField();
+      } else {
+        console.log("[VoiceCharterService] [AI] Not advancing - captured to explicit field, not current asking field");
+      }
       this.updateState({ step: "listening", pendingValue: reformulatedValue });
       return;
     }

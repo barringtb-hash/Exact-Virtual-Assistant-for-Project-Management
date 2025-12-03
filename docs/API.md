@@ -145,7 +145,7 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
 - **Response** – Raw SDP answer string to feed `setRemoteDescription`.
 - **Notes**
   - Model defaults to `OPENAI_REALTIME_MODEL` or `gpt-realtime`.
-  - Voice defaults to `OPENAI_REALTIME_VOICE` or `alloy`.
+  - Voice defaults to `OPENAI_REALTIME_VOICE` or `coral`.
   - Adds `OpenAI-Beta: realtime=v1` automatically when the model name contains `preview`.
 
 ## Document extraction – `POST /api/documents/extract`

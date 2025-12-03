@@ -205,12 +205,23 @@ For list-type fields:
 - After capturing items, ask "Would you like to add more, or shall we move on?"
 - Format the response as a bulleted list separated by newlines
 
+## CRITICAL: Value Capture Protocol
+Whenever you update or correct ANY field value, you MUST say "CAPTURE: [value]" to save it.
+This applies to ALL scenarios:
+- Initial value capture: "CAPTURE: Project Alpha. Great! Who is the sponsor?"
+- Corrections during navigation: User says "go back to title, it should be Project Beta" → "CAPTURE: Project Beta. Got it, updated the title."
+- Confirmations with changes: User says "change it to John Smith" → "CAPTURE: John Smith. Updated! Now, what's the start date?"
+- Yes/No confirmations: If user says "yes" to change a value you proposed → "CAPTURE: [the value]. Done!"
+
+Without "CAPTURE:", the value will NOT be saved. The system only updates fields when it sees your CAPTURE command.
+
 ## Important Rules
 - Keep responses VERY short (1-2 sentences max) - NO verbose verbal confirmation needed
 - The user sees all captured values in real-time on the form - they can visually confirm
 - Move quickly through fields - just acknowledge and ask the next question
 - For dates, briefly clarify format only if needed
 - Trust that the user will correct any mistakes using the visual form
+- Always use CAPTURE: when saving or updating any field value
 
 ## Current State
 You will receive context about the current field and any previously captured values.
@@ -697,32 +708,24 @@ const AI_RESPONSE_PATTERNS = [
 
 /**
  * Short words/phrases that should be ignored as noise.
- * These are either user acknowledgments, farewells, or clipped AI speech.
+ * Only includes filler sounds and farewells.
+ *
+ * NOTE: Confirmation words (yes, no, okay, sure, etc.) are NOT filtered here
+ * because they may be meaningful responses to LLM questions (e.g., "Do you want
+ * to change it to Frank Thomas?"). The LLM interprets these in context.
  */
 const NOISE_WORDS = [
+  // Farewells only - these end the conversation
   /^bye\.?$/i,
   /^goodbye\.?$/i,
-  /^thanks\.?$/i,
-  /^thank you\.?$/i,
-  /^okay\.?$/i,
-  /^ok\.?$/i,
-  /^yes\.?$/i,
-  /^no\.?$/i,
-  /^yep\.?$/i,
-  /^nope\.?$/i,
-  /^sure\.?$/i,
-  /^right\.?$/i,
-  /^got it\.?$/i,
-  /^uh huh\.?$/i,
-  /^mm hmm\.?$/i,
-  /^hmm\.?$/i,
-  // Filler sounds and hesitations
+  // Filler sounds and hesitations - these carry no semantic meaning
   /^uh+\.{0,3}$/i,
   /^um+\.{0,3}$/i,
   /^er+\.{0,3}$/i,
   /^ah+\.{0,3}$/i,
   /^oh+\.{0,3}$/i,
   /^hm+\.{0,3}$/i,
+  /^hmm+\.{0,3}$/i,
   /^\.{1,3}$/,  // Just dots/ellipsis
   /^[.…]+$/,    // Ellipsis characters
 ];
@@ -1770,18 +1773,24 @@ Keep it brief and conversational.`;
 
   /**
    * Process a transcript that is known to be from AI speech.
-   * Only handles CAPTURE patterns - all user input handling is skipped.
+   * Handles CAPTURE patterns for ALL fields - the LLM uses CAPTURE: to signal value updates.
+   * This includes initial captures, corrections, and confirmations.
    */
   private processAITranscript(transcript: string): void {
     console.log("[VoiceCharterService] [AI] Processing AI transcript:", transcript.substring(0, 80));
 
     // Check if we're waiting for reformulation OR if current field is a long-form field
     const currentFieldIsLongForm = this.askingFieldId && LONG_FORM_FIELDS.includes(this.askingFieldId);
-    const shouldCheckForCapture = this.pendingReformulationFieldId || currentFieldIsLongForm;
+    const waitingForReformulation = this.pendingReformulationFieldId || currentFieldIsLongForm;
 
-    if (!shouldCheckForCapture) {
-      // No CAPTURE expected, just skip
-      console.log("[VoiceCharterService] [AI] No CAPTURE expected, skipping");
+    // Always check for CAPTURE patterns - the LLM uses CAPTURE: for ALL value updates
+    // including corrections and confirmations
+    const hasCapturePattern = /CAPTURE:/i.test(transcript);
+
+    // Skip only if there's no CAPTURE pattern AND we're not waiting for reformulation
+    // This allows the LLM to use CAPTURE: for corrections on any field type
+    if (!hasCapturePattern && !waitingForReformulation) {
+      console.log("[VoiceCharterService] [AI] No CAPTURE pattern found, skipping");
       return;
     }
 
@@ -1895,8 +1904,8 @@ Keep it brief and conversational.`;
       return;
     }
 
-    // Check for navigation commands
-    if (this.handleNavigationCommand(normalizedTranscript)) {
+    // Check for navigation commands - pass original transcript for LLM context
+    if (this.handleNavigationCommand(normalizedTranscript, transcript)) {
       // Clear pending reformulation if user navigates away
       if (this.pendingReformulationFieldId && this.pendingReformulationRawValue) {
         console.log("[VoiceCharterService] [USER] Navigation detected, capturing pending raw value");
@@ -2076,14 +2085,19 @@ Keep it brief and conversational.`;
 
   /**
    * Handle navigation commands.
+   * @param transcript - Normalized transcript for pattern matching
+   * @param originalTranscript - Original transcript to pass to LLM for context
    */
-  private handleNavigationCommand(transcript: string): boolean {
+  private handleNavigationCommand(transcript: string, originalTranscript?: string): boolean {
     console.log("[VoiceCharterService] handleNavigationCommand:", transcript.substring(0, 50));
 
     // Check for "back to [field]" pattern - navigate to specific field
     // Handles: "go back to the title", "back to project title", "no, back to the title, please"
     // Also handles: "can you go back to...", "could you go back to..."
     // Made more flexible to match "back to" without requiring "go" prefix
+    // Use original transcript for LLM context (may contain correction info)
+    const userContext = originalTranscript || transcript;
+
     const backToMatch = transcript.match(/(?:can\s+you\s+|could\s+you\s+)?(?:go\s+)?back\s+to\s+(?:the\s+)?(.+?)(?:\s*[,.]?\s*please|\s*\?|$)/i);
     if (backToMatch) {
       const fieldName = backToMatch[1].toLowerCase().trim();
@@ -2095,7 +2109,7 @@ Keep it brief and conversational.`;
           fieldName.includes(f.label.toLowerCase())
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
@@ -2112,7 +2126,7 @@ Keep it brief and conversational.`;
           fieldName.includes(f.label.toLowerCase())
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
@@ -2132,7 +2146,7 @@ Keep it brief and conversational.`;
             fieldName.includes(f.label.toLowerCase())
         );
         if (field) {
-          this.goToField(field.id);
+          this.goToField(field.id, userContext);
           return true;
         }
       }
@@ -2152,13 +2166,13 @@ Keep it brief and conversational.`;
             fieldName.includes(f.label.toLowerCase())
         );
         if (field) {
-          this.goToField(field.id);
+          this.goToField(field.id, userContext);
           return true;
         }
       } else {
-        // Just "no, go back" without specific field
+        // Just "no, go back" without specific field - pass context to goToPreviousField
         console.log("[VoiceCharterService] handleNavigationCommand: Detected rejection + go back");
-        this.goToPreviousField();
+        this.goToPreviousField(userContext);
         return true;
       }
     }
@@ -2170,7 +2184,7 @@ Keep it brief and conversational.`;
       transcript.includes("back one")
     ) {
       console.log("[VoiceCharterService] handleNavigationCommand: Detected 'go back'");
-      this.goToPreviousField();
+      this.goToPreviousField(userContext);
       return true;
     }
 
@@ -2191,7 +2205,7 @@ Keep it brief and conversational.`;
           f.id.toLowerCase().includes(fieldName.replace(/\s+/g, "_"))
       );
       if (field) {
-        this.goToField(field.id);
+        this.goToField(field.id, userContext);
         return true;
       }
     }
@@ -2334,12 +2348,14 @@ Keep it brief and conversational.`;
 
   /**
    * Move to the previous field.
+   * @param userContext - Optional user transcript that triggered the navigation (may contain correction info)
    */
-  goToPreviousField(): void {
+  goToPreviousField(userContext?: string): void {
     console.log("[VoiceCharterService] goToPreviousField called:", {
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
       askingFieldId: this.askingFieldId,
+      userContext: userContext?.substring(0, 50),
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -2381,10 +2397,18 @@ Keep it brief and conversational.`;
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(prevField.id);
 
-    // Prompt AI to ask about previous field, mentioning existing value if any
+    // Prompt AI with user context so it can extract any embedded corrections
     let prompt = `[Going back to previous field: ${prevField.label}]`;
+    if (userContext) {
+      prompt += ` User said: "${userContext}".`;
+    }
     if (existingValue) {
-      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+      prompt += ` The current value is: "${existingValue.value}".`;
+      if (!userContext) {
+        prompt += ` Ask if they want to change it.`;
+      } else {
+        prompt += ` If the user indicated a new value, use CAPTURE: to save it. Otherwise ask if they want to change it.`;
+      }
     } else {
       prompt += ` ${generateFieldPrompt(prevField, false)}`;
     }
@@ -2400,13 +2424,16 @@ Keep it brief and conversational.`;
 
   /**
    * Jump to a specific field.
+   * @param fieldId - The field to jump to
+   * @param userContext - Optional user transcript that triggered the navigation (may contain correction info)
    */
-  goToField(fieldId: string): void {
+  goToField(fieldId: string, userContext?: string): void {
     console.log("[VoiceCharterService] goToField called:", {
       targetFieldId: fieldId,
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
       askingFieldId: this.askingFieldId,
+      userContext: userContext?.substring(0, 50),
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -2446,9 +2473,20 @@ Keep it brief and conversational.`;
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(fieldId);
 
+    // Build prompt with user context so LLM can extract any embedded corrections
     let prompt = `[Jumping to field: ${field.label}]`;
+    if (userContext) {
+      // Pass the user's full request to the LLM so it can interpret embedded corrections
+      prompt += ` User said: "${userContext}".`;
+    }
     if (existingValue) {
-      prompt += ` The current value is: "${existingValue.value}". Ask if they want to change it.`;
+      prompt += ` The current value is: "${existingValue.value}".`;
+      if (!userContext) {
+        prompt += ` Ask if they want to change it.`;
+      } else {
+        // User provided context, so LLM should extract the correction if present
+        prompt += ` If the user indicated a new value, use CAPTURE: to save it. Otherwise ask if they want to change it.`;
+      }
     } else {
       prompt += ` ${generateFieldPrompt(field, false)}`;
     }

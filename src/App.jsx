@@ -3495,15 +3495,32 @@ const resolveDocTypeForManualSync = useCallback(
             }
           }
 
-          // Handle user transcript in voice charter mode
-          if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
+          // Handle user transcript from Realtime API - ALWAYS process, not just in voice charter mode
+          if (rawEvent.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = rawEvent.transcript || "";
-            if (transcript.trim()) {
-              console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
-              voiceCharterService.processTranscript(transcript, "user");
+            console.log("[Voice Debug - Realtime] USER input transcript received:", transcript);
 
-              // Add user transcript to chat for debugging
-              chatActions.pushUser(`🎤 [Voice]: ${transcript.trim()}`);
+            if (transcript.trim()) {
+              // Add user transcript to chat
+              chatActions.pushUser(`🎤 ${transcript.trim()}`);
+
+              // Check for charter intent in user's voice input
+              const userVoiceIntent = detectCharterIntent(transcript);
+              console.log("[Voice Debug - Realtime] User voice intent:", userVoiceIntent);
+
+              if (userVoiceIntent === 'create_charter' && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+                console.log("[Voice Debug - Realtime] Charter intent detected from user voice! Showing prompt.");
+                chatActions.pushAssistant(
+                  "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+                );
+                setShowVoiceCharterPrompt(true);
+              }
+
+              // If voice charter is active, let the service handle it
+              if (voiceCharterService.getState().step !== "idle") {
+                console.log("[App] Processing USER transcript in voice charter mode:", transcript.substring(0, 80));
+                voiceCharterService.processTranscript(transcript, "user");
+              }
             }
           }
         }

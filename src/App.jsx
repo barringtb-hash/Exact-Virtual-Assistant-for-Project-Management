@@ -63,6 +63,47 @@ import {
   useAiSpeaking,
 } from "./state/slices/voiceCharter.ts";
 import { voiceCharterService } from "./voice/VoiceCharterService.ts";
+
+/**
+ * Helper to convert a draft value to a display string for voice prompts.
+ * Handles strings, arrays, and objects.
+ */
+function formatDraftValueForDisplay(value, fieldId) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    // For string arrays (scope_in, scope_out, risks, assumptions)
+    if (value.length === 0) {
+      return "";
+    }
+    if (typeof value[0] === "string") {
+      return value.join(", ");
+    }
+    // For object arrays (milestones, success_metrics, core_team)
+    if (typeof value[0] === "object") {
+      return value.map((item, i) => {
+        if (fieldId === "milestones") {
+          return `${item.phase || "Phase"}: ${item.deliverable || "Deliverable"} (${item.date || "TBD"})`;
+        }
+        if (fieldId === "success_metrics") {
+          return `${item.benefit || "Benefit"}: ${item.metric || "Metric"}`;
+        }
+        if (fieldId === "core_team") {
+          return `${item.name || "Name"} - ${item.role || "Role"}`;
+        }
+        return JSON.stringify(item);
+      }).join("; ");
+    }
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
 import { sendRealtimeEvent, createSessionUpdateEvent, createConversationItemEvent, createResponseEvent } from "./voice/realtimeEvents.ts";
 import { createGuidedOrchestrator } from "./features/charter/guidedOrchestrator.ts";
 import { createInitialGuidedState } from "./features/charter/guidedState.ts";
@@ -3664,21 +3705,46 @@ const resolveDocTypeForManualSync = useCallback(
       return false;
     }
 
-    // Get existing draft values to seed the voice charter
-    const existingValues = {};
+    // Build PopulatedFieldInfo array from existing draft values
+    // Check if there are attachments - if so, values likely came from extraction
+    const hasAttachments = Array.isArray(attachmentsRef.current) && attachmentsRef.current.length > 0;
+    const populatedFields = [];
+
     if (charterDraftRef.current) {
-      for (const [key, value] of Object.entries(charterDraftRef.current)) {
-        if (typeof value === "string" && value.trim()) {
-          existingValues[key] = value;
+      for (const [fieldId, value] of Object.entries(charterDraftRef.current)) {
+        // Format the value for display
+        const displayValue = formatDraftValueForDisplay(value, fieldId);
+
+        // Skip empty values
+        if (!displayValue) {
+          continue;
         }
+
+        // Determine source: if there are attachments, assume extraction
+        // Otherwise assume manual entry (which doesn't need confirmation)
+        const source = hasAttachments ? "extraction" : "manual";
+
+        populatedFields.push({
+          fieldId,
+          value,
+          displayValue,
+          source,
+          needsConfirmation: source === "extraction", // Only need confirmation for extracted values
+        });
       }
     }
+
+    console.log("[VoiceCharter] Initializing with populated fields:", {
+      count: populatedFields.length,
+      hasAttachments,
+      fields: populatedFields.map(f => ({ fieldId: f.fieldId, source: f.source })),
+    });
 
     // Initialize and start voice charter service
     const initialized = voiceCharterService.initialize(
       schema,
       dataRef.current,
-      existingValues
+      populatedFields
     );
 
     if (initialized) {

@@ -20,6 +20,7 @@ import {
   conversationStoreApi,
 } from "../state/conversationStore";
 import { draftActions, draftStoreApi } from "../state/draftStore.ts";
+import { voiceCharterActions } from "../state/slices/voiceCharter";
 
 /**
  * Voice charter session state.
@@ -1349,6 +1350,9 @@ Keep it brief and conversational.`;
     // Track which field we're asking about
     this.askingFieldId = firstField.id;
 
+    // Log initial field for tracking
+    voiceCharterActions.setAskingField(firstField.id);
+
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(firstField.id);
 
@@ -1417,6 +1421,19 @@ Keep it brief and conversational.`;
       currentFieldIndex: this.state.currentFieldIndex,
       step: this.state.step,
       pendingReformulationFieldId: this.pendingReformulationFieldId,
+    });
+
+    // Log transcript received for field tracking
+    voiceCharterActions.logTranscriptReceived({
+      transcript,
+      askingFieldId: this.askingFieldId,
+      targetFieldId: this.askingFieldId || this.state.currentFieldId,
+      source: source || "unknown",
+      metadata: {
+        step: this.state.step,
+        currentFieldIndex: this.state.currentFieldIndex,
+        pendingReformulationFieldId: this.pendingReformulationFieldId,
+      },
     });
 
     if (!this.schema || !this.dataChannel) {
@@ -2282,8 +2299,17 @@ Keep it brief and conversational.`;
     const nextField = this.schema.fields[nextIndex];
     console.log("[VoiceCharterService] goToNextField: Moving to", nextField.id, "at index", nextIndex);
 
+    const previousFieldId = this.askingFieldId;
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = nextField.id;
+
+    // Log field navigation for tracking
+    voiceCharterActions.logFieldNavigated({
+      fromFieldId: previousFieldId,
+      toFieldId: nextField.id,
+      direction: "next",
+      metadata: { previousIndex: this.state.currentFieldIndex, nextIndex },
+    });
 
     this.updateState({
       step: "asking",
@@ -2333,8 +2359,17 @@ Keep it brief and conversational.`;
     const existingValue = this.state.capturedValues.get(prevField.id);
     console.log("[VoiceCharterService] goToPreviousField: Moving to", prevField.id, "at index", prevIndex);
 
+    const previousFieldId = this.askingFieldId;
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = prevField.id;
+
+    // Log field navigation for tracking
+    voiceCharterActions.logFieldNavigated({
+      fromFieldId: previousFieldId,
+      toFieldId: prevField.id,
+      direction: "previous",
+      metadata: { previousIndex: this.state.currentFieldIndex, prevIndex },
+    });
 
     this.updateState({
       step: "asking",
@@ -2389,8 +2424,17 @@ Keep it brief and conversational.`;
     const existingValue = this.state.capturedValues.get(fieldId);
     console.log("[VoiceCharterService] goToField: Moving to", field.id, "at index", fieldIndex);
 
+    const previousFieldId = this.askingFieldId;
     // Update askingFieldId BEFORE changing state so transcripts go to the right field
     this.askingFieldId = fieldId;
+
+    // Log field navigation for tracking
+    voiceCharterActions.logFieldNavigated({
+      fromFieldId: previousFieldId,
+      toFieldId: fieldId,
+      direction: "jump",
+      metadata: { previousIndex: this.state.currentFieldIndex, newIndex: fieldIndex },
+    });
 
     this.updateState({
       step: "asking",
@@ -2447,6 +2491,17 @@ Keep it brief and conversational.`;
       currentAskingFieldId: this.askingFieldId,
       currentFieldId: this.state.currentFieldId,
       currentFieldIndex: this.state.currentFieldIndex,
+    });
+
+    // Log value captured for field tracking (detect desync when askingFieldId !== fieldId)
+    voiceCharterActions.logValueCaptured({
+      fieldId,
+      value: sanitizedValue,
+      askingFieldId: this.askingFieldId,
+      metadata: {
+        currentFieldId: this.state.currentFieldId,
+        currentFieldIndex: this.state.currentFieldIndex,
+      },
     });
 
     const captured: CapturedFieldValue = {
@@ -2533,6 +2588,16 @@ Keep it brief and conversational.`;
           valueType: typeof draftValue,
         });
       }
+
+      // Log value synced for field tracking
+      voiceCharterActions.logValueSynced({
+        fieldId,
+        value,
+        askingFieldId: this.askingFieldId,
+        metadata: {
+          isArray: Array.isArray(draftValue),
+        },
+      });
     } catch (error) {
       console.error("[VoiceCharterService] Failed to sync to conversation store:", error);
     } finally {

@@ -3475,21 +3475,27 @@ const resolveDocTypeForManualSync = useCallback(
             voiceCharterActions.setAiSpeaking(false);
           }
 
-          // Handle AI transcript completion in voice charter mode
-          // This is needed to detect CAPTURE: patterns for long-form field reformulation
-          if (rawEvent.type === "response.audio_transcript.done" && voiceCharterService.getState().step !== "idle") {
+          // Log all event types for debugging
+          console.log("[Voice Debug - Realtime] Event type received:", rawEvent.type);
+
+          // Handle AI transcript completion - ALWAYS show in chat
+          if (rawEvent.type === "response.audio_transcript.done") {
             const aiTranscript = rawEvent.transcript || "";
             if (aiTranscript.trim()) {
-              console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
-              voiceCharterService.processTranscript(aiTranscript, "ai");
+              console.log("[Voice Debug - Realtime] EVA transcript complete:", aiTranscript.substring(0, 100));
 
-              // Add AI transcript to chat for debugging (append directly to avoid mutating run state)
+              // If voice charter is active, let the service process it
+              if (voiceCharterService.getState().step !== "idle") {
+                voiceCharterService.processTranscript(aiTranscript, "ai");
+              }
+
+              // Always add EVA's voice response to chat
               chatActions.setMessages((prev) => [
                 ...prev,
                 {
-                  id: createId(),
+                  id: `eva-voice-${Date.now()}`,
                   role: "assistant",
-                  text: `🎙️ [EVA]: ${aiTranscript.trim()}`,
+                  text: aiTranscript.trim(),
                 },
               ]);
             }
@@ -3530,13 +3536,23 @@ const resolveDocTypeForManualSync = useCallback(
           }
         }
 
+        // Skip normalizeRealtimeTranscriptEvent path for events we already handled above
+        // (response.audio_transcript.done for EVA, conversation.item.input_audio_transcription.completed for user)
+        // This prevents running intent detection on EVA's responses
+        if (rawEvent?.type === "response.audio_transcript.done" ||
+            rawEvent?.type === "response.audio_transcript.delta" ||
+            rawEvent?.type === "conversation.item.input_audio_transcription.completed") {
+          return;
+        }
+
         const normalized = normalizeRealtimeTranscriptEvent(event?.data);
         if (!normalized || !normalized.text) {
           return;
         }
 
-        // If voice charter is active, let the service handle field-specific processing
-        // Otherwise, use the default voice transcript handling
+        // Only process non-streaming user transcripts through the legacy path
+        // Note: With input_audio_transcription enabled, user input comes via
+        // conversation.item.input_audio_transcription.completed and is handled above
         if (voiceCharterService.getState().step === "idle") {
           await handleVoiceTranscriptMessage(normalized.text, {
             isFinal: normalized.isFinal,
@@ -3546,6 +3562,19 @@ const resolveDocTypeForManualSync = useCallback(
 
       dataChannel.onopen = () => {
         dispatch("STREAM_OPEN");
+
+        // Enable user input audio transcription by sending session.update
+        // This is required for OpenAI Realtime API to transcribe user speech
+        const sessionUpdate = {
+          type: "session.update",
+          session: {
+            input_audio_transcription: {
+              model: "whisper-1"
+            }
+          }
+        };
+        console.log("[Voice Debug - Realtime] Sending session.update to enable input transcription");
+        dataChannel.send(JSON.stringify(sessionUpdate));
       };
 
       dataChannel.onclose = () => {

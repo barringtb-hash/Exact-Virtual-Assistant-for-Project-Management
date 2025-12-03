@@ -3510,9 +3510,14 @@ const resolveDocTypeForManualSync = useCallback(
 
               if (userVoiceIntent === 'create_charter' && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
                 console.log("[Voice Debug - Realtime] Charter intent detected from user voice! Showing prompt.");
-                chatActions.pushAssistant(
-                  "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
-                );
+                chatActions.setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `assistant-voice-charter-${Date.now()}`,
+                    role: "assistant",
+                    text: "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+                  }
+                ]);
                 setShowVoiceCharterPrompt(true);
               }
 
@@ -4244,9 +4249,14 @@ const resolveDocTypeForManualSync = useCallback(
         // Show voice charter prompt if voice charter is not already active
         if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
           console.log("[Voice Debug - Realtime] Showing voice charter prompt");
-          chatActions.pushAssistant(
-            "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
-          );
+          chatActions.setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-voice-charter-${Date.now()}`,
+              role: "assistant",
+              text: "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+            }
+          ]);
           setShowVoiceCharterPrompt(true);
           voiceActions.setStatus("idle");
           return;

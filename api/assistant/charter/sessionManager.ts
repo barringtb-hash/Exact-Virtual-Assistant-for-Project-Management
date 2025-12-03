@@ -131,6 +131,8 @@ const correlationIndex = new Map<string, CorrelationEntry>();
 const CORRELATION_TTL_MS = 60_000;
 const SESSION_IDLE_TTL_MS = 5 * 60_000;
 const EXPIRED_SESSION_TTL_MS = 10 * 60_000;
+/** How often to run automatic cleanup (every 60 seconds) */
+const CLEANUP_INTERVAL_MS = 60_000;
 
 const SLOT_DESCRIPTORS: SlotDescriptor[] = CHARTER_FIELDS.map((field) => ({
   slot_id: field.id,
@@ -242,6 +244,83 @@ function cleanup() {
   cleanupExpiredSessions(now);
   cleanupExpiredMarkers(now);
 }
+
+/**
+ * Periodic cleanup interval reference.
+ * This ensures sessions are cleaned up even when there's no activity.
+ */
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Start the periodic cleanup interval.
+ * Safe to call multiple times - only starts if not already running.
+ */
+function startCleanupInterval(): void {
+  if (cleanupInterval !== null) {
+    return;
+  }
+  cleanupInterval = setInterval(() => {
+    try {
+      cleanup();
+    } catch (error) {
+      // Ignore errors in background cleanup to prevent crashing
+      console.error("[sessionManager] Periodic cleanup error:", error);
+    }
+  }, CLEANUP_INTERVAL_MS);
+
+  // Ensure the interval doesn't prevent Node.js from exiting
+  if (typeof cleanupInterval.unref === "function") {
+    cleanupInterval.unref();
+  }
+}
+
+/**
+ * Stop the periodic cleanup interval.
+ * Useful for testing or graceful shutdown.
+ */
+export function stopCleanupInterval(): void {
+  if (cleanupInterval !== null) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
+
+/**
+ * Get session statistics for monitoring.
+ */
+export function getSessionStats(): {
+  activeSessions: number;
+  expiredSessions: number;
+  correlationEntries: number;
+} {
+  return {
+    activeSessions: sessions.size,
+    expiredSessions: expiredSessions.size,
+    correlationEntries: correlationIndex.size,
+  };
+}
+
+/**
+ * Clear all sessions. Useful for testing or graceful shutdown.
+ * This notifies all watchers and cleans up orchestrator sessions.
+ */
+export function clearAllSessions(): void {
+  for (const [conversationId, record] of sessions.entries()) {
+    if (orchestratorHasSession(conversationId)) {
+      orchestratorDeleteSession(conversationId);
+    }
+    for (const listener of record.watchers) {
+      safeCall(listener, null);
+    }
+    record.watchers.clear();
+  }
+  sessions.clear();
+  expiredSessions.clear();
+  correlationIndex.clear();
+}
+
+// Start cleanup interval when the module loads
+startCleanupInterval();
 
 function getSessionRecord(conversationId: string): SessionRecord {
   const key = sanitizeString(conversationId);

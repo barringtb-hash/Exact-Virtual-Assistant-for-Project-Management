@@ -17,6 +17,7 @@ import {
   formatErrorResponse,
   MethodNotAllowedError,
   InsufficientContextError,
+  InvalidRequestBodyError,
   ERROR_CODES,
 } from "../../server/utils/apiErrors.js";
 
@@ -36,7 +37,6 @@ import {
   MIN_TEXT_CONTEXT_LENGTH,
   normalizeIntent,
   getLastUserMessageText,
-  normalizeRequestBody,
   isGuidedEnabled,
   computeUserTextLength,
   hasVoiceText,
@@ -45,6 +45,53 @@ import {
   formatAttachments,
   formatVoice,
 } from "../../server/documents/utils/index.js";
+
+/**
+ * Parse and validate request body with explicit error handling.
+ * Unlike normalizeRequestBody which silently returns {}, this throws
+ * an InvalidRequestBodyError on malformed input.
+ *
+ * @param {unknown} body - The raw request body
+ * @returns {Object} - Validated request body object
+ * @throws {InvalidRequestBodyError} - On malformed input
+ */
+function parseRequestBody(body) {
+  if (body == null) {
+    return {};
+  }
+
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (!trimmed) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+      throw new InvalidRequestBodyError(
+        "Request body must be a JSON object, not an array or primitive value."
+      );
+    } catch (error) {
+      if (error instanceof InvalidRequestBodyError) {
+        throw error;
+      }
+      throw new InvalidRequestBodyError(
+        "Request body contains invalid JSON.",
+        error?.message
+      );
+    }
+  }
+
+  if (typeof body === "object" && !Array.isArray(body)) {
+    return body;
+  }
+
+  throw new InvalidRequestBodyError(
+    "Request body must be a JSON object."
+  );
+}
 
 import {
   loadExtractPrompt,
@@ -144,7 +191,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = normalizeRequestBody(req.body);
+    const body = parseRequestBody(req.body);
     const docType = resolveDocType(req.query?.docType, body?.docType);
     const config = getDocTypeConfig(docType);
     if (!config) {
@@ -319,6 +366,11 @@ export default async function handler(req, res) {
   } catch (error) {
     // Use standardized error response format
     const statusCode = error?.statusCode || 500;
+
+    // Handle malformed request body errors explicitly
+    if (error instanceof InvalidRequestBodyError) {
+      return res.status(400).json(formatErrorResponse(error, { path: requestPath }));
+    }
 
     if (error instanceof UnsupportedDocTypeError) {
       error.message = `Extraction is not available for "${error.docType}" documents.`;

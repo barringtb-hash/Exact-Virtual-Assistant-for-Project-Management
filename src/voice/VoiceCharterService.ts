@@ -27,6 +27,8 @@ import { draftActions, draftStoreApi } from "../state/draftStore.ts";
 export type VoiceCharterStep =
   | "idle"
   | "initializing"
+  | "awaiting_extraction_decision"
+  | "extracting"
   | "asking"
   | "listening"
   | "confirming"
@@ -40,13 +42,44 @@ export type VoiceCharterStep =
 export type TranscriptSource = "ai" | "user";
 
 /**
+ * Source of a pre-populated field value.
+ */
+export type FieldValueSource = "extraction" | "manual" | "voice";
+
+/**
+ * Pre-populated field information passed during initialization.
+ */
+export interface PopulatedFieldInfo {
+  fieldId: string;
+  value: unknown; // Can be string, array, or object
+  displayValue: string; // Human-readable string for voice prompts
+  source: FieldValueSource;
+  needsConfirmation: boolean;
+}
+
+/**
  * Captured field value from voice input.
  */
 export interface CapturedFieldValue {
   fieldId: string;
   value: string;
   confirmedAt?: number;
+  source?: FieldValueSource;
+  userConfirmed?: boolean; // True if user explicitly confirmed extracted value
 }
+
+/**
+ * Attachment info passed to voice charter for extraction detection.
+ */
+export interface VoiceCharterAttachment {
+  name: string;
+  type?: string;
+}
+
+/**
+ * Callback to trigger document extraction from voice charter.
+ */
+export type ExtractionCallback = () => Promise<Record<string, unknown> | null>;
 
 /**
  * Voice charter session state.
@@ -58,6 +91,12 @@ export interface VoiceCharterState {
   capturedValues: Map<string, CapturedFieldValue>;
   pendingValue: string | null;
   error: string | null;
+  /** Fields that were pre-populated (from extraction or manual input) */
+  populatedFields: Map<string, PopulatedFieldInfo>;
+  /** Whether we're currently awaiting confirmation for a pre-populated field */
+  awaitingFieldConfirmation: boolean;
+  /** Whether there are unprocessed attachments that could be extracted */
+  hasUnextractedAttachments: boolean;
 }
 
 /**
@@ -67,6 +106,9 @@ export type VoiceCharterEvent =
   | { type: "state_changed"; state: VoiceCharterState }
   | { type: "field_captured"; fieldId: string; value: string }
   | { type: "field_confirmed"; fieldId: string; value: string }
+  | { type: "field_confirmation_requested"; fieldId: string; value: string }
+  | { type: "extraction_requested" }
+  | { type: "extraction_completed"; fields: Record<string, unknown> }
   | { type: "navigation"; direction: "next" | "previous"; fieldId: string }
   | { type: "completed" }
   | { type: "error"; message: string };
@@ -76,14 +118,43 @@ type EventListener = (event: VoiceCharterEvent) => void;
 /**
  * Generates the system prompt for the voice charter assistant.
  */
-function generateSystemPrompt(schema: CharterFormSchema): string {
+function generateSystemPrompt(
+  schema: CharterFormSchema,
+  populatedFields?: Map<string, PopulatedFieldInfo>
+): string {
   const fieldDescriptions = schema.fields
     .map((field, index) => {
       const required = field.required ? "(required)" : "(optional)";
       const example = field.example ? `Example: "${field.example}"` : "";
-      return `${index + 1}. ${field.label} ${required}: ${field.help_text || ""}. ${example}`;
+      const populated = populatedFields?.get(field.id);
+      const status = populated
+        ? `[PRE-FILLED from document: "${populated.displayValue.substring(0, 50)}${populated.displayValue.length > 50 ? '...' : ''}"]`
+        : "[EMPTY]";
+      return `${index + 1}. ${field.label} ${required} ${status}: ${field.help_text || ""}. ${example}`;
     })
     .join("\n");
+
+  // Build pre-populated fields summary
+  let populatedSummary = "";
+  if (populatedFields && populatedFields.size > 0) {
+    const extractedFields = Array.from(populatedFields.values())
+      .filter(f => f.source === "extraction");
+    if (extractedFields.length > 0) {
+      populatedSummary = `
+## Pre-Populated Fields from Uploaded Document
+The user has uploaded a document (TPP) and the following fields were extracted:
+${extractedFields.map(f => `- ${f.fieldId}: "${f.displayValue.substring(0, 80)}${f.displayValue.length > 80 ? '...' : ''}"`).join("\n")}
+
+For these pre-populated fields, you MUST:
+1. Acknowledge the extracted value: "Based on your uploaded document, the [field] is '[value]'."
+2. Ask for confirmation: "Would you like to keep this, or change it?"
+3. If user says "keep it", "yes", "that's correct", "looks good" → briefly acknowledge and move to next field
+4. If user says "change it", "no", "update" → ask them to provide the new value
+5. If user provides a new value directly → capture it and move on
+
+`;
+    }
+  }
 
   return `You are a helpful project charter assistant guiding the user through creating a project charter via voice conversation.
 
@@ -92,7 +163,7 @@ function generateSystemPrompt(schema: CharterFormSchema): string {
 - Listen to the user's response and acknowledge it briefly
 - Be conversational, natural, and concise
 - Keep your responses SHORT - this is a voice conversation
-
+${populatedSummary}
 ## Charter Fields (in order)
 ${fieldDescriptions}
 
@@ -102,13 +173,20 @@ The user can say these commands at any time:
 - "Edit [field name]" - Jump to a specific field (e.g., "Edit project title")
 - "Skip" or "Skip this field" - Skip the current field (only for optional fields)
 - "Review" or "Show progress" - List all captured values
+- "Review extracted" or "Show extracted" - List values from uploaded document
+- "Confirm all" or "Keep all" - Accept all pre-populated values
 - "Done" or "Finish" - Complete the charter
 
+## Confirmation Commands (for pre-populated fields)
+- "Keep it", "Yes", "That's correct", "Looks good" - Confirm the extracted value
+- "Change it", "No", "Update this" - Provide a new value for the field
+
 ## Conversation Flow
-1. Ask for the current field value in a friendly, conversational way
-2. When the user responds, briefly acknowledge (e.g., "Got it!" or "Perfect!")
-3. IMMEDIATELY move to the next field - the user can see the captured value on screen for visual confirmation
-4. If the user wants to change something, they will edit the field directly or say "go back"
+1. For EMPTY fields: Ask for the value in a friendly, conversational way
+2. For PRE-FILLED fields: State the extracted value and ask to confirm or change
+3. When the user responds, briefly acknowledge (e.g., "Got it!" or "Perfect!")
+4. IMMEDIATELY move to the next field - the user can see the captured value on screen for visual confirmation
+5. If the user wants to change something, they will edit the field directly or say "go back"
 
 ## Long-Form Content (Vision, Problem, Description)
 For these narrative fields, you MUST reformulate the user's input into professional language.
@@ -127,7 +205,7 @@ For list-type fields:
 - Format the response as a bulleted list separated by newlines
 
 ## Important Rules
-- Keep responses VERY short (1 sentence max) - NO verbal confirmation needed
+- Keep responses VERY short (1-2 sentences max) - NO verbose verbal confirmation needed
 - The user sees all captured values in real-time on the form - they can visually confirm
 - Move quickly through fields - just acknowledge and ask the next question
 - For dates, briefly clarify format only if needed
@@ -140,8 +218,13 @@ Start by greeting the user briefly, then ask about the first field.`;
 
 /**
  * Generates a prompt to ask about a specific field.
+ * If the field is pre-populated, generates a confirmation prompt instead.
  */
-function generateFieldPrompt(field: CharterFormField, isFirst: boolean): string {
+function generateFieldPrompt(
+  field: CharterFormField,
+  isFirst: boolean,
+  populatedInfo?: PopulatedFieldInfo
+): string {
   const greeting = isFirst
     ? "Let's create your project charter. "
     : "";
@@ -149,6 +232,15 @@ function generateFieldPrompt(field: CharterFormField, isFirst: boolean): string 
   const required = field.required
     ? "This is a required field."
     : "This field is optional - you can skip it if you'd like.";
+
+  // If field is pre-populated from extraction, generate confirmation prompt
+  if (populatedInfo && populatedInfo.source === "extraction" && populatedInfo.needsConfirmation) {
+    const truncatedValue = populatedInfo.displayValue.length > 100
+      ? populatedInfo.displayValue.substring(0, 100) + "..."
+      : populatedInfo.displayValue;
+
+    return `${greeting}Based on your uploaded document, the ${field.label.toLowerCase()} is "${truncatedValue}". Would you like to keep this, or change it?`;
+  }
 
   let question = "";
   switch (field.id) {
@@ -790,6 +882,15 @@ export class VoiceCharterService {
    */
   private pendingCaptureText: string | null = null;
   private pendingCaptureFieldId: string | null = null;
+  /**
+   * Callback to trigger document extraction from App.jsx.
+   * This allows voice charter to request extraction when user agrees.
+   */
+  private extractionCallback: ExtractionCallback | null = null;
+  /**
+   * Attachment names for display in extraction prompt.
+   */
+  private attachmentNames: string[] = [];
 
   constructor() {
     this.state = this.createInitialState();
@@ -803,6 +904,9 @@ export class VoiceCharterService {
       capturedValues: new Map(),
       pendingValue: null,
       error: null,
+      populatedFields: new Map(),
+      awaitingFieldConfirmation: false,
+      hasUnextractedAttachments: false,
     };
   }
 
@@ -893,24 +997,49 @@ export class VoiceCharterService {
 
   /**
    * Initialize a voice charter session.
+   * @param schema - The charter form schema
+   * @param dataChannel - The WebRTC data channel for Realtime API
+   * @param populatedFields - Array of pre-populated field info (from extraction or manual input)
+   * @param options - Additional options for initialization
+   * @param options.attachments - List of attached files (for extraction prompt detection)
+   * @param options.extractionCallback - Callback to trigger extraction when user agrees
    */
   initialize(
     schema: CharterFormSchema,
     dataChannel: RTCDataChannel,
-    existingValues?: Record<string, string>
+    populatedFields?: PopulatedFieldInfo[],
+    options?: {
+      attachments?: VoiceCharterAttachment[];
+      extractionCallback?: ExtractionCallback;
+    }
   ): boolean {
     this.schema = schema;
     this.dataChannel = dataChannel;
+    this.extractionCallback = options?.extractionCallback ?? null;
+    this.attachmentNames = options?.attachments?.map(a => a.name) ?? [];
 
-    // Initialize captured values from existing values
+    // Determine if there are unextracted attachments
+    // (attachments present but no populated fields from extraction)
+    const hasAttachments = this.attachmentNames.length > 0;
+    const hasExtractedFields = populatedFields?.some(f => f.source === "extraction") ?? false;
+    const hasUnextractedAttachments = hasAttachments && !hasExtractedFields;
+
+    // Build populated fields map and captured values from provided fields
+    const populatedFieldsMap = new Map<string, PopulatedFieldInfo>();
     const capturedValues = new Map<string, CapturedFieldValue>();
-    if (existingValues) {
-      for (const [fieldId, value] of Object.entries(existingValues)) {
-        if (value) {
-          capturedValues.set(fieldId, {
-            fieldId,
-            value,
-            confirmedAt: Date.now(),
+
+    if (populatedFields) {
+      for (const fieldInfo of populatedFields) {
+        if (fieldInfo.displayValue) {
+          populatedFieldsMap.set(fieldInfo.fieldId, fieldInfo);
+
+          // Pre-populate captured values, but mark them as needing confirmation if from extraction
+          capturedValues.set(fieldInfo.fieldId, {
+            fieldId: fieldInfo.fieldId,
+            value: fieldInfo.displayValue,
+            confirmedAt: fieldInfo.needsConfirmation ? undefined : Date.now(),
+            source: fieldInfo.source,
+            userConfirmed: !fieldInfo.needsConfirmation,
           });
         }
       }
@@ -928,16 +1057,23 @@ export class VoiceCharterService {
       capturedValues,
       pendingValue: null,
       error: null,
+      populatedFields: populatedFieldsMap,
+      awaitingFieldConfirmation: false,
+      hasUnextractedAttachments,
     });
 
     // Ensure conversation store session exists and sync existing values
     conversationActions.ensureSession(schema);
-    if (existingValues) {
-      for (const [fieldId, value] of Object.entries(existingValues)) {
-        if (value) {
+    if (populatedFields) {
+      for (const fieldInfo of populatedFields) {
+        if (fieldInfo.displayValue) {
           this.isInternalUpdate = true;
           try {
-            conversationActions.dispatch({ type: "CAPTURE", fieldId, value });
+            conversationActions.dispatch({
+              type: "CAPTURE",
+              fieldId: fieldInfo.fieldId,
+              value: fieldInfo.displayValue,
+            });
           } finally {
             this.isInternalUpdate = false;
           }
@@ -949,8 +1085,9 @@ export class VoiceCharterService {
     this.subscribeToConversationStore();
 
     // Configure the Realtime session with voice charter instructions
+    // Include populated fields info so the AI knows about extracted values
     const config: SessionConfig = {
-      instructions: generateSystemPrompt(schema),
+      instructions: generateSystemPrompt(schema, populatedFieldsMap),
       voice: "alloy",
       inputAudioTranscription: {
         model: "whisper-1",
@@ -968,6 +1105,8 @@ export class VoiceCharterService {
       this.updateState({
         step: "idle",
         error: "Failed to configure voice session",
+        populatedFields: new Map(),
+        awaitingFieldConfirmation: false,
       });
       return false;
     }
@@ -984,6 +1123,9 @@ export class VoiceCharterService {
       hasSchema: !!this.schema,
       currentFieldIndex: this.state.currentFieldIndex,
       currentFieldId: this.state.currentFieldId,
+      populatedFieldsCount: this.state.populatedFields?.size ?? 0,
+      hasUnextractedAttachments: this.state.hasUnextractedAttachments,
+      attachmentNames: this.attachmentNames,
     });
 
     if (!this.dataChannel || !this.schema) {
@@ -991,13 +1133,218 @@ export class VoiceCharterService {
       return false;
     }
 
-    const firstField = this.getCurrentField();
-    if (!firstField) {
-      console.log("[VoiceCharterService] start: No first field found");
+    // Check if there are unextracted attachments - prompt user first
+    if (this.state.hasUnextractedAttachments && this.extractionCallback) {
+      console.log("[VoiceCharterService] start: Detected unextracted attachments, prompting user");
+      this.promptForExtraction();
+      return true;
+    }
+
+    // Continue with normal field collection flow
+    return this.startFieldCollection();
+  }
+
+  /**
+   * Prompt user to decide if they want to extract from uploaded document.
+   */
+  private promptForExtraction(): void {
+    const attachmentList = this.attachmentNames.length === 1
+      ? `"${this.attachmentNames[0]}"`
+      : this.attachmentNames.map(n => `"${n}"`).join(", ");
+
+    const prompt = `[EXTRACTION DECISION NEEDED]
+The user has uploaded a document (${attachmentList}) but hasn't extracted project information from it yet.
+
+Your task: Ask the user if they would like you to extract project information from the uploaded document first.
+
+Say something like: "I see you've uploaded ${attachmentList}. Would you like me to extract project information from it to help fill out the charter? Just say yes or no."
+
+Wait for their response:
+- If they say "yes", "sure", "please", "extract" → We'll extract the information
+- If they say "no", "skip", "start fresh" → We'll proceed without extraction
+
+Keep it brief and conversational.`;
+
+    this.updateState({ step: "awaiting_extraction_decision" });
+    this.sendAIPrompt(prompt);
+  }
+
+  /**
+   * Handle user's response to the extraction decision prompt.
+   */
+  private handleExtractionDecision(transcript: string): void {
+    console.log("[VoiceCharterService] handleExtractionDecision:", transcript);
+
+    // Check for affirmative response (wants extraction)
+    const yesPatterns = [
+      /^(?:yes|yeah|yep|yup|sure|please|okay|ok|absolutely|definitely)(?:\s|$|[,.])/i,
+      /extract/i,
+      /pull\s+(?:out|from)/i,
+      /get\s+(?:the\s+)?(?:info|information)/i,
+      /sounds?\s+good/i,
+      /let'?s?\s+do\s+(?:it|that)/i,
+      /go\s+ahead/i,
+      /that\s+would\s+(?:be\s+)?(?:great|helpful|good)/i,
+    ];
+
+    const wantsExtraction = yesPatterns.some(p => p.test(transcript));
+
+    // Check for negative response (skip extraction)
+    const noPatterns = [
+      /^(?:no|nope|nah|skip|don'?t|start\s+fresh)(?:\s|$|[,.])/i,
+      /without\s+(?:it|extraction)/i,
+      /from\s+scratch/i,
+      /manually/i,
+      /i'?ll\s+(?:do\s+it|enter)/i,
+    ];
+
+    const skipExtraction = noPatterns.some(p => p.test(transcript));
+
+    if (wantsExtraction) {
+      console.log("[VoiceCharterService] User wants extraction, triggering callback");
+      this.triggerExtraction();
+    } else if (skipExtraction) {
+      console.log("[VoiceCharterService] User skipped extraction, starting field collection");
+      this.updateState({ hasUnextractedAttachments: false });
+
+      // Send AI acknowledgment and start field collection
+      this.sendAIPrompt(
+        "[User declined extraction] Say 'Okay, no problem!' or similar, then ask about the first field: " +
+        `${this.schema?.fields[0]?.label ?? "Project Name"}.\n` +
+        generateFieldPrompt(this.schema?.fields[0]!, true)
+      );
+      this.updateState({ step: "asking" });
+      this.askingFieldId = this.schema?.fields[0]?.id ?? null;
+    } else {
+      // Ambiguous response - ask again
+      console.log("[VoiceCharterService] Ambiguous extraction decision response");
+      this.sendAIPrompt(
+        "[Unclear response] The user's response was unclear. " +
+        "Ask them again simply: 'Would you like me to extract information from your document? Yes or no?'"
+      );
+    }
+  }
+
+  /**
+   * Trigger document extraction and wait for results.
+   */
+  private async triggerExtraction(): Promise<void> {
+    if (!this.extractionCallback) {
+      console.error("[VoiceCharterService] No extraction callback available");
+      this.updateState({ hasUnextractedAttachments: false });
+      this.startFieldCollection();
+      return;
+    }
+
+    // Update state and notify
+    this.updateState({ step: "extracting" });
+    this.emit({ type: "extraction_requested" });
+
+    // Tell AI we're extracting
+    this.sendAIPrompt(
+      "[EXTRACTING] Say something like: 'Great, let me extract the project information from your document. This will just take a moment...'"
+    );
+
+    try {
+      console.log("[VoiceCharterService] Calling extraction callback");
+      const extractedFields = await this.extractionCallback();
+
+      if (extractedFields) {
+        console.log("[VoiceCharterService] Extraction completed:", Object.keys(extractedFields));
+
+        // Update captured values with extracted data
+        const newCapturedValues = new Map(this.state.capturedValues);
+        const newPopulatedFields = new Map(this.state.populatedFields);
+
+        for (const [fieldId, value] of Object.entries(extractedFields)) {
+          if (value !== null && value !== undefined && value !== "") {
+            const displayValue = typeof value === "string" ? value :
+              Array.isArray(value) ? value.join(", ") : JSON.stringify(value);
+
+            newPopulatedFields.set(fieldId, {
+              fieldId,
+              value,
+              displayValue,
+              source: "extraction",
+              needsConfirmation: true,
+            });
+
+            newCapturedValues.set(fieldId, {
+              fieldId,
+              value: displayValue,
+              source: "extraction",
+              userConfirmed: false,
+            });
+          }
+        }
+
+        this.updateState({
+          capturedValues: newCapturedValues,
+          populatedFields: newPopulatedFields,
+          hasUnextractedAttachments: false,
+        });
+
+        this.emit({ type: "extraction_completed", fields: extractedFields });
+
+        // Notify AI and start field collection with confirmation flow
+        const extractedCount = Object.keys(extractedFields).filter(k =>
+          extractedFields[k] !== null && extractedFields[k] !== undefined && extractedFields[k] !== ""
+        ).length;
+
+        this.sendAIPrompt(
+          `[EXTRACTION COMPLETE] I extracted ${extractedCount} field(s) from the document. ` +
+          "Now start the confirmation flow. For the first extracted field, say something like: " +
+          "'Great, I found some information! Let me confirm what I extracted. " +
+          `Based on the document, the ${this.schema?.fields[0]?.label?.toLowerCase() ?? "project name"} is...' ` +
+          "and ask if they want to keep it or change it."
+        );
+
+        // Start field collection (will now use confirmation flow)
+        setTimeout(() => {
+          this.startFieldCollection();
+        }, 500);
+      } else {
+        console.log("[VoiceCharterService] Extraction returned no results");
+        this.updateState({ hasUnextractedAttachments: false });
+
+        this.sendAIPrompt(
+          "[EXTRACTION FAILED] The extraction didn't find usable information. " +
+          "Say something like: 'I wasn't able to extract much from that document. " +
+          "Let's go through the fields together.' Then ask about the first field."
+        );
+
+        this.startFieldCollection();
+      }
+    } catch (error) {
+      console.error("[VoiceCharterService] Extraction error:", error);
+      this.updateState({ hasUnextractedAttachments: false });
+
+      this.sendAIPrompt(
+        "[EXTRACTION ERROR] Something went wrong with the extraction. " +
+        "Say something like: 'Sorry, I had trouble reading that document. " +
+        "Let's just go through the fields together.' Then ask about the first field."
+      );
+
+      this.startFieldCollection();
+    }
+  }
+
+  /**
+   * Start the normal field collection flow.
+   * Called after extraction decision is made or if no extraction prompt needed.
+   */
+  private startFieldCollection(): boolean {
+    if (!this.dataChannel || !this.schema) {
       return false;
     }
 
-    console.log("[VoiceCharterService] start: Setting askingFieldId to", firstField.id);
+    const firstField = this.getCurrentField();
+    if (!firstField) {
+      console.log("[VoiceCharterService] startFieldCollection: No first field found");
+      return false;
+    }
+
+    console.log("[VoiceCharterService] startFieldCollection: Setting askingFieldId to", firstField.id);
 
     // Track which field we're asking about
     this.askingFieldId = firstField.id;
@@ -1005,20 +1352,45 @@ export class VoiceCharterService {
     // Sync to conversation store for UI highlighting
     this.syncCurrentFieldToStore(firstField.id);
 
+    // Check if first field is pre-populated from extraction
+    const populatedInfo = this.state.populatedFields?.get(firstField.id);
+    const hasExtractedFields = this.state.populatedFields &&
+      Array.from(this.state.populatedFields.values()).some(f => f.source === "extraction");
+
     // Build context with any existing values
     let context = "Starting voice charter session.\n";
+
+    // Inform AI about extracted fields if present
+    if (hasExtractedFields) {
+      const extractedCount = Array.from(this.state.populatedFields!.values())
+        .filter(f => f.source === "extraction").length;
+      context += `Note: The user uploaded a document and ${extractedCount} field(s) were extracted. `;
+      context += "For each pre-populated field, confirm with the user before moving on.\n\n";
+    }
+
     if (this.state.capturedValues.size > 0) {
-      context += "Previously captured values:\n";
+      context += "Pre-populated values from uploaded document:\n";
       for (const [fieldId, captured] of this.state.capturedValues) {
         const field = this.schema.fields.find((f) => f.id === fieldId);
+        const popInfo = this.state.populatedFields?.get(fieldId);
         if (field) {
-          context += `- ${field.label}: ${captured.value}\n`;
+          const source = popInfo?.source === "extraction" ? " [from document]" : "";
+          const confirmed = captured.userConfirmed ? " [confirmed]" : " [needs confirmation]";
+          context += `- ${field.label}${source}${confirmed}: ${captured.value}\n`;
         }
       }
       context += "\n";
     }
+
     context += `Current field to ask about: ${firstField.label}\n`;
-    context += generateFieldPrompt(firstField, true);
+
+    // Generate appropriate prompt based on whether field is pre-populated
+    if (populatedInfo && populatedInfo.source === "extraction" && populatedInfo.needsConfirmation) {
+      context += `This field was extracted from the user's uploaded document. Ask to confirm or change.\n`;
+      this.updateState({ awaitingFieldConfirmation: true });
+    }
+
+    context += generateFieldPrompt(firstField, true, populatedInfo);
 
     // Send context and trigger AI to speak
     this.sendAIPrompt(context);
@@ -1500,6 +1872,12 @@ export class VoiceCharterService {
     // Normalize for command detection
     const normalizedTranscript = normalizeApostrophes(transcript.toLowerCase().trim());
 
+    // Handle extraction decision if we're waiting for it
+    if (this.state.step === "awaiting_extraction_decision") {
+      this.handleExtractionDecision(normalizedTranscript);
+      return;
+    }
+
     // Check for navigation commands
     if (this.handleNavigationCommand(normalizedTranscript)) {
       // Clear pending reformulation if user navigates away
@@ -1529,6 +1907,27 @@ export class VoiceCharterService {
     if (normalizedTranscript.includes("review") || normalizedTranscript.includes("show progress") || normalizedTranscript.includes("what do i have")) {
       this.reviewProgress();
       return;
+    }
+
+    // Check for "review extracted" command
+    if (normalizedTranscript.includes("review extracted") || normalizedTranscript.includes("show extracted")) {
+      this.reviewExtractedFields();
+      return;
+    }
+
+    // Check for "confirm all" / "keep all" command
+    if (normalizedTranscript.includes("confirm all") || normalizedTranscript.includes("keep all") ||
+        normalizedTranscript.includes("accept all")) {
+      this.confirmAllExtractedFields();
+      return;
+    }
+
+    // Check for field confirmation commands (for pre-populated fields)
+    if (this.state.awaitingFieldConfirmation) {
+      const confirmResult = this.handleFieldConfirmation(normalizedTranscript);
+      if (confirmResult !== null) {
+        return;
+      }
     }
 
     // Check for correction commands
@@ -2262,6 +2661,269 @@ export class VoiceCharterService {
     summary += "\nRead this summary to the user, then ask if they want to continue or edit any field.";
 
     this.sendAIPrompt(summary);
+  }
+
+  /**
+   * Review only the fields that were extracted from the uploaded document.
+   */
+  reviewExtractedFields(): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const extractedFields = Array.from(this.state.populatedFields.values())
+      .filter(f => f.source === "extraction");
+
+    if (extractedFields.length === 0) {
+      this.sendAIPrompt(
+        "[User asked to review extracted values] No fields were extracted from uploaded documents. " +
+        "Tell the user this briefly and continue with the current field."
+      );
+      return;
+    }
+
+    let summary = "[User requested review of extracted values]\n";
+    summary += `The following ${extractedFields.length} field(s) were extracted from the uploaded document:\n`;
+
+    for (const fieldInfo of extractedFields) {
+      const field = this.schema.fields.find(f => f.id === fieldInfo.fieldId);
+      const captured = this.state.capturedValues.get(fieldInfo.fieldId);
+      const status = captured?.userConfirmed ? "✓ confirmed" : "⟳ needs confirmation";
+      summary += `- ${field?.label ?? fieldInfo.fieldId} [${status}]: ${fieldInfo.displayValue}\n`;
+    }
+
+    const unconfirmedCount = extractedFields.filter(f => {
+      const captured = this.state.capturedValues.get(f.fieldId);
+      return !captured?.userConfirmed;
+    }).length;
+
+    if (unconfirmedCount > 0) {
+      summary += `\n${unconfirmedCount} field(s) still need confirmation.`;
+      summary += "\nRead this summary to the user, then ask if they want to confirm all, or review each one.";
+    } else {
+      summary += "\nAll extracted fields have been confirmed.";
+      summary += "\nRead this summary briefly and continue with the current field.";
+    }
+
+    this.sendAIPrompt(summary);
+  }
+
+  /**
+   * Confirm all pre-populated fields from extraction.
+   */
+  confirmAllExtractedFields(): void {
+    if (!this.schema || !this.dataChannel) {
+      return;
+    }
+
+    const extractedFields = Array.from(this.state.populatedFields.values())
+      .filter(f => f.source === "extraction");
+
+    if (extractedFields.length === 0) {
+      this.sendAIPrompt(
+        "[User asked to confirm all] No fields were extracted from uploaded documents. " +
+        "Tell the user this briefly and continue with the current field."
+      );
+      return;
+    }
+
+    // Mark all extracted fields as confirmed
+    const updatedCapturedValues = new Map(this.state.capturedValues);
+    for (const fieldInfo of extractedFields) {
+      const existing = updatedCapturedValues.get(fieldInfo.fieldId);
+      if (existing) {
+        updatedCapturedValues.set(fieldInfo.fieldId, {
+          ...existing,
+          confirmedAt: Date.now(),
+          userConfirmed: true,
+        });
+      }
+    }
+
+    this.updateState({
+      capturedValues: updatedCapturedValues,
+      awaitingFieldConfirmation: false,
+    });
+
+    // Find next empty field to continue with
+    const nextEmptyField = this.schema.fields.find(f => !updatedCapturedValues.has(f.id));
+
+    let prompt = `[User confirmed all extracted values] All ${extractedFields.length} extracted field(s) have been confirmed.\n`;
+    if (nextEmptyField) {
+      prompt += `Briefly acknowledge this, then ask about the next empty field: ${nextEmptyField.label}.\n`;
+      prompt += generateFieldPrompt(nextEmptyField, false);
+      this.askingFieldId = nextEmptyField.id;
+      const fieldIndex = this.schema.fields.findIndex(f => f.id === nextEmptyField.id);
+      this.updateState({
+        currentFieldIndex: fieldIndex,
+        currentFieldId: nextEmptyField.id,
+      });
+    } else {
+      prompt += "All fields are now complete! Ask the user if they want to review the charter or make any changes.";
+    }
+
+    this.sendAIPrompt(prompt);
+  }
+
+  /**
+   * Handle field confirmation commands (keep it, change it, yes, no).
+   * Returns true if a confirmation command was handled, false otherwise.
+   */
+  private handleFieldConfirmation(transcript: string): boolean | null {
+    const currentFieldId = this.askingFieldId || this.state.currentFieldId;
+    if (!currentFieldId || !this.schema) {
+      return null;
+    }
+
+    const populatedInfo = this.state.populatedFields?.get(currentFieldId);
+    if (!populatedInfo || populatedInfo.source !== "extraction") {
+      // Not a pre-populated field, don't handle confirmation
+      return null;
+    }
+
+    // Check for "keep it" / confirmation phrases
+    const keepPatterns = [
+      /^(?:yes|yeah|yep|yup|correct|right|exactly)(?:\s|$|[,.])/i,
+      /keep\s*(?:it|this|that)/i,
+      /that'?s?\s+(?:correct|right|good|fine|perfect)/i,
+      /looks?\s+good/i,
+      /sounds?\s+good/i,
+      /(?:that'?s?\s+)?(?:great|perfect|fine)/i,
+      /^ok(?:ay)?(?:\s|$|[,.])/i,
+      /^sure(?:\s|$|[,.])/i,
+    ];
+
+    const shouldKeep = keepPatterns.some(p => p.test(transcript));
+
+    if (shouldKeep) {
+      console.log("[VoiceCharterService] User confirmed extracted value for:", currentFieldId);
+
+      // Mark the field as confirmed
+      const captured = this.state.capturedValues.get(currentFieldId);
+      if (captured) {
+        const updatedCapturedValues = new Map(this.state.capturedValues);
+        updatedCapturedValues.set(currentFieldId, {
+          ...captured,
+          confirmedAt: Date.now(),
+          userConfirmed: true,
+        });
+        this.updateState({
+          capturedValues: updatedCapturedValues,
+          awaitingFieldConfirmation: false,
+        });
+      }
+
+      // Emit confirmation event
+      this.emit({
+        type: "field_confirmed",
+        fieldId: currentFieldId,
+        value: populatedInfo.displayValue,
+      });
+
+      // Advance to next field
+      this.advanceToNextFieldWithContext();
+      return true;
+    }
+
+    // Check for "change it" / rejection phrases
+    const changePatterns = [
+      /^(?:no|nope|nah)(?:\s|$|[,.])/i,
+      /change\s*(?:it|this|that)/i,
+      /update\s*(?:it|this|that)/i,
+      /modify\s*(?:it|this|that)/i,
+      /edit\s*(?:it|this|that)/i,
+      /(?:i'?d?\s+)?(?:want|like)\s+to\s+change/i,
+      /(?:let'?s?\s+)?change\s+(?:it|this|that)/i,
+      /that'?s?\s+(?:not\s+)?(?:wrong|incorrect)/i,
+      /not\s+(?:quite|exactly)/i,
+    ];
+
+    const shouldChange = changePatterns.some(p => p.test(transcript));
+
+    if (shouldChange) {
+      console.log("[VoiceCharterService] User wants to change extracted value for:", currentFieldId);
+
+      // Clear the confirmation state and ask for new value
+      this.updateState({ awaitingFieldConfirmation: false });
+
+      const field = this.schema.fields.find(f => f.id === currentFieldId);
+      if (field) {
+        // Ask for the new value
+        const prompt = `[User wants to change ${field.label}] Ask them to provide the new value for ${field.label}.`;
+        this.sendAIPrompt(prompt);
+      }
+
+      return true;
+    }
+
+    // Not a confirmation command - let it be processed as a regular value
+    // This handles the case where user just provides a new value directly
+    return null;
+  }
+
+  /**
+   * Advance to the next field and provide context for the AI.
+   * Used after confirming a pre-populated field.
+   */
+  private advanceToNextFieldWithContext(): void {
+    if (!this.schema) {
+      return;
+    }
+
+    // Find the next field that either:
+    // 1. Is empty (not in capturedValues)
+    // 2. Is pre-populated but not yet confirmed
+    const currentIndex = this.schema.fields.findIndex(f => f.id === this.askingFieldId);
+    let nextField = null;
+    let nextIndex = currentIndex + 1;
+
+    while (nextIndex < this.schema.fields.length) {
+      const candidateField = this.schema.fields[nextIndex];
+      const captured = this.state.capturedValues.get(candidateField.id);
+      const populated = this.state.populatedFields?.get(candidateField.id);
+
+      // If field is not captured, or is captured but needs confirmation
+      if (!captured || (populated?.source === "extraction" && !captured.userConfirmed)) {
+        nextField = candidateField;
+        break;
+      }
+
+      console.log(`[VoiceCharterService] advanceToNextFieldWithContext: Skipping ${candidateField.id} (already confirmed)`);
+      nextIndex++;
+    }
+
+    if (!nextField) {
+      // All fields are complete
+      this.askingFieldId = null;
+      const prompt = "Great, keeping that value. All fields are now complete! " +
+        "Ask the user if they want to review the charter or make any changes.";
+      this.sendAIPrompt(prompt);
+      return;
+    }
+
+    this.askingFieldId = nextField.id;
+    this.syncCurrentFieldToStore(nextField.id);
+
+    this.updateState({
+      step: "asking",
+      currentFieldIndex: nextIndex,
+      currentFieldId: nextField.id,
+    });
+
+    // Check if next field is also pre-populated
+    const nextPopulatedInfo = this.state.populatedFields?.get(nextField.id);
+    if (nextPopulatedInfo && nextPopulatedInfo.source === "extraction" && nextPopulatedInfo.needsConfirmation) {
+      this.updateState({ awaitingFieldConfirmation: true });
+    }
+
+    // Generate prompt with acknowledgment of previous confirmation
+    const previousField = this.schema.fields[currentIndex];
+    let prompt = `[User confirmed ${previousField?.label ?? "previous field"}] `;
+    prompt += `Great, keeping that value. `;
+    prompt += `Now asking about: ${nextField.label}\n`;
+    prompt += generateFieldPrompt(nextField, false, nextPopulatedInfo);
+
+    this.sendAIPrompt(prompt);
   }
 
   /**

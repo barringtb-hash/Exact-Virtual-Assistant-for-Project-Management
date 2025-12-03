@@ -25,12 +25,14 @@ export interface SessionConfig {
  * Creates a session.update event to configure the Realtime session.
  */
 export function createSessionUpdateEvent(config: SessionConfig): string {
+  const voice = config.voice ?? "shimmer";
+  console.log("[Realtime] Creating session.update with voice:", voice);
   return JSON.stringify({
     type: "session.update",
     session: {
       modalities: ["text", "audio"],
       instructions: config.instructions,
-      voice: config.voice ?? "shimmer",
+      voice,
       input_audio_transcription: config.inputAudioTranscription ?? {
         model: "whisper-1",
       },

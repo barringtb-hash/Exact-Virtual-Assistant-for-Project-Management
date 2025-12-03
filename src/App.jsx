@@ -3522,7 +3522,8 @@ const resolveDocTypeForManualSync = useCallback(
           // Wait for session.created before sending session.update with voice
           // This ensures the session is fully initialized before we configure it
           if (rawEvent.type === "session.created") {
-            console.log("[Voice Debug - Realtime] Session created, now sending session.update with voice");
+            console.log("[Voice Debug - Realtime] Session created with voice:", rawEvent.session?.voice);
+            console.log("[Voice Debug - Realtime] Full session.created:", JSON.stringify(rawEvent.session, null, 2));
             const sessionUpdate = {
               type: "session.update",
               session: {
@@ -3534,6 +3535,12 @@ const resolveDocTypeForManualSync = useCallback(
             };
             console.log("[Voice Debug - Realtime] Sending session.update with voice:", sessionUpdate.session.voice);
             dataChannel.send(JSON.stringify(sessionUpdate));
+          }
+
+          // Log the session.updated response to verify voice was changed
+          if (rawEvent.type === "session.updated") {
+            console.log("[Voice Debug - Realtime] Session updated with voice:", rawEvent.session?.voice);
+            console.log("[Voice Debug - Realtime] Full session.updated:", JSON.stringify(rawEvent.session, null, 2));
           }
 
           // Handle AI transcript completion - ALWAYS show in chat

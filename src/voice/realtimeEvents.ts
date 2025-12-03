@@ -25,7 +25,7 @@ export interface SessionConfig {
  * Creates a session.update event to configure the Realtime session.
  */
 export function createSessionUpdateEvent(config: SessionConfig): string {
-  const voice = config.voice ?? "sage";
+  const voice = config.voice ?? "coral";
   console.log("[Realtime] Creating session.update with voice:", voice);
   return JSON.stringify({
     type: "session.update",

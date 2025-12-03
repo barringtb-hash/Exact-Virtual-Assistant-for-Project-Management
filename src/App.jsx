@@ -3524,12 +3524,12 @@ const resolveDocTypeForManualSync = useCallback(
           if (rawEvent.type === "session.created") {
             console.log("[Voice Debug - Realtime] Session created with voice:", rawEvent.session?.voice);
             console.log("[Voice Debug - Realtime] Full session.created:", JSON.stringify(rawEvent.session, null, 2));
-            // Try "sage" - described as calm, thoughtful, feminine
-            // Other options: shimmer, nova, coral, verse, ballad
+            // Using "coral" - warm, friendly, cheerful feminine voice
+            // Other options: sage, shimmer, nova, verse, ballad
             const sessionUpdate = {
               type: "session.update",
               session: {
-                voice: "sage",
+                voice: "coral",
                 input_audio_transcription: {
                   model: "whisper-1"
                 }

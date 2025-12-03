@@ -57,7 +57,7 @@ const OBJECT_ENTRY_FIELDS = {
   },
   core_team: {
     fields: ["name", "role"],
-    extraStringFields: ["responsibilities"],
+    extraListFields: ["responsibilities"],
   },
 };
 
@@ -173,7 +173,7 @@ function resolveSingleValueField(fields) {
   return null;
 }
 
-export function normalizeObjectEntries(value, fields, { extraStringFields = [] } = {}) {
+export function normalizeObjectEntries(value, fields, { extraStringFields = [], extraListFields = [] } = {}) {
   const targetFields = Array.isArray(fields) ? fields : [];
   const fallbackField = resolveSingleValueField(targetFields);
   const items = [];
@@ -216,6 +216,14 @@ export function normalizeObjectEntries(value, fields, { extraStringFields = [] }
       }
     }
 
+    for (const field of extraListFields) {
+      const listValue = normalizeStringList(entrySource[field]);
+      if (listValue.length > 0) {
+        normalizedEntry[field] = listValue;
+        hasContent = true;
+      }
+    }
+
     if (hasContent) {
       items.push(normalizedEntry);
     }
@@ -243,7 +251,10 @@ export function normalizeCharterPayload(input) {
     normalized[key] = normalizeObjectEntries(
       source[key],
       config.fields,
-      config.extraStringFields ? { extraStringFields: config.extraStringFields } : undefined
+      {
+        extraStringFields: config.extraStringFields || [],
+        extraListFields: config.extraListFields || [],
+      }
     );
   }
 

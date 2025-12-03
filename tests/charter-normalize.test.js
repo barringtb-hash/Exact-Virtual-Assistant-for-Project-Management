@@ -50,7 +50,7 @@ test("normalizeCharterServer trims fields and normalizes collections", () => {
     { benefit: "Adoption", metric: "Team usage", system_of_measurement: "percent" },
   ]);
   assert.deepStrictEqual(normalized.core_team, [
-    { name: "Alex", role: "PM", responsibilities: "Lead rollout" },
+    { name: "Alex", role: "PM", responsibilities: ["Lead rollout"] },
     { name: "Taylor" },
   ]);
 });

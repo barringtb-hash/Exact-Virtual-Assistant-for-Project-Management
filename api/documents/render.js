@@ -95,12 +95,12 @@ export async function renderDocxBufferForDocType(docType, document) {
   const templateBuffer = await loadDocxTemplateBuffer(docType, config);
   const zip = new PizZip(templateBuffer);
   const doc = new Docxtemplater(zip, {
+    delimiters: {
+      start: "{{",
+      end: "}}",
+    },
     paragraphLoop: true,
     linebreaks: true,
-    syntax: {
-      allowUnclosedTag: true,
-      allowUnopenedTag: true,
-    },
   });
 
   doc.setData(normalized);

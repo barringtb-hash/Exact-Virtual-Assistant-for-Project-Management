@@ -3519,6 +3519,31 @@ const resolveDocTypeForManualSync = useCallback(
           // Log all event types for debugging
           console.log("[Voice Debug - Realtime] Event type received:", rawEvent.type);
 
+          // Wait for session.created before sending session.update with voice
+          // This ensures the session is fully initialized before we configure it
+          if (rawEvent.type === "session.created") {
+            console.log("[Voice Debug - Realtime] Session created with voice:", rawEvent.session?.voice);
+            console.log("[Voice Debug - Realtime] Full session.created:", JSON.stringify(rawEvent.session, null, 2));
+            // Using "sage" - calm, thoughtful feminine voice
+            const sessionUpdate = {
+              type: "session.update",
+              session: {
+                voice: "sage",
+                input_audio_transcription: {
+                  model: "whisper-1"
+                }
+              }
+            };
+            console.log("[Voice Debug - Realtime] Sending session.update with voice:", sessionUpdate.session.voice);
+            dataChannel.send(JSON.stringify(sessionUpdate));
+          }
+
+          // Log the session.updated response to verify voice was changed
+          if (rawEvent.type === "session.updated") {
+            console.log("[Voice Debug - Realtime] Session updated with voice:", rawEvent.session?.voice);
+            console.log("[Voice Debug - Realtime] Full session.updated:", JSON.stringify(rawEvent.session, null, 2));
+          }
+
           // Handle AI transcript completion - ALWAYS show in chat
           if (rawEvent.type === "response.audio_transcript.done") {
             const aiTranscript = rawEvent.transcript || "";
@@ -3611,19 +3636,8 @@ const resolveDocTypeForManualSync = useCallback(
 
       dataChannel.onopen = () => {
         dispatch("STREAM_OPEN");
-
-        // Enable user input audio transcription by sending session.update
-        // This is required for OpenAI Realtime API to transcribe user speech
-        const sessionUpdate = {
-          type: "session.update",
-          session: {
-            input_audio_transcription: {
-              model: "whisper-1"
-            }
-          }
-        };
-        console.log("[Voice Debug - Realtime] Sending session.update to enable input transcription");
-        dataChannel.send(JSON.stringify(sessionUpdate));
+        // session.update is now sent after receiving session.created event
+        // to ensure proper timing for voice configuration
       };
 
       dataChannel.onclose = () => {

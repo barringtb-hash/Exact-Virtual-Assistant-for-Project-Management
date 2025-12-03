@@ -32,11 +32,13 @@ export default async function handler(req, res) {
       return res.status(400).json(formatErrorResponse(error, { path: requestPath }));
     }
 
-    // Prefer env; if missing, fall back to GA model & alloy
+    // Prefer env; if missing, fall back to GA model & sage voice
     const model = (process.env.OPENAI_REALTIME_MODEL || "gpt-realtime").trim();
-    const defaultVoice = (process.env.OPENAI_REALTIME_VOICE || "alloy").trim().toLowerCase();
+    const defaultVoice = (process.env.OPENAI_REALTIME_VOICE || "sage").trim().toLowerCase();
     // Always use env voice to avoid client confusion
     const voice = defaultVoice;
+
+    console.log("[SDP] Creating realtime session:", { model, voice, envVoice: process.env.OPENAI_REALTIME_VOICE || "(not set)" });
 
     const betaHeader = /preview/i.test(model) ? { "OpenAI-Beta": "realtime=v1" } : {};
 

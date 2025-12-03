@@ -3516,6 +3516,14 @@ const resolveDocTypeForManualSync = useCallback(
 
               if (userVoiceIntent === 'create_charter' && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
                 console.log("[Voice Debug - Realtime] Charter intent detected from user voice! Showing prompt.");
+
+                // IMPORTANT: Cancel the current Realtime API response to stop the generic LLM reply
+                // This prevents the LLM from talking over the voice charter prompt
+                if (dataChannel && dataChannel.readyState === "open") {
+                  console.log("[Voice Debug - Realtime] Cancelling current response to prepare for voice charter");
+                  dataChannel.send(JSON.stringify({ type: "response.cancel" }));
+                }
+
                 chatActions.setMessages((prev) => [
                   ...prev,
                   {
@@ -3690,7 +3698,16 @@ const resolveDocTypeForManualSync = useCallback(
 
     // If realtime is already connected, initialize voice charter immediately
     if (rtcState === "live" && dataRef.current) {
-      initializeVoiceCharter();
+      // Cancel any ongoing response before starting voice charter
+      // This ensures the LLM stops talking and voice charter has a clean start
+      if (dataRef.current.readyState === "open") {
+        console.log("[Voice Debug] Cancelling any ongoing response before voice charter start");
+        dataRef.current.send(JSON.stringify({ type: "response.cancel" }));
+      }
+      // Small delay to let the cancel take effect before starting voice charter
+      setTimeout(() => {
+        initializeVoiceCharter();
+      }, 100);
     } else {
       // Start realtime connection and set pending flag to initialize when connected
       setPendingVoiceCharter(true);

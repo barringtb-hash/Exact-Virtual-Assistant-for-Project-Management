@@ -1541,6 +1541,7 @@ export default function ExactVirtualAssistantPM() {
   const [isGeneratingExportLinks, setIsGeneratingExportLinks] = useState(false);
   const [rtcState, setRtcState] = useState("idle");
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
+  const [pendingVoiceCharter, setPendingVoiceCharter] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3474,37 +3475,82 @@ const resolveDocTypeForManualSync = useCallback(
             voiceCharterActions.setAiSpeaking(false);
           }
 
-          // Handle AI transcript completion in voice charter mode
-          // This is needed to detect CAPTURE: patterns for long-form field reformulation
-          if (rawEvent.type === "response.audio_transcript.done" && voiceCharterService.getState().step !== "idle") {
+          // Log all event types for debugging
+          console.log("[Voice Debug - Realtime] Event type received:", rawEvent.type);
+
+          // Handle AI transcript completion - ALWAYS show in chat
+          if (rawEvent.type === "response.audio_transcript.done") {
             const aiTranscript = rawEvent.transcript || "";
             if (aiTranscript.trim()) {
-              console.log("[App] Processing AI transcript:", aiTranscript.substring(0, 80));
-              voiceCharterService.processTranscript(aiTranscript, "ai");
+              console.log("[Voice Debug - Realtime] EVA transcript complete:", aiTranscript.substring(0, 100));
 
-              // Add AI transcript to chat for debugging (append directly to avoid mutating run state)
+              // If voice charter is active, let the service process it
+              if (voiceCharterService.getState().step !== "idle") {
+                voiceCharterService.processTranscript(aiTranscript, "ai");
+              }
+
+              // Always add EVA's voice response to chat
               chatActions.setMessages((prev) => [
                 ...prev,
                 {
-                  id: createId(),
+                  id: `eva-voice-${Date.now()}`,
                   role: "assistant",
-                  text: `🎙️ [EVA]: ${aiTranscript.trim()}`,
+                  text: aiTranscript.trim(),
                 },
               ]);
             }
           }
 
-          // Handle user transcript in voice charter mode
-          if (rawEvent.type === "conversation.item.input_audio_transcription.completed" && voiceCharterService.getState().step !== "idle") {
+          // Handle user transcript from Realtime API - ALWAYS process, not just in voice charter mode
+          if (rawEvent.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = rawEvent.transcript || "";
-            if (transcript.trim()) {
-              console.log("[App] Processing USER transcript:", transcript.substring(0, 80));
-              voiceCharterService.processTranscript(transcript, "user");
+            console.log("[Voice Debug - Realtime] USER input transcript received:", transcript);
 
-              // Add user transcript to chat for debugging
-              chatActions.pushUser(`🎤 [Voice]: ${transcript.trim()}`);
+            if (transcript.trim()) {
+              // Add user transcript to chat
+              chatActions.pushUser(`🎤 ${transcript.trim()}`);
+
+              // Check for charter intent in user's voice input
+              const userVoiceIntent = detectCharterIntent(transcript);
+              console.log("[Voice Debug - Realtime] User voice intent:", userVoiceIntent);
+
+              if (userVoiceIntent === 'create_charter' && voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+                console.log("[Voice Debug - Realtime] Charter intent detected from user voice! Showing prompt.");
+
+                // IMPORTANT: Cancel the current Realtime API response to stop the generic LLM reply
+                // This prevents the LLM from talking over the voice charter prompt
+                if (dataChannel && dataChannel.readyState === "open") {
+                  console.log("[Voice Debug - Realtime] Cancelling current response to prepare for voice charter");
+                  dataChannel.send(JSON.stringify({ type: "response.cancel" }));
+                }
+
+                chatActions.setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `assistant-voice-charter-${Date.now()}`,
+                    role: "assistant",
+                    text: "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+                  }
+                ]);
+                setShowVoiceCharterPrompt(true);
+              }
+
+              // If voice charter is active, let the service handle it
+              if (voiceCharterService.getState().step !== "idle") {
+                console.log("[App] Processing USER transcript in voice charter mode:", transcript.substring(0, 80));
+                voiceCharterService.processTranscript(transcript, "user");
+              }
             }
           }
+        }
+
+        // Skip normalizeRealtimeTranscriptEvent path for events we already handled above
+        // (response.audio_transcript.done for EVA, conversation.item.input_audio_transcription.completed for user)
+        // This prevents running intent detection on EVA's responses
+        if (rawEvent?.type === "response.audio_transcript.done" ||
+            rawEvent?.type === "response.audio_transcript.delta" ||
+            rawEvent?.type === "conversation.item.input_audio_transcription.completed") {
+          return;
         }
 
         const normalized = normalizeRealtimeTranscriptEvent(event?.data);
@@ -3512,8 +3558,9 @@ const resolveDocTypeForManualSync = useCallback(
           return;
         }
 
-        // If voice charter is active, let the service handle field-specific processing
-        // Otherwise, use the default voice transcript handling
+        // Only process non-streaming user transcripts through the legacy path
+        // Note: With input_audio_transcription enabled, user input comes via
+        // conversation.item.input_audio_transcription.completed and is handled above
         if (voiceCharterService.getState().step === "idle") {
           await handleVoiceTranscriptMessage(normalized.text, {
             isFinal: normalized.isFinal,
@@ -3523,6 +3570,19 @@ const resolveDocTypeForManualSync = useCallback(
 
       dataChannel.onopen = () => {
         dispatch("STREAM_OPEN");
+
+        // Enable user input audio transcription by sending session.update
+        // This is required for OpenAI Realtime API to transcribe user speech
+        const sessionUpdate = {
+          type: "session.update",
+          session: {
+            input_audio_transcription: {
+              model: "whisper-1"
+            }
+          }
+        };
+        console.log("[Voice Debug - Realtime] Sending session.update to enable input transcription");
+        dataChannel.send(JSON.stringify(sessionUpdate));
       };
 
       dataChannel.onclose = () => {
@@ -3565,45 +3625,34 @@ const resolveDocTypeForManualSync = useCallback(
     };
   }, []);
 
-  // Show voice charter prompt when realtime goes live and charter is active
+  // Clean up voice charter when realtime disconnects
+  // NOTE: Voice charter prompt is now triggered by intent detection in handleSpeechTranscript
+  // rather than automatically when mic is activated. This allows the mic to be used for
+  // other PMO tools in the future.
   useEffect(() => {
-    // Show prompt if voice is live and we're working on a charter
-    // Check for either CharterFieldSession wizard OR guided chat interface
-    const isCharterUIActive = SHOULD_SHOW_CHARTER_WIZARD || isGuidedChatEnabled;
-
-    if (rtcState === "live" && isCharterUIActive && dataRef.current) {
-      // Only show prompt if not already active and not already showing
-      if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
-        // Check if we're working with a charter document type
-        if (templateDocType === "charter") {
-          setShowVoiceCharterPrompt(true);
-        }
-      }
-    }
-
-    // Clean up when realtime disconnects
-    if (rtcState !== "live") {
+    // Clean up when realtime disconnects or errors
+    if (rtcState !== "live" && rtcState !== "connecting") {
       setShowVoiceCharterPrompt(false);
+      setPendingVoiceCharter(false);
       if (voiceCharterMode === "active") {
         voiceCharterActions.exit();
         voiceCharterService.reset();
       }
     }
-  }, [rtcState, voiceCharterMode, templateDocType, showVoiceCharterPrompt, isGuidedChatEnabled]);
+  }, [rtcState, voiceCharterMode]);
 
-  // Handle voice charter prompt confirmation
-  const handleVoiceCharterConfirm = useCallback(() => {
-    setShowVoiceCharterPrompt(false);
-
+  // Initialize and start voice charter service (called when realtime is connected)
+  const initializeVoiceCharter = useCallback(() => {
     if (!dataRef.current) {
-      return;
+      console.warn("[VoiceCharter] No data channel available");
+      return false;
     }
 
     // Get the schema from docTemplateStore
     const { form } = getDocTemplateFormState();
     if (!form) {
       console.warn("[VoiceCharter] No form schema available");
-      return;
+      return false;
     }
 
     // Normalize the form into a CharterFormSchema
@@ -3612,7 +3661,7 @@ const resolveDocTypeForManualSync = useCallback(
       schema = normalizeCharterFormSchema(form);
     } catch (error) {
       console.error("[VoiceCharter] Failed to normalize schema:", error);
-      return;
+      return false;
     }
 
     // Get existing draft values to seed the voice charter
@@ -3638,14 +3687,50 @@ const resolveDocTypeForManualSync = useCallback(
       setTimeout(() => {
         voiceCharterService.start();
       }, 500);
+      return true;
     }
+    return false;
   }, []);
+
+  // Handle voice charter prompt confirmation
+  const handleVoiceCharterConfirm = useCallback(() => {
+    setShowVoiceCharterPrompt(false);
+
+    // If realtime is already connected, initialize voice charter immediately
+    if (rtcState === "live" && dataRef.current) {
+      // Cancel any ongoing response before starting voice charter
+      // This ensures the LLM stops talking and voice charter has a clean start
+      if (dataRef.current.readyState === "open") {
+        console.log("[Voice Debug] Cancelling any ongoing response before voice charter start");
+        dataRef.current.send(JSON.stringify({ type: "response.cancel" }));
+      }
+      // Small delay to let the cancel take effect before starting voice charter
+      setTimeout(() => {
+        initializeVoiceCharter();
+      }, 100);
+    } else {
+      // Start realtime connection and set pending flag to initialize when connected
+      setPendingVoiceCharter(true);
+      startRealtime();
+    }
+  }, [rtcState, initializeVoiceCharter, startRealtime]);
 
   // Handle voice charter prompt decline (just use regular transcription)
   const handleVoiceCharterDecline = useCallback(() => {
     setShowVoiceCharterPrompt(false);
     // Voice transcription continues normally without voice charter mode
   }, []);
+
+  // Auto-initialize voice charter when realtime connects and we have a pending request
+  useEffect(() => {
+    if (rtcState === "live" && pendingVoiceCharter && dataRef.current) {
+      console.log("[VoiceCharter] Realtime connected, initializing pending voice charter");
+      const success = initializeVoiceCharter();
+      if (success) {
+        setPendingVoiceCharter(false);
+      }
+    }
+  }, [rtcState, pendingVoiceCharter, initializeVoiceCharter]);
 
   // Subscribe to voice charter events for field capture
   useEffect(() => {
@@ -3793,16 +3878,39 @@ const resolveDocTypeForManualSync = useCallback(
     ]
   );
 
+  // Ref to hold submitChatTurn for use in handleSpeechTranscript
+  const submitChatTurnRef = useRef(null);
+
   const handleSpeechTranscript = useCallback(
     async (rawTranscript) => {
       const trimmedTranscript =
         typeof rawTranscript === "string" ? rawTranscript.trim() : "";
+
+      console.log("[Voice Debug] Raw transcript received:", rawTranscript);
+      console.log("[Voice Debug] Trimmed transcript:", trimmedTranscript);
+
       if (!trimmedTranscript) {
+        console.log("[Voice Debug] Empty transcript, skipping");
         return;
       }
 
+      // First check for commands
       const handled = await handleCommandFromText(trimmedTranscript);
-      if (!handled) {
+      if (handled) {
+        console.log("[Voice Debug] Handled as command");
+        return;
+      }
+
+      // Submit transcript to chat - LLM will detect intent and respond appropriately
+      // If LLM detects charter intent, it will include [[VOICE_CHARTER_INTENT]] marker
+      // which triggers the voice charter prompt (handled in submitChatTurn response processing)
+      console.log("[Voice Debug] Submitting to chat, submitChatTurnRef.current:", !!submitChatTurnRef.current);
+      if (submitChatTurnRef.current) {
+        console.log("[Voice Debug] Calling submitChatTurn with source: voice");
+        await submitChatTurnRef.current(trimmedTranscript, { source: "voice" });
+      } else {
+        // Fallback: add to composer draft if submitChatTurn not ready
+        console.log("[Voice Debug] Fallback: adding to composer draft");
         const currentDraft = chatStoreApi.getState().composerDraft;
         chatActions.setComposerDraft(
           currentDraft ? `${currentDraft} ${trimmedTranscript}` : trimmedTranscript,
@@ -3822,12 +3930,19 @@ const resolveDocTypeForManualSync = useCallback(
   const submitChatTurn = useCallback(
     async (rawText, { source }) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+
+      console.log("[Voice Debug] submitChatTurn called:");
+      console.log("[Voice Debug] - source:", source);
+      console.log("[Voice Debug] - trimmed text:", trimmed);
+
       if (!trimmed) {
+        console.log("[Voice Debug] - Empty text, returning early");
         return { status: "empty" };
       }
 
       const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
       if (isStreaming || isAssistantThinking) {
+        console.log("[Voice Debug] - Busy (streaming/thinking), returning early");
         return { status: "busy" };
       }
 
@@ -3848,8 +3963,14 @@ const resolveDocTypeForManualSync = useCallback(
         Boolean(guidedConversationIdRef.current) &&
         !shouldBypassGuided;
 
+      console.log("[Voice Debug] - CHARTER_GUIDED_BACKEND_ENABLED:", CHARTER_GUIDED_BACKEND_ENABLED);
+      console.log("[Voice Debug] - guidedConversationIdRef.current:", guidedConversationIdRef.current);
+      console.log("[Voice Debug] - shouldAttemptRemote:", shouldAttemptRemote);
+      console.log("[Voice Debug] - orchestrator active:", orchestrator?.isActive?.());
+
       try {
         if (shouldAttemptRemote) {
+          console.log("[Voice Debug] Taking REMOTE GUIDED path - will NOT reach LLM intent detection");
           let remoteHandled = false;
           const runId = createTempId();
           chatActions.startAssistant(runId);
@@ -3954,6 +4075,33 @@ const resolveDocTypeForManualSync = useCallback(
         } catch (e) {
           reply = "LLM error (demo): " + (e?.message || "unknown");
         }
+
+        // Check for voice charter intent marker from LLM response
+        const VOICE_CHARTER_MARKER = "[[VOICE_CHARTER_INTENT]]";
+        const hasVoiceCharterIntent = reply.includes(VOICE_CHARTER_MARKER);
+
+        console.log("[Voice Debug] LLM Response received:");
+        console.log("[Voice Debug] - Raw reply length:", reply.length);
+        console.log("[Voice Debug] - Raw reply (first 500 chars):", reply.substring(0, 500));
+        console.log("[Voice Debug] - Contains VOICE_CHARTER_INTENT marker:", hasVoiceCharterIntent);
+        console.log("[Voice Debug] - Current voiceCharterMode:", voiceCharterMode);
+        console.log("[Voice Debug] - Current showVoiceCharterPrompt:", showVoiceCharterPrompt);
+
+        if (hasVoiceCharterIntent) {
+          console.log("[Voice Debug] Charter intent detected! Stripping marker and showing prompt");
+          // Strip the marker from the displayed reply
+          reply = reply.replace(VOICE_CHARTER_MARKER, "").trim();
+          // Show voice charter prompt if not already active
+          if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+            console.log("[Voice Debug] Setting showVoiceCharterPrompt to true");
+            setShowVoiceCharterPrompt(true);
+          } else {
+            console.log("[Voice Debug] NOT showing prompt - voiceCharterMode:", voiceCharterMode, "showVoiceCharterPrompt:", showVoiceCharterPrompt);
+          }
+        } else {
+          console.log("[Voice Debug] No charter intent marker found in response");
+        }
+
         chatActions.endAssistant(runId, reply || "");
         scheduleChatPreviewSync({
           reason: source === "voice" ? "voice-chat-completion" : "chat-completion",
@@ -3972,8 +4120,15 @@ const resolveDocTypeForManualSync = useCallback(
       isGuidedChatEnabled,
       scheduleChatPreviewSync,
       sendGuidedBackendMessage,
+      voiceCharterMode,
+      showVoiceCharterPrompt,
     ],
   );
+
+  // Keep submitChatTurnRef updated for use in handleSpeechTranscript
+  useEffect(() => {
+    submitChatTurnRef.current = submitChatTurn;
+  }, [submitChatTurn]);
 
   const handleStartGuidedCharter = useCallback(async () => {
     if (!isGuidedChatEnabled) {
@@ -4100,30 +4255,56 @@ const resolveDocTypeForManualSync = useCallback(
   const handleVoiceTranscriptMessage = useCallback(
     async (rawText, { isFinal = true } = {}) => {
       const trimmed = typeof rawText === "string" ? rawText.trim() : "";
-      if (!trimmed) return;
+
+      console.log("[Voice Debug - Realtime] handleVoiceTranscriptMessage called:");
+      console.log("[Voice Debug - Realtime] - rawText:", rawText);
+      console.log("[Voice Debug - Realtime] - trimmed:", trimmed);
+      console.log("[Voice Debug - Realtime] - isFinal:", isFinal);
+
+      if (!trimmed) {
+        console.log("[Voice Debug - Realtime] Empty text, returning");
+        return;
+      }
 
       if (!isFinal) {
+        console.log("[Voice Debug - Realtime] Not final, setting status to transcribing");
         voiceActions.setStatus("transcribing");
         return;
       }
 
       const { isStreaming, isAssistantThinking } = chatStoreApi.getState();
+      console.log("[Voice Debug - Realtime] - isStreaming:", isStreaming, "isAssistantThinking:", isAssistantThinking);
       if (isStreaming || isAssistantThinking) {
+        console.log("[Voice Debug - Realtime] Busy, returning");
         voiceActions.setStatus("idle");
         return;
       }
 
-      // Check for charter creation intent via voice and start guided session
+      // Check for charter creation intent via voice
+      // If detected, show voice charter prompt instead of auto-starting guided charter
       const voiceCharterIntent = detectCharterIntent(trimmed);
-      if (voiceCharterIntent === 'create_charter' && isGuidedChatEnabled) {
-        const currentGuidedState = guidedStateRef.current;
-        const currentConversationId = guidedConversationIdRef.current;
-        const canStart =
-          (!currentGuidedState || currentGuidedState.status === "idle" || currentGuidedState.status === "complete") &&
-          (!CHARTER_GUIDED_BACKEND_ENABLED || !currentConversationId);
-        if (canStart && startGuidedCharterRef.current) {
+      console.log("[Voice Debug - Realtime] - voiceCharterIntent:", voiceCharterIntent);
+      console.log("[Voice Debug - Realtime] - voiceCharterMode:", voiceCharterMode);
+      console.log("[Voice Debug - Realtime] - showVoiceCharterPrompt:", showVoiceCharterPrompt);
+
+      if (voiceCharterIntent === 'create_charter') {
+        console.log("[Voice Debug - Realtime] Charter intent detected!");
+        // Show user's message in chat
+        chatActions.pushUser(`🎤 ${trimmed}`);
+
+        // Show voice charter prompt if voice charter is not already active
+        if (voiceCharterMode === "inactive" && !showVoiceCharterPrompt) {
+          console.log("[Voice Debug - Realtime] Showing voice charter prompt");
+          chatActions.setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-voice-charter-${Date.now()}`,
+              role: "assistant",
+              text: "I heard you want to create a project charter. Would you like me to guide you through it with voice?"
+            }
+          ]);
+          setShowVoiceCharterPrompt(true);
           voiceActions.setStatus("idle");
-          await startGuidedCharterRef.current();
           return;
         }
       }
@@ -4142,8 +4323,10 @@ const resolveDocTypeForManualSync = useCallback(
       dispatch("PREVIEW_UPDATED", { source: "voice" });
 
       voiceActions.setStatus("transcribing");
+      console.log("[Voice Debug - Realtime] Processing voice transcript, pushing to chat");
       try {
-        chatActions.pushUser(trimmed);
+        // Show user's voice message in chat with microphone indicator
+        chatActions.pushUser(`🎤 ${trimmed}`);
         messagesRef.current = chatStoreApi.getState().messages;
 
         const voiceResult = await runVoiceFieldExtraction({
@@ -4179,6 +4362,8 @@ const resolveDocTypeForManualSync = useCallback(
       previewDocType,
       pushToast,
       runVoiceFieldExtraction,
+      voiceCharterMode,
+      showVoiceCharterPrompt,
     ]
   );
 
@@ -5165,8 +5350,25 @@ function ChatBubble({ role, text, hideEmptySections }) {
 }
 
 // --- LLM wiring (placeholder) ---
-const DEFAULT_SYSTEM_PROMPT =
-  "You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.";
+const DEFAULT_SYSTEM_PROMPT = `You are the Exact Virtual Assistant for Project Management. Be concise, ask one clarifying question at a time, and output clean bullets when listing tasks. Avoid fluff. Never recommend external blank-charter websites.
+
+IMPORTANT - Voice Charter Detection:
+When a user mentions wanting to create, start, draft, or work on a project charter (or similar document), you should:
+1. Acknowledge their intent
+2. Ask if they would like voice-guided assistance to walk through the charter fields
+3. Include the marker [[VOICE_CHARTER_INTENT]] at the END of your response (this triggers the voice charter UI)
+
+Examples of charter intent:
+- "I want to create a project charter"
+- "Help me document this project"
+- "I need to start a new charter"
+- "Let's formalize this project"
+- "Can you help me with a charter?"
+
+When you detect charter intent, respond naturally and include the marker. For example:
+"It sounds like you'd like to create a project charter. I can guide you through each section using voice - would you like to start the voice-guided charter process? [[VOICE_CHARTER_INTENT]]"
+
+Do NOT include the marker for general questions about charters or when the user is just asking for information.`;
 
 async function callLLM(
   text,

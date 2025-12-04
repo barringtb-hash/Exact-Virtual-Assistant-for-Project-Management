@@ -5161,69 +5161,21 @@ const resolveDocTypeForManualSync = useCallback(
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => exportDocxViaChat(defaultShareBaseName)}
-                  disabled={
-                    !draftHasContent ||
-                    isCharterSyncInFlight ||
-                    isExportingDocx ||
-                    isGeneratingExportLinks ||
-                    isExportingPdf
-                  }
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !draftHasContent ||
-                    isCharterSyncInFlight ||
-                    isExportingDocx ||
-                    isGeneratingExportLinks ||
-                    isExportingPdf
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
-                      : "bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                  }`}
-                >
-                  {isExportingDocx ? "Preparing DOCX…" : "Export DOCX"}
-                </button>
-                <button
-                  type="button"
                   onClick={() => shareLinksViaChat(defaultShareBaseName)}
                   disabled={
                     !draftHasContent ||
                     isCharterSyncInFlight ||
-                    isGeneratingExportLinks ||
-                    isExportingDocx ||
-                    isExportingPdf
+                    isGeneratingExportLinks
                   }
                   className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                     !draftHasContent ||
                     isCharterSyncInFlight ||
-                    isGeneratingExportLinks ||
-                    isExportingDocx ||
-                    isExportingPdf
+                    isGeneratingExportLinks
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
                       : "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                   }`}
                 >
-                  {isGeneratingExportLinks ? "Creating Links…" : "Share Links"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => exportPdfViaChat(defaultShareBaseName)}
-                  disabled={
-                    !draftHasContent ||
-                    isCharterSyncInFlight ||
-                    isExportingPdf ||
-                    isGeneratingExportLinks ||
-                    isExportingDocx
-                  }
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
-                    !draftHasContent ||
-                    isCharterSyncInFlight ||
-                    isExportingPdf ||
-                    isGeneratingExportLinks ||
-                    isExportingDocx
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
-                      : "bg-slate-800 text-white hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600"
-                  }`}
-                >
-                  {isExportingPdf ? "Preparing PDF…" : "Export PDF"}
+                  {isGeneratingExportLinks ? "Creating Links…" : "Export Charter"}
                 </button>
               </div>
               {activeCharterError && (

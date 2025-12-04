@@ -100,7 +100,10 @@
         "properties": {
           "name": { "type": "string" },
           "role": { "type": "string" },
-          "responsibilities": { "type": "string" }
+          "responsibilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
         }
       }
     }

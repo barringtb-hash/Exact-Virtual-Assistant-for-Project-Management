@@ -95,7 +95,7 @@ test("expandTemplateAliases preserves canonical fields and copies known legacy k
   ]);
   assert.deepStrictEqual(validation.normalized.core_team, [
     { name: "Taylor", role: "PM" },
-    { role: "Engineering", responsibilities: "Ship MVP" },
+    { role: "Engineering", responsibilities: ["Ship MVP"] },
   ]);
 });
 

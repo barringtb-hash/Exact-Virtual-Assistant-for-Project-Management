@@ -51,6 +51,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "cypress": "^15.5.0",
+    "docx": "^9.5.1",
     "jsdom": "^24.0.0",
     "kill-port": "^2.0.1",
     "postcss": "^8.4.41",

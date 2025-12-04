@@ -1,0 +1,120 @@
+[
+  {
+    "id": "ddp-phase-structure",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Clear Phase Structure",
+    "content": "A well-structured DDP should have clearly defined phases with:\n\n1. **Entry Criteria** - What must be complete before starting\n2. **Activities** - What work will be done\n3. **Exit Criteria** - What must be achieved to move forward\n4. **Owner** - Who is responsible for the phase\n5. **Deliverables** - Tangible outputs from the phase\n\nCommon phases include: Requirements Analysis, Design, Development, Testing, Deployment, and Post-Launch Review.",
+    "triggers": {
+      "fields": ["phases"],
+      "conditions": [
+        { "field": "phases", "operator": "not_empty" }
+      ]
+    },
+    "priority": "high",
+    "tags": ["phases", "structure", "planning"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "ddp-requirements-quality",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Writing Effective Requirements",
+    "content": "High-quality requirements follow the SMART criteria:\n\n- **Specific**: Clear and unambiguous\n- **Measurable**: Can be verified through testing\n- **Achievable**: Technically feasible\n- **Relevant**: Aligned with project goals\n- **Time-bound**: Associated with a phase or milestone\n\nEach requirement should answer: Who needs it? What is needed? Why is it needed? When is it needed?",
+    "triggers": {
+      "fields": ["requirements"],
+      "conditions": [
+        { "field": "requirements", "operator": "not_empty" }
+      ]
+    },
+    "priority": "high",
+    "tags": ["requirements", "SMART", "quality"],
+    "source": "IEEE 830"
+  },
+  {
+    "id": "ddp-risk-management",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Development Risk Management",
+    "content": "Effective DDP risk management should:\n\n1. **Identify risks early** - Technical, schedule, resource, integration\n2. **Assess impact and probability** - Prioritize by potential damage\n3. **Define mitigation strategies** - Reduce probability or impact\n4. **Assign owners** - Someone responsible for monitoring\n5. **Plan contingencies** - Backup plans for high-impact risks\n\nCommon development risks: scope creep, technical debt, integration failures, resource unavailability, and changing requirements.",
+    "triggers": {
+      "fields": ["risks"],
+      "conditions": [
+        { "field": "risks", "operator": "less_than", "value": 3 }
+      ]
+    },
+    "priority": "high",
+    "tags": ["risks", "mitigation", "planning"],
+    "source": "PMI"
+  },
+  {
+    "id": "ddp-testing-strategy",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Comprehensive Testing Strategy",
+    "content": "A robust DDP testing strategy includes multiple levels:\n\n1. **Unit Testing** (70-80% of tests) - Individual components\n2. **Integration Testing** (15-20%) - Component interactions\n3. **End-to-End Testing** (5-10%) - Full user workflows\n4. **Performance Testing** - Load, stress, scalability\n5. **Security Testing** - Vulnerability assessment\n\nDefine coverage targets, testing tools, and quality gates for each phase.",
+    "triggers": {
+      "keywords": ["test", "testing", "quality"],
+      "conditions": []
+    },
+    "priority": "medium",
+    "tags": ["testing", "quality", "coverage"],
+    "source": "Test Pyramid"
+  },
+  {
+    "id": "ddp-timeline-estimation",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Realistic Timeline Estimation",
+    "content": "Accurate timeline estimation considers:\n\n1. **Historical data** - How long similar work took before\n2. **Complexity factors** - New technology, team experience\n3. **Buffer time** - 15-25% for unexpected issues\n4. **Dependencies** - External teams, third-party services\n5. **Review cycles** - Code reviews, design reviews, approvals\n\nUse techniques like three-point estimation (optimistic, realistic, pessimistic) for critical phases.",
+    "triggers": {
+      "keywords": ["timeline", "schedule", "date"],
+      "conditions": []
+    },
+    "priority": "medium",
+    "tags": ["timeline", "estimation", "planning"],
+    "source": "Agile Estimation"
+  },
+  {
+    "id": "ddp-documentation",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Essential Documentation",
+    "content": "A complete DDP should reference or include:\n\n1. **Architecture Diagrams** - System structure and components\n2. **API Specifications** - Interface contracts\n3. **Data Models** - Database schemas, data flows\n4. **Deployment Architecture** - Infrastructure setup\n5. **Runbooks** - Operational procedures\n\nDocument early and update continuously. Poor documentation is a common cause of integration failures and maintenance issues.",
+    "triggers": {
+      "keywords": ["document", "design", "architecture"],
+      "conditions": []
+    },
+    "priority": "medium",
+    "tags": ["documentation", "design", "architecture"],
+    "source": "C4 Model"
+  },
+  {
+    "id": "ddp-code-quality",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Code Quality Standards",
+    "content": "Define clear code quality standards:\n\n1. **Coding Standards** - Style guides, naming conventions\n2. **Code Review Process** - Required reviewers, approval criteria\n3. **Static Analysis** - Linting, security scanning\n4. **Coverage Requirements** - Minimum test coverage thresholds\n5. **Technical Debt Policy** - How and when to address\n\nAutomate quality gates in CI/CD pipelines to enforce standards consistently.",
+    "triggers": {
+      "keywords": ["code", "quality", "review", "standards"],
+      "conditions": []
+    },
+    "priority": "medium",
+    "tags": ["code quality", "standards", "review"],
+    "source": "Clean Code"
+  },
+  {
+    "id": "ddp-integration-planning",
+    "category": "ddp",
+    "type": "best_practice",
+    "title": "Integration Planning",
+    "content": "Plan integrations carefully to avoid late-stage surprises:\n\n1. **Identify integration points** early in design phase\n2. **Define contracts** - APIs, data formats, protocols\n3. **Create mock services** - Enable parallel development\n4. **Plan integration testing** - Dedicated phase and resources\n5. **Document failure modes** - How to handle integration failures\n\nIntegration issues are often discovered late. Early integration prototypes reduce risk.",
+    "triggers": {
+      "keywords": ["integration", "api", "service", "external"],
+      "conditions": []
+    },
+    "priority": "high",
+    "tags": ["integration", "APIs", "dependencies"],
+    "source": "Enterprise Integration Patterns"
+  }
+]

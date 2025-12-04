@@ -1,0 +1,46 @@
+[
+  {
+    "id": "ddp-phase-checklist",
+    "category": "ddp",
+    "type": "checklist",
+    "title": "Phase Definition Checklist",
+    "content": "For each phase in your DDP, verify:\n\n- [ ] Phase has a clear, descriptive name\n- [ ] Owner/responsible person is assigned\n- [ ] Start and end dates are defined\n- [ ] Entry criteria are specified\n- [ ] Exit criteria are specified\n- [ ] Deliverables are listed\n- [ ] Dependencies on other phases are documented\n- [ ] Required resources are identified\n- [ ] Quality gates are defined\n- [ ] Status tracking method is specified",
+    "triggers": {
+      "fields": ["phases"],
+      "conditions": [
+        { "field": "phases", "operator": "not_empty" }
+      ]
+    },
+    "priority": "high",
+    "tags": ["phases", "checklist", "planning"],
+    "source": "Internal"
+  },
+  {
+    "id": "ddp-pre-development-checklist",
+    "category": "ddp",
+    "type": "checklist",
+    "title": "Pre-Development Readiness",
+    "content": "Before starting development, ensure:\n\n- [ ] Requirements are reviewed and approved\n- [ ] Architecture design is complete\n- [ ] Tech stack decisions are finalized\n- [ ] Development environment is set up\n- [ ] CI/CD pipeline is configured\n- [ ] Code repository and branching strategy defined\n- [ ] Team roles and responsibilities are clear\n- [ ] Communication channels established\n- [ ] Risk register is in place\n- [ ] Initial backlog is prioritized",
+    "triggers": {
+      "keywords": ["development", "start", "begin", "kickoff"],
+      "conditions": []
+    },
+    "priority": "high",
+    "tags": ["checklist", "readiness", "development"],
+    "source": "Internal"
+  },
+  {
+    "id": "ddp-deployment-checklist",
+    "category": "ddp",
+    "type": "checklist",
+    "title": "Deployment Readiness",
+    "content": "Before deployment, verify:\n\n- [ ] All tests pass (unit, integration, e2e)\n- [ ] Performance testing completed\n- [ ] Security review completed\n- [ ] Documentation is up-to-date\n- [ ] Runbooks are prepared\n- [ ] Rollback procedure is documented\n- [ ] Monitoring and alerting configured\n- [ ] Stakeholders are notified\n- [ ] Support team is briefed\n- [ ] Post-deployment validation plan exists",
+    "triggers": {
+      "keywords": ["deploy", "deployment", "release", "production"],
+      "conditions": []
+    },
+    "priority": "high",
+    "tags": ["checklist", "deployment", "release"],
+    "source": "Internal"
+  }
+]

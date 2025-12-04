@@ -176,6 +176,27 @@ function buildTemplateRegistry() {
       errorName: "DDPValidationError",
       errorMessage: "DDP payload failed validation.",
     },
+    review: {
+      prompt: "ddp/review_prompt.txt",
+      rules: "ddp/review_rules.json",
+      knowledgeCategories: ["ddp", "general"],
+      dimensions: [
+        "completeness",
+        "specificity",
+        "feasibility",
+        "risk_coverage",
+        "scope_clarity",
+        "metric_measurability",
+      ],
+      thresholds: {
+        completeness: 0.75,
+        specificity: 0.7,
+        feasibility: 0.7,
+        risk_coverage: 0.6,
+        scope_clarity: 0.7,
+        metric_measurability: 0.65,
+      },
+    },
     blank: () => ({}),
   }),
     sow: createDocTypeManifest({

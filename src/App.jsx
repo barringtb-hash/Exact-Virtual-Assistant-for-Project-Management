@@ -56,6 +56,8 @@ import { createId } from "./utils/id.ts";
 import CharterFieldSession from "./chat/CharterFieldSession.tsx";
 import VoiceCharterSession from "./components/VoiceCharterSession.tsx";
 import VoiceCharterPrompt from "./components/VoiceCharterPrompt.tsx";
+import ReviewPanel from "./components/ReviewPanel.jsx";
+import { useCharterReview } from "./hooks/useCharterReview.ts";
 import { conversationActions, useConversationState } from "./state/conversationStore.ts";
 import {
   voiceCharterActions,
@@ -1517,6 +1519,9 @@ export default function ExactVirtualAssistantPM() {
   const aiSpeaking = useAiSpeaking();
   const isVoiceCharterActive = voiceCharterMode === "active";
 
+  // Charter review hook
+  const charterReview = useCharterReview("charter");
+
   // Show preview when: conditional visibility is off, OR doc session is active, OR voice charter is active
   const shouldShowPreview = !FLAGS.PREVIEW_CONDITIONAL_VISIBILITY || docSession.isActive || isVoiceCharterActive;
 
@@ -1583,6 +1588,7 @@ export default function ExactVirtualAssistantPM() {
   const [rtcState, setRtcState] = useState("idle");
   const [showVoiceCharterPrompt, setShowVoiceCharterPrompt] = useState(false);
   const [pendingVoiceCharter, setPendingVoiceCharter] = useState(false);
+  const [showReviewPanel, setShowReviewPanel] = useState(false);
   const [isCharterSyncing, setIsCharterSyncing] = useState(false);
   const draftStatus = useDraftStatus();
   const isDraftSyncing = draftStatus === "merging";
@@ -3349,9 +3355,59 @@ const resolveDocTypeForManualSync = useCallback(
     }
   };
 
+  /**
+   * Check if export is allowed based on review gate settings
+   * Returns { allowed: true } or { allowed: false, reason: string }
+   */
+  const checkReviewGate = useCallback(() => {
+    const requireReviewBeforeExport = import.meta.env.VITE_REQUIRE_REVIEW_BEFORE_EXPORT === "true";
+
+    if (!requireReviewBeforeExport) {
+      return { allowed: true };
+    }
+
+    const review = charterReview.review;
+    const reviewThreshold = 70;
+
+    if (!review) {
+      pushToast({
+        tone: "warning",
+        message: "Please review your charter before exporting. Click 'Review Charter' to get feedback.",
+      });
+      setShowReviewPanel(true);
+      return { allowed: false, reason: "review_required" };
+    }
+
+    if (review.scores?.overall < reviewThreshold) {
+      const criticalCount = review.feedback?.filter(f => f.severity === "critical").length || 0;
+
+      if (criticalCount > 0) {
+        pushToast({
+          tone: "warning",
+          message: `Your charter has ${criticalCount} critical issues. Please address them before exporting.`,
+        });
+        setShowReviewPanel(true);
+        return { allowed: false, reason: "review_score_low" };
+      }
+
+      appendAssistantMessage(
+        `**Review Score Warning**\n\n` +
+        `Your charter scored ${Math.round(review.scores.overall)}%, which is below the recommended ${reviewThreshold}% threshold.\n\n` +
+        `You can still export, but consider addressing the feedback to improve your charter quality.`
+      );
+    }
+
+    return { allowed: true };
+  }, [charterReview.review, pushToast, appendAssistantMessage]);
+
   const exportDocxViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
       return { ok: false, reason: "busy" };
+    }
+
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
     }
 
     setIsExportingDocx(true);
@@ -3360,7 +3416,7 @@ const resolveDocTypeForManualSync = useCallback(
         baseName,
         includeDocx: true,
         includePdf: false,
-        introText: `Here’s your DOCX download for ${baseName}:`,
+        introText: `Here's your DOCX download for ${baseName}:`,
       });
     } finally {
       setIsExportingDocx(false);
@@ -3372,13 +3428,18 @@ const resolveDocTypeForManualSync = useCallback(
       return { ok: false, reason: "busy" };
     }
 
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
+    }
+
     setIsExportingPdf(true);
     try {
       return await makeShareLinksAndReply({
         baseName,
         includeDocx: false,
         includePdf: true,
-        introText: `Here’s your PDF download for ${baseName}:`,
+        introText: `Here's your PDF download for ${baseName}:`,
       });
     } finally {
       setIsExportingPdf(false);
@@ -3388,6 +3449,11 @@ const resolveDocTypeForManualSync = useCallback(
   const shareLinksViaChat = async (baseName = defaultShareBaseName) => {
     if (isGeneratingExportLinks || isExportingDocx || isExportingPdf) {
       return { ok: false, reason: "busy" };
+    }
+
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
     }
 
     setIsGeneratingExportLinks(true);
@@ -3401,6 +3467,65 @@ const resolveDocTypeForManualSync = useCallback(
       setIsGeneratingExportLinks(false);
     }
   };
+
+  /**
+   * Start a charter review
+   */
+  const handleStartReview = useCallback(async () => {
+    if (!charterDraftRef.current || Object.keys(charterDraftRef.current).length === 0) {
+      pushToast({
+        tone: "warning",
+        message: "Please add some content to the charter before reviewing.",
+      });
+      return;
+    }
+
+    setShowReviewPanel(true);
+    const result = await charterReview.startReview(charterDraftRef.current);
+    if (result) {
+      pushToast({
+        tone: "success",
+        message: `Review complete! Score: ${Math.round(result.scores.overall)}%`,
+      });
+    }
+  }, [charterReview, pushToast]);
+
+  /**
+   * Handle accepting review feedback
+   */
+  const handleReviewFeedbackAccept = useCallback((feedbackId) => {
+    charterReview.acceptFeedback(feedbackId);
+  }, [charterReview]);
+
+  /**
+   * Handle dismissing review feedback
+   */
+  const handleReviewFeedbackDismiss = useCallback((feedbackId) => {
+    charterReview.dismissFeedback(feedbackId);
+  }, [charterReview]);
+
+  /**
+   * Handle "tell me more" for review feedback
+   */
+  const handleReviewTellMore = useCallback((feedbackId) => {
+    // For now, expand the feedback item (future: start interactive review session)
+    const feedback = charterReview.state.feedback.byId[feedbackId];
+    if (feedback) {
+      appendAssistantMessage(
+        `**More about "${feedback.field || 'this issue'}":**\n\n` +
+        `${feedback.issue}\n\n` +
+        `**Recommendation:** ${feedback.recommendation}\n\n` +
+        (feedback.example ? `**Example:** ${feedback.example}` : "")
+      );
+    }
+  }, [charterReview.state.feedback.byId, appendAssistantMessage]);
+
+  /**
+   * Handle closing review panel
+   */
+  const handleCloseReviewPanel = useCallback(() => {
+    setShowReviewPanel(false);
+  }, []);
 
   const cleanupRealtime = ({ dispatchStop = true, dispatchStreamClose = true } = {}) => {
     if (dataRef.current) {
@@ -5161,6 +5286,25 @@ const resolveDocTypeForManualSync = useCallback(
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleStartReview}
+                  disabled={
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
+                    charterReview.isLoading
+                  }
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                    !draftHasContent ||
+                    isCharterSyncInFlight ||
+                    charterReview.isLoading
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+                      : "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                  }`}
+                  data-testid="review-charter-btn"
+                >
+                  {charterReview.isLoading ? "Reviewing…" : "Review Charter"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => shareLinksViaChat(defaultShareBaseName)}
                   disabled={
                     !draftHasContent ||
@@ -5194,10 +5338,38 @@ const resolveDocTypeForManualSync = useCallback(
                   </ul>
                 ) : (
                   <p className="text-sm text-slate-700 dark:text-slate-200">
-                    Required field guidance isn’t available for this document type yet.
+                    Required field guidance isn't available for this document type yet.
                   </p>
                 )}
               </div>
+
+              {/* Review Panel */}
+              {showReviewPanel && (
+                <div className="mt-4" data-testid="review-panel-container">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Charter Review</h3>
+                    <button
+                      type="button"
+                      onClick={handleCloseReviewPanel}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:hover:text-slate-300 dark:hover:bg-slate-700"
+                      aria-label="Close review panel"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <ReviewPanel
+                    review={charterReview.review}
+                    isLoading={charterReview.isLoading}
+                    onAcceptFeedback={handleReviewFeedbackAccept}
+                    onDismissFeedback={handleReviewFeedbackDismiss}
+                    onTellMore={handleReviewTellMore}
+                    onRerunReview={handleStartReview}
+                    className="max-h-[500px] overflow-y-auto"
+                  />
+                </div>
+              )}
             </Panel>
           </aside>
           )}

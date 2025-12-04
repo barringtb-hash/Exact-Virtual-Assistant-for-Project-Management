@@ -1,10 +1,84 @@
 # Document workflows
 
-The document router owns every extract → validate → render flow. All clients hit
+The document router owns every analyze → extract → validate → render flow. All clients hit
 `/api/documents/*` first and only fall back to the legacy `/api/charter/*`
 aliases to support older builds. This guide explains how the router loads
 runtime assets from the registry, how the generic endpoints behave, and what to
 update when introducing a new doc type.
+
+## Document Analysis Phase
+
+When `DOCUMENT_ANALYSIS_ENABLED=true` (default), the system uses an LLM-analysis-driven
+approach before extraction. This phase runs automatically when users upload documents.
+
+### Analysis Flow
+
+```
+User uploads document
+       ↓
+POST /api/documents/analyze
+       ↓
+┌──────────────────────────────────────┐
+│   Document Analysis Pipeline         │
+│   1. Content extraction (text/tables)│
+│   2. Document type classification    │
+│   3. Intent/purpose inference        │
+│   4. Field mapping preview           │
+│   5. Confidence scoring              │
+└──────────────────────────────────────┘
+       ↓
+System presents analysis to user
+       ↓
+User confirms document type
+       ↓
+POST /api/documents/confirm
+       ↓
+Full extraction proceeds
+```
+
+### Analysis Caching
+
+Analysis results are cached to support the confirmation flow without redundant LLM calls:
+
+- **Cache ID**: Unique `analysisId` returned by `/api/documents/analyze`
+- **TTL**: 15 minutes (configurable via `ANALYSIS_CACHE_TTL_SECONDS`)
+- **Storage**: In-memory for serverless deployments; Redis/Upstash for production scale
+- **Cleanup**: Automatic TTL-based expiration
+
+### Confidence-Based UX
+
+The UI adapts based on classification confidence:
+
+| Confidence | Behavior |
+|------------|----------|
+| High (>80%) | Direct suggestion with quick confirm button |
+| Medium (50-80%) | Multiple options presented for user selection |
+| Low (<50%) | Clarifying questions asked before proceeding |
+
+### Document Classification Categories
+
+| Source Document Type | Primary Target | Secondary Targets |
+|---------------------|----------------|-------------------|
+| Project Scope | Charter | DDP, SOW |
+| Meeting Notes | Charter (updates) | DDP |
+| Requirements | DDP | Charter |
+| Proposals | Charter | SOW |
+| Contracts | SOW | Charter |
+| Email Threads | Charter (context) | - |
+| Presentations | Charter | DDP |
+| Spreadsheets | DDP (data) | Charter (milestones) |
+
+### Fallback Mode (Legacy Intent-Driven)
+
+When `DOCUMENT_ANALYSIS_ENABLED=false`, the system reverts to the original intent-driven
+flow where users must explicitly request extraction via natural language:
+
+1. User uploads file + sends intent message
+2. `detectCharterIntent()` validates intent via regex patterns
+3. `POST /api/documents/extract` with intent + context
+4. Extraction proceeds only if intent is detected
+
+This fallback preserves backward compatibility and can be used when LLM analysis is not desired.
 
 ## Router-first architecture
 
@@ -13,11 +87,11 @@ update when introducing a new doc type.
    [`lib/doc/registry.js`](../lib/doc/registry.js) hydrates those manifests at
    runtime so the API handlers can resolve per-type settings without hardcoding
    paths.
-2. **Generic API handlers** – `/api/documents/extract`,
-   `/api/documents/validate`, and `/api/documents/render` accept a `docType`
-   query parameter. Each handler reads the registry entry to load prompts,
-   schema, field rules, normalizers, and DOCX templates before performing the
-   requested action.
+2. **Generic API handlers** – `/api/documents/analyze`, `/api/documents/confirm`,
+   `/api/documents/extract`, `/api/documents/validate`, and `/api/documents/render`
+   accept a `docType` query parameter. Each handler reads the registry entry to
+   load prompts, schema, field rules, normalizers, and DOCX templates before
+   performing the requested action.
 3. **Router adapters** – `/api/charter/*` delegates to the document router. They
    exist for backwards compatibility with historic clients and tests. Prefer the
    `/api/documents/*` endpoints when wiring new features.

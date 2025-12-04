@@ -62,14 +62,23 @@ docs/                   # Architecture and API documentation
 
 ## Key Architectural Patterns
 
-### Intent-Only Extraction
-- **Core Rule:** Extraction only occurs when users explicitly request it via natural language
+### LLM-Based Document Analysis (Primary Mode)
+When `DOCUMENT_ANALYSIS_ENABLED=true` (default), the system uses an LLM-analysis-driven flow:
+- Documents are analyzed on upload to classify type and suggest extraction targets
+- Users confirm the suggested document type before extraction proceeds
+- Confidence scoring guides UI behavior (high >80%, medium 50-80%, low <50%)
+- Analysis results are cached for 15 minutes (`ANALYSIS_CACHE_TTL_SECONDS`)
+- See `docs/LLM-DOCUMENT-EXTRACTION-STRATEGY.md` for full architecture
+
+### Intent-Only Extraction (Fallback Mode)
+When `DOCUMENT_ANALYSIS_ENABLED=false`, the system reverts to intent-driven extraction:
+- Extraction only occurs when users explicitly request it via natural language
 - No automatic extraction from file uploads alone
 - `detectCharterIntent()` in `src/utils/detectCharterIntent.js` returns `{ docType, action, intentText }` or `null`
 - `/api/documents/extract` returns HTTP 400 (missing intent) or 422 (missing context) on invalid requests
 
 ### Document Router Pattern
-- Router inspects user intent, dispatches to doc-type-specific pipelines
+- Router inspects document analysis or user intent, dispatches to doc-type-specific pipelines
 - Registry-driven: `templates/registry.js` registers supported document types
 - Each type encapsulates prompts, schemas, templates, and validation rules
 
@@ -84,7 +93,17 @@ docs/                   # Architecture and API documentation
 
 ## Main Flows
 
-### Document Extraction Flow
+### Document Extraction Flow (Primary - Analysis-Driven)
+1. User uploads file
+2. System analyzes document via LLM (`POST /api/documents/analyze`)
+3. User sees classification with confidence score and field preview
+4. User confirms document type (`POST /api/documents/confirm`)
+5. `POST /api/documents/extract` with confirmed type and `analysisId`
+6. `POST /api/documents/validate` for schema validation
+7. `POST /api/documents/render` streams DOCX/PDF
+
+### Document Extraction Flow (Fallback - Intent-Driven)
+When `DOCUMENT_ANALYSIS_ENABLED=false`:
 1. User uploads file + sends intent message
 2. `detectCharterIntent()` validates intent
 3. `POST /api/documents/extract` with intent + context
@@ -107,8 +126,16 @@ Required in `.env.local`:
 ```bash
 OPENAI_API_KEY=sk-...
 FILES_LINK_SECRET=(32-byte hex)
-INTENT_ONLY_EXTRACTION=true
 VITE_CHARTER_GUIDED_CHAT_ENABLED=true
+
+# Document Analysis (LLM-driven extraction)
+DOCUMENT_ANALYSIS_ENABLED=true           # Enable analysis-driven flow (default: true)
+ANALYSIS_CACHE_TTL_SECONDS=900           # Analysis cache TTL (default: 15 minutes)
+ANALYSIS_CONFIDENCE_THRESHOLD=0.5        # Minimum confidence for auto-suggest
+ANALYSIS_MODEL=gpt-4o                    # Model for document analysis
+
+# Legacy fallback (when DOCUMENT_ANALYSIS_ENABLED=false)
+INTENT_ONLY_EXTRACTION=true              # Require explicit intent for extraction
 ```
 
 See `.env.example` for full list.
@@ -118,11 +145,15 @@ See `.env.example` for full list.
 | File | Purpose |
 |------|---------|
 | `src/App.jsx` | Main app component |
-| `src/utils/detectCharterIntent.js` | Intent detection logic |
+| `server/documents/analysis/DocumentAnalyzer.ts` | LLM-based document analysis orchestrator |
+| `api/documents/analyze.js` | Document analysis endpoint |
+| `api/documents/confirm.js` | Analysis confirmation endpoint |
+| `api/documents/extract.js` | Extraction endpoint (accepts `analysisId`) |
+| `src/utils/detectCharterIntent.js` | Intent detection logic (fallback mode) |
 | `templates/registry.js` | Document type registry |
-| `api/documents/extract.js` | Intent-gated extraction endpoint |
 | `server/charter/Orchestrator.ts` | Charter extraction orchestration |
 | `docs/ARCHITECTURE.md` | System design reference |
+| `docs/LLM-DOCUMENT-EXTRACTION-STRATEGY.md` | Full analysis strategy document |
 | `docs/CODEMAP.md` | Detailed code structure |
 
 ## Testing

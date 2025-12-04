@@ -1,7 +1,9 @@
 # Exact Virtual Assistant for Project Management
 
 ## Overview
-The Exact Virtual Assistant for Project Management routes every request through an intent-gated document router that only extracts data when a human explicitly asks for it. Uploading files, speaking without a request, or sending chat messages that lack intent will never start extraction. The application supports creating and updating project charters, Design & Development Plans (DDP), and other document types through a router-first design.
+The Exact Virtual Assistant for Project Management uses an LLM-powered document analysis system that intelligently classifies uploaded documents and suggests appropriate extraction targets. When `DOCUMENT_ANALYSIS_ENABLED=true` (default), the system automatically analyzes uploaded files, presents classification results with confidence scores, and waits for user confirmation before extracting data. The application supports creating and updating project charters, Design & Development Plans (DDP), and other document types through a router-first design.
+
+When `DOCUMENT_ANALYSIS_ENABLED=false`, the system reverts to intent-gated extraction that only extracts data when a human explicitly asks for it via natural language.
 
 ### Project Status
 The codebase has undergone a comprehensive 6-phase refactoring effort (completed Nov 2025) that addressed 37 architectural, performance, and code quality issues. Key improvements include:
@@ -28,7 +30,18 @@ Historical documentation from the refactoring effort is archived in [`docs/archi
 ### Document review
 - AI-powered document review evaluates charters and DDPs across six quality dimensions (completeness, specificity, feasibility, risk coverage, scope clarity, metric measurability) and provides prioritized, actionable feedback. Use the **Review Charter** button in the preview panel to trigger a review; optionally enable `VITE_REQUIRE_REVIEW_BEFORE_EXPORT=true` to gate exports on review completion. See [`docs/DOCUMENT_REVIEW_SYSTEM.md`](docs/DOCUMENT_REVIEW_SYSTEM.md) for full feature documentation.
 
-## Intent-only extraction contract
+## Document Extraction Contract
+
+### Primary Mode: LLM-Based Analysis (DOCUMENT_ANALYSIS_ENABLED=true)
+- **Upload triggers analysis** → System analyzes document via `/api/documents/analyze` and presents classification with confidence score.
+- **User confirmation required** → Extraction only proceeds after user confirms document type via `/api/documents/confirm`.
+- **Confidence-based UX**:
+  - High (>80%): Quick confirm with field preview
+  - Medium (50-80%): Multiple options presented
+  - Low (<50%): Clarifying questions asked
+- **Analysis caching**: Results cached for 15 minutes (`ANALYSIS_CACHE_TTL_SECONDS`)
+
+### Fallback Mode: Intent-Only (DOCUMENT_ANALYSIS_ENABLED=false)
 - **Upload only** → No extraction. The preview remains unchanged and `/api/documents/extract` is never called.
 - **Natural-language charter or DDP request** → Extraction runs exactly once per intent and populates the preview.
 - **Server guardrails**:
@@ -65,15 +78,22 @@ Environment flags keep the router predictable across dev, preview, and productio
 
 | Key | Purpose | Default |
 | --- | --- | --- |
-| `INTENT_ONLY_EXTRACTION` | Enforce explicit user intent before routing extraction. | `true` |
+| `DOCUMENT_ANALYSIS_ENABLED` | Enable LLM-based document analysis flow. When `false`, reverts to intent-only extraction. | `true` |
+| `ANALYSIS_CACHE_TTL_SECONDS` | TTL for cached analysis results. | `900` (15 min) |
+| `ANALYSIS_CONFIDENCE_THRESHOLD` | Minimum confidence for auto-suggest. | `0.5` |
+| `ANALYSIS_MODEL` | Model used for document analysis. | `gpt-4o` |
+| `INTENT_ONLY_EXTRACTION` | (Fallback mode) Enforce explicit user intent before routing extraction. | `true` |
 | `CHAT_STREAMING` | Enables the `/api/chat/stream` Edge handler. | `false` |
-| `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions (when user starts charter or sends create/update intent). Set to `false` to always show the preview panel. | `true` |
+| `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions. | `true` |
 | `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_ |
-| `FILES_LINK_SECRET` | HMAC secret that signs `/api/charter/make-link` payloads and validates `/api/charter/download` signatures. Generate a 32-byte hex string and keep it private. | _required for charter links_ |
+| `FILES_LINK_SECRET` | HMAC secret for charter share links. | _required for charter links_ |
 
 ## API
 Document pipelines live behind the router-first API layer:
-- `POST /api/documents/extract?docType=<type>` – Run the doc-type extraction pipeline when intent and context are present.
+- `POST /api/documents/analyze` – Analyze uploaded document, classify type, and suggest extraction targets.
+- `POST /api/documents/confirm` – Confirm analysis and trigger extraction with user-selected document type.
+- `GET /api/documents/analysis/:id` – Retrieve cached analysis result.
+- `POST /api/documents/extract?docType=<type>` – Run the doc-type extraction pipeline (accepts optional `analysisId`).
 - `POST /api/documents/validate?docType=<type>` – Validate structured output using the registered schema.
 - `POST /api/documents/render?docType=<type>` – Render a finished artifact with the encoded template.
 
@@ -90,10 +110,12 @@ Chat endpoints remain available for conversational assistance:
 The app ships with a React client, serverless API routes, and a template registry wired through a central document router. Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for context, component breakdowns, and Mermaid diagrams. For implementation details, consult [`docs/CODEMAP.md`](docs/CODEMAP.md) and [`docs/document-workflow.md`](docs/document-workflow.md).
 
 Key router touchpoints:
-- [`src/utils/detectCharterIntent.js`](src/utils/detectCharterIntent.js) parses user messages and returns `{ docType: 'charter', action: 'create' | 'update', intentText }` when intent is detected.
-- [`src/App.jsx`](src/App.jsx) routes matching intents to [`useBackgroundExtraction.trigger()`](src/hooks/useBackgroundExtraction.js) and prevents any automatic runs.
-- [`src/hooks/useBackgroundExtraction.js`](src/hooks/useBackgroundExtraction.js) exposes a `trigger()` method only; it no longer debounces chat, attachment, or voice activity.
-- [`api/documents/extract.js`](api/documents/extract.js) enforces explicit intent plus contextual attachments/text before calling OpenAI, then routes to validation and rendering handlers.
+- [`server/documents/analysis/DocumentAnalyzer.ts`](server/documents/analysis/DocumentAnalyzer.ts) orchestrates LLM-based document analysis, classification, and field preview generation.
+- [`api/documents/analyze.js`](api/documents/analyze.js) analyzes uploaded documents and returns classification with confidence scores.
+- [`api/documents/confirm.js`](api/documents/confirm.js) processes user confirmation and triggers extraction with cached analysis context.
+- [`src/utils/detectCharterIntent.js`](src/utils/detectCharterIntent.js) **(fallback mode)** parses user messages and returns `{ docType: 'charter', action: 'create' | 'update', intentText }` when intent is detected.
+- [`src/App.jsx`](src/App.jsx) triggers document analysis on file upload (when enabled) or routes matching intents to extraction.
+- [`api/documents/extract.js`](api/documents/extract.js) accepts `analysisId` for analysis-driven flow, or enforces explicit intent in fallback mode.
 - [`templates/`](templates/) holds prompts, schemas, and encoded templates for every registered document type.
 
 ## Testing

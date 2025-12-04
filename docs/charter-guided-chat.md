@@ -3,8 +3,36 @@
 ## Overview
 The guided chat replaces the visible wizard by default, asking one charter question at a time while keeping the composer and preview in sync. The toggle lives in the shared feature flag object: `CHARTER_GUIDED_CHAT_ENABLED` defaults to `true`, so the flow is active unless the wizard is explicitly re-enabled. When `CHARTER_WIZARD_VISIBLE` remains `false`, `GUIDED_CHAT_WITHOUT_WIZARD` switches the app into the conversational experience and wires up the guided orchestrator. 【F:src/config/flags.ts†L32-L42】【F:src/App.jsx†L536-L538】【F:src/App.jsx†L1360-L1388】
 
+## Document Analysis Integration
+
+When `DOCUMENT_ANALYSIS_ENABLED=true` (default), the guided charter flow integrates with the LLM-based document analysis system:
+
+### Analysis-Driven Start Flow
+1. User uploads a document (e.g., project scope, meeting notes)
+2. System automatically analyzes the document via `POST /api/documents/analyze`
+3. User sees classification with confidence score and field preview
+4. User confirms to start charter creation with pre-populated fields
+5. Guided chat continues with remaining fields
+
+### Confirmation UI
+The analysis result is presented in a confirmation card showing:
+- Document classification (e.g., "Project Scope Document")
+- Confidence percentage (e.g., "87% match for Project Charter")
+- Preview of extractable fields
+- Buttons: **Create Charter**, **Edit First**, **Choose Different Type**
+
+### Confidence-Based Behavior
+| Confidence | Guided Chat Behavior |
+|------------|---------------------|
+| High (>80%) | Show quick confirm with field preview |
+| Medium (50-80%) | Present options: Charter, DDP, or other targets |
+| Low (<50%) | Ask clarifying questions before starting |
+
+### Fallback: Manual Start
+Users can still click **Start Charter** to begin the guided flow without document analysis. This bypasses the analysis phase and collects all fields from scratch.
+
 ## Feature flags
-Three flags determine which experience you see and whether the background extraction service runs alongside the assistant:
+Four flags determine which experience you see and whether the background extraction service runs alongside the assistant:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |

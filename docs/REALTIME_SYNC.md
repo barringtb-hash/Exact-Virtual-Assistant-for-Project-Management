@@ -4,13 +4,29 @@
 
 The Real-Time Sync system provides instant synchronization between chat input (text and voice) and the document preview panel, with a target latency of <500ms.
 
-**IMPORTANT**: Real-time sync behavior depends on the `INTENT_ONLY_EXTRACTION` feature flag (defaults to `true`).
+**IMPORTANT**: Real-time sync behavior depends on the extraction mode:
+- **Analysis-Driven Mode** (`DOCUMENT_ANALYSIS_ENABLED=true`, default): Extraction follows user confirmation of document analysis
+- **Intent-Only Mode** (`DOCUMENT_ANALYSIS_ENABLED=false`): Legacy fallback using regex-based intent detection
 
-## Intent-Only Mode vs. Real-Time Sync
+## Extraction Modes and Real-Time Sync
 
-### Understanding Intent-Only Extraction
+### Analysis-Driven Mode (Default)
 
-The system has two modes controlled by the `INTENT_ONLY_EXTRACTION` environment variable:
+When `DOCUMENT_ANALYSIS_ENABLED=true` (default), the system uses LLM-based document analysis:
+
+1. **Document Upload** → Triggers `/api/documents/analyze`
+2. **Analysis Results** → User sees classification with confidence score
+3. **User Confirmation** → Triggers extraction via `/api/documents/confirm`
+4. **Preview Updates** → Fields populated after extraction completes
+
+Real-time sync in this mode:
+- Analysis happens automatically on upload
+- Extraction waits for user confirmation
+- Preview updates after confirmed extraction
+
+### Intent-Only Mode (Fallback)
+
+When `DOCUMENT_ANALYSIS_ENABLED=false`, the system falls back to intent-driven extraction controlled by `INTENT_ONLY_EXTRACTION`:
 
 **Intent-Only Mode ON (default: `INTENT_ONLY_EXTRACTION=true`)**:
 - Extraction only happens when the system detects user **intent** (e.g., "create a project charter", "update the timeline to 6 months")
@@ -53,23 +69,30 @@ User: ANY message
   ↓ Preview updates IMMEDIATELY (<500ms) ✓
 ```
 
-### Common Intent Patterns
+### Common Intent Patterns (Fallback Mode Only)
 
-The system detects these intent patterns (see `src/utils/detectCharterIntent.js`):
+When `DOCUMENT_ANALYSIS_ENABLED=false`, the system detects these intent patterns (see `src/utils/detectCharterIntent.js`):
 
 - **create_charter**: "create a charter", "make a project charter", "generate charter"
 - **update_field**: "set the timeline", "budget is $150k", "add risk: schedule delay"
 - **populate_from_attachment**: "create charter from this document", "extract from attachment"
 
+Note: In analysis-driven mode (default), these patterns are not used. Instead, the LLM analyzes the document and suggests appropriate extraction targets.
+
 ### Recommended Configuration
 
-**For Production** (default): `INTENT_ONLY_EXTRACTION=true`
-- More precise, fewer unnecessary API calls
-- Real-time sync works when user provides clear intent
-- Prevents errors from ambiguous messages
+**For Production** (default): `DOCUMENT_ANALYSIS_ENABLED=true`
+- LLM-based document analysis with confidence scoring
+- User confirmation required before extraction
+- Better accuracy through semantic understanding
 
-**For Development/Testing**: `INTENT_ONLY_EXTRACTION=false`
-- Easier testing, every message triggers extraction
+**For Legacy/Fallback**: `DOCUMENT_ANALYSIS_ENABLED=false` + `INTENT_ONLY_EXTRACTION=true`
+- Regex-based intent detection
+- Precise, fewer unnecessary API calls
+- Real-time sync works when user provides clear intent
+
+**For Development/Testing**: `DOCUMENT_ANALYSIS_ENABLED=false` + `INTENT_ONLY_EXTRACTION=false`
+- Every message triggers extraction
 - Useful for debugging extraction logic
 - May see more API calls
 

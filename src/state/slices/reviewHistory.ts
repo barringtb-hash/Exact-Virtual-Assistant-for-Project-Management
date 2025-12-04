@@ -8,6 +8,7 @@
  */
 
 import { createSlice } from "../core/createSlice";
+import { useStore } from "../../lib/tinyStore";
 
 /**
  * Review history entry
@@ -199,49 +200,51 @@ export const reviewHistoryActions = reviewHistorySlice.actions;
  * Hook to get review history state
  */
 export function useReviewHistory() {
-  return reviewHistorySlice.useStore();
+  return useStore(reviewHistorySlice.store, (state) => state);
 }
 
 /**
  * Hook to get review history entries
  */
 export function useReviewHistoryEntries() {
-  return reviewHistorySlice.useStore().entries;
+  return useStore(reviewHistorySlice.store, (state) => state.entries);
 }
 
 /**
  * Hook to get latest review for a document type
  */
 export function useLatestReview(docType: string) {
-  const state = reviewHistorySlice.useStore();
-  return state.entries.find((e) => e.docType === docType) || null;
+  return useStore(reviewHistorySlice.store, (state) =>
+    state.entries.find((e) => e.docType === docType) || null
+  );
 }
 
 /**
  * Hook to get review improvement stats
  */
 export function useReviewImprovement(documentHash: string) {
-  const state = reviewHistorySlice.useStore();
-  const reviews = state.entries
-    .filter((e) => e.documentHash === documentHash)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  return useStore(reviewHistorySlice.store, (state) => {
+    const reviews = state.entries
+      .filter((e) => e.documentHash === documentHash)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-  if (reviews.length < 2) {
-    return null;
-  }
+    if (reviews.length < 2) {
+      return null;
+    }
 
-  const first = reviews[0];
-  const latest = reviews[reviews.length - 1];
+    const first = reviews[0];
+    const latest = reviews[reviews.length - 1];
 
-  return {
-    firstScore: first.overallScore,
-    latestScore: latest.overallScore,
-    improvement: latest.overallScore - first.overallScore,
-    reviewCount: reviews.length,
-    firstReview: first,
-    latestReview: latest,
-    allReviews: reviews,
-  };
+    return {
+      firstScore: first.overallScore,
+      latestScore: latest.overallScore,
+      improvement: latest.overallScore - first.overallScore,
+      reviewCount: reviews.length,
+      firstReview: first,
+      latestReview: latest,
+      allReviews: reviews,
+    };
+  });
 }
 
 /**

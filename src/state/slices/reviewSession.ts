@@ -470,7 +470,7 @@ export const selectFeedbackCounts = (state: ReviewSessionSliceState) => {
 
 // Hooks
 export function useReviewSession() {
-  return useStore(reviewSessionSlice.store);
+  return useStore(reviewSessionSlice.store, (state) => state);
 }
 
 export function useReviewStatus() {

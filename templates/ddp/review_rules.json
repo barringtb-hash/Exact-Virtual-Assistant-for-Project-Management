@@ -1,0 +1,193 @@
+{
+  "version": "1.0",
+  "docType": "ddp",
+  "fields": {
+    "project_name": {
+      "dimension": "completeness",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 5,
+          "severity": "important",
+          "message": "Project name should be descriptive (at least 5 characters)"
+        },
+        {
+          "condition": "notContains",
+          "value": ["TBD", "TODO", "Untitled", "New Project"],
+          "severity": "critical",
+          "message": "Project name contains placeholder text"
+        }
+      ]
+    },
+    "phases": {
+      "dimension": "completeness",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "critical",
+          "message": "DDP should have at least 3 phases (e.g., Design, Development, Testing)"
+        },
+        {
+          "condition": "eachShouldHave",
+          "value": ["name", "owner"],
+          "severity": "important",
+          "message": "Each phase should have a name and an owner assigned"
+        },
+        {
+          "condition": "shouldCoverPhases",
+          "value": ["design", "development", "test", "deploy"],
+          "severity": "suggestion",
+          "message": "Phases should cover the full development lifecycle"
+        }
+      ]
+    },
+    "requirements": {
+      "dimension": "specificity",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "important",
+          "message": "Should define at least 3 specific requirements"
+        },
+        {
+          "condition": "itemMinLength",
+          "value": 20,
+          "severity": "suggestion",
+          "message": "Requirements should be detailed (at least 20 characters each)"
+        },
+        {
+          "condition": "shouldBeTestable",
+          "value": true,
+          "severity": "important",
+          "message": "Requirements should be testable and verifiable"
+        }
+      ]
+    },
+    "risks": {
+      "dimension": "risk_coverage",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "important",
+          "message": "Should identify at least 3 development risks"
+        },
+        {
+          "condition": "shouldCoverCategories",
+          "value": ["technical", "schedule", "resource", "integration"],
+          "severity": "suggestion",
+          "message": "Risks should cover multiple categories: technical, schedule, resource, integration"
+        }
+      ]
+    },
+    "dependencies": {
+      "dimension": "scope_clarity",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 1,
+          "severity": "suggestion",
+          "message": "Should document key dependencies between phases or components"
+        }
+      ]
+    },
+    "technical_approach": {
+      "dimension": "specificity",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 100,
+          "severity": "important",
+          "message": "Technical approach should be detailed (at least 100 characters)"
+        }
+      ]
+    },
+    "testing_strategy": {
+      "dimension": "metric_measurability",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 50,
+          "severity": "important",
+          "message": "Testing strategy should describe the testing approach"
+        },
+        {
+          "condition": "shouldIncludeTypes",
+          "value": ["unit", "integration", "e2e"],
+          "severity": "suggestion",
+          "message": "Testing strategy should cover unit, integration, and end-to-end testing"
+        }
+      ]
+    },
+    "success_criteria": {
+      "dimension": "metric_measurability",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 2,
+          "severity": "important",
+          "message": "Should define at least 2 success criteria"
+        },
+        {
+          "condition": "shouldBeMeasurable",
+          "value": true,
+          "severity": "important",
+          "message": "Success criteria should be measurable and verifiable"
+        }
+      ]
+    },
+    "timeline": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "shouldBeRealistic",
+          "value": true,
+          "severity": "important",
+          "message": "Timeline should be realistic for the stated scope"
+        },
+        {
+          "condition": "shouldIncludeBuffer",
+          "value": true,
+          "severity": "suggestion",
+          "message": "Timeline should include buffer for unexpected issues"
+        }
+      ]
+    },
+    "team": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 1,
+          "severity": "important",
+          "message": "Should identify at least 1 team member or role"
+        },
+        {
+          "condition": "shouldHaveRoles",
+          "value": true,
+          "severity": "suggestion",
+          "message": "Team members should have defined roles"
+        }
+      ]
+    }
+  },
+  "thresholds": {
+    "overall": 65,
+    "completeness": 75,
+    "specificity": 70,
+    "feasibility": 70,
+    "risk_coverage": 60,
+    "scope_clarity": 70,
+    "metric_measurability": 65
+  },
+  "weights": {
+    "completeness": 1.2,
+    "specificity": 1.3,
+    "feasibility": 1.1,
+    "risk_coverage": 0.8,
+    "scope_clarity": 0.9,
+    "metric_measurability": 0.9
+  }
+}

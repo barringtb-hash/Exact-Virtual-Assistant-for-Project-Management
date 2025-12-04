@@ -1,319 +1,403 @@
-const cardTableLayout = {
+// Brand colors matching the DOCX template
+const PURPLE = "#7030A0";
+const WHITE = "#FFFFFF";
+const LIGHT_GRAY = "#F2F2F2";
+const DARK_TEXT = "#1a1a1a";
+const GRAY_TEXT = "#666666";
+
+// Table layout for sections with borders
+const sectionTableLayout = {
   hLineWidth: () => 1,
   vLineWidth: () => 1,
-  hLineColor: () => "#e2e8f0",
-  vLineColor: () => "#e2e8f0",
-  paddingLeft: () => 12,
-  paddingRight: () => 12,
-  paddingTop: () => 10,
-  paddingBottom: () => 10,
+  hLineColor: () => "#cccccc",
+  vLineColor: () => "#cccccc",
+  paddingLeft: () => 8,
+  paddingRight: () => 8,
+  paddingTop: () => 6,
+  paddingBottom: () => 6,
+};
+
+// Layout for tables without visible borders (header area)
+const noBorderLayout = {
+  hLineWidth: () => 0,
+  vLineWidth: () => 0,
+  paddingLeft: () => 0,
+  paddingRight: () => 0,
+  paddingTop: () => 0,
+  paddingBottom: () => 0,
 };
 
 export function buildPdfDefinition(charter) {
   const data = buildTemplateData(charter);
+
   const content = [
+    // Header with branding
     {
-      text: "Project Charter",
-      style: "title",
+      columns: [
+        {
+          text: [
+            { text: "EXACT ", bold: true, fontSize: 14 },
+            { text: "SCIENCES", fontSize: 14 },
+          ],
+          width: "auto",
+        },
+        {
+          text: "Project Charter",
+          style: "headerTitle",
+          alignment: "right",
+        },
+      ],
+      margin: [0, 0, 0, 20],
     },
-    {
-      text: `Generated on ${data.generatedOn}`,
-      style: "generated",
-    },
+
+    // General Project Information Section
+    createSectionHeader("General Project Information"),
+    createKeyValueTable([
+      ["Project Name:", data.projectName],
+      ["Sponsor:", data.sponsor],
+      ["Project Manager:", data.projectLead],
+      ["Estimated Project Start Date:", data.startDate],
+      ["Estimated Project End Date:", data.endDate],
+    ]),
+
+    // Vision
+    createLabelDescriptionRow("Project Vision:", "What does the project aim to achieve?"),
+    createValueRow(data.vision),
+
+    // Problem/Opportunity
+    createLabelDescriptionRow("Problem/Opportunity:", "What is the problem you are trying to solve or the opportunity you wish to capitalize?"),
+    createValueRow(data.problem),
+
+    // Description
+    createLabelDescriptionRow("Project Description:", "What are the goals and objectives of the project?"),
+    createValueRow(data.description),
+
+    { text: "", margin: [0, 10, 0, 0] },
+
+    // Project Scope Section
+    createSectionHeader("Project Scope"),
+    createDescriptionRow("Scope: Identify what the project will and will not address"),
+    createTwoColumnListTable("In Scope:", data.scopeIn, "Out of Scope:", data.scopeOut),
+
+    { text: "", margin: [0, 10, 0, 0] },
+
+    // Risks and Assumptions Section
+    createSectionHeader("Project Risks, Assumptions/Dependencies"),
+    createTwoColumnListTableWithDescriptions(
+      "Project Risks/Constraints:",
+      "List any events or conditions which could limit the completion of the project.",
+      data.risks,
+      "Assumptions/Dependencies:",
+      "Identify any event or situation expected to occur during the project.",
+      data.assumptions
+    ),
+
+    { text: "", margin: [0, 10, 0, 0] },
+
+    // Milestones Section
+    createSectionHeader("Milestones and Key Deliverables"),
+    createMilestonesTable(data.milestones),
+
+    { text: "", margin: [0, 10, 0, 0] },
+
+    // Success Metrics Section
+    createSectionHeader("Success Metrics"),
+    createSuccessMetricsTable(data.successMetrics),
+
+    { text: "", margin: [0, 10, 0, 0] },
+
+    // Core Team Section
+    createSectionHeader("Core Team"),
+    createCoreTeamTable(data.coreTeam),
   ];
-
-  pushSection(content, "Overview", createCardRows([
-    createLabeledCard("Project Name", data.projectName),
-    createLabeledCard("Sponsor", data.sponsor),
-    createLabeledCard("Project Lead", data.projectLead),
-    createLabeledCard("Start Date", data.startDate),
-    createLabeledCard("Target Completion", data.endDate),
-  ]));
-
-  pushSection(content, "Vision", [createParagraphCard(data.vision)]);
-  pushSection(content, "Problem Statement", [createParagraphCard(data.problem)]);
-  pushSection(content, "Description", [createParagraphCard(data.description)]);
-
-  pushSection(content, "Scope", createCardRows([
-    createCardFromSections([
-      {
-        label: "In Scope",
-        value: {
-          kind: "list",
-          items: data.scopeIn,
-          fallback: "Not provided",
-        },
-      },
-    ]),
-    createCardFromSections([
-      {
-        label: "Out of Scope",
-        value: {
-          kind: "list",
-          items: data.scopeOut,
-          fallback: "Not provided",
-        },
-      },
-    ]),
-  ]));
-
-  pushSection(content, "Success Metrics", buildSuccessMetricSection(data.successMetrics));
-  pushSection(content, "Milestones", buildMilestoneSection(data.milestones));
-  pushSection(content, "Core Team", buildCoreTeamSection(data.coreTeam));
-
-  pushSection(content, "Risks", [
-    createCardFromSections([
-      {
-        value: {
-          kind: "list",
-          items: data.risks,
-          fallback: "No risks identified.",
-        },
-      },
-    ]),
-  ]);
-
-  pushSection(content, "Assumptions", [
-    createCardFromSections([
-      {
-        value: {
-          kind: "list",
-          items: data.assumptions,
-          fallback: "No assumptions listed.",
-        },
-      },
-    ]),
-  ]);
 
   return {
     pageSize: "A4",
-    pageMargins: [40, 52, 40, 52],
+    pageMargins: [40, 40, 40, 40],
     content,
     styles,
   };
 }
 
-function pushSection(content, title, nodes) {
-  if (!Array.isArray(nodes) || nodes.length === 0) {
-    return;
-  }
-
-  const margin = content.length > 2 ? [0, 28, 0, 12] : [0, 32, 0, 12];
-  content.push({
-    text: title,
-    style: "sectionHeading",
-    margin,
-  });
-  content.push(...nodes);
-}
-
-function createCardRows(cards, perRow = 2) {
-  const filtered = cards.filter(Boolean);
-  if (filtered.length === 0) {
-    return [];
-  }
-
-  const rows = [];
-  for (let i = 0; i < filtered.length; i += perRow) {
-    const rowCards = filtered.slice(i, i + perRow);
-    while (rowCards.length < perRow) {
-      rowCards.push({ text: "" });
-    }
-    rows.push({
-      columns: rowCards,
-      columnGap: 16,
-    });
-  }
-  return rows;
-}
-
-function createLabeledCard(label, value) {
-  return createCardFromSections([
-    {
-      label,
-      value,
-    },
-  ]);
-}
-
-function createParagraphCard(text) {
-  return createTableCard([createValueNode(text, true)]);
-}
-
-function buildSuccessMetricSection(metrics) {
-  if (!metrics.length) {
-    return [createMutedParagraphCard("No success metrics provided.")];
-  }
-
-  const cards = metrics.map((metric) =>
-    createCardFromSections([
-      { label: "Benefit", value: metric.benefit },
-      { label: "Metric", value: metric.metric },
-      {
-        label: "Measurement",
-        value: metric.system_of_measurement,
-      },
-    ])
-  );
-
-  return createCardRows(cards);
-}
-
-function buildMilestoneSection(milestones) {
-  if (!milestones.length) {
-    return [createMutedParagraphCard("No milestones provided.")];
-  }
-
-  const cards = milestones.map((milestone) =>
-    createCardFromSections([
-      { label: "Phase", value: milestone.phase },
-      { label: "Deliverable", value: milestone.deliverable },
-      { label: "Target Date", value: milestone.dateDisplay },
-    ])
-  );
-
-  return createCardRows(cards);
-}
-
-function buildCoreTeamSection(coreTeam) {
-  if (!coreTeam.length) {
-    return [createMutedParagraphCard("No team members documented.")];
-  }
-
-  const cards = coreTeam.map((member) =>
-    createCardFromSections([
-      { label: "Name", value: member.name },
-      { label: "Role", value: member.role },
-      {
-        label: "Responsibilities",
-        value:
-          member.responsibilities ?? {
-            kind: "muted",
-            text: "No responsibilities documented.",
-          },
-      },
-    ])
-  );
-
-  return createCardRows(cards);
-}
-
-function createMutedParagraphCard(text) {
-  return createTableCard([createMutedValue(text, true)]);
-}
-
-function createCardFromSections(sections) {
-  const stack = [];
-
-  sections.forEach((section, index) => {
-    const isLast = index === sections.length - 1;
-    if (section.label) {
-      stack.push({ text: section.label, style: "label" });
-    }
-
-    const nodes = createSectionValueNodes(section, isLast);
-    stack.push(...nodes);
-  });
-
-  if (!stack.length) {
-    stack.push(createMutedValue("Not provided", true));
-  }
-
-  return createTableCard(stack);
-}
-
-function createTableCard(stack) {
+function createSectionHeader(text) {
   return {
     table: {
       widths: ["*"],
       body: [
         [
           {
-            stack,
-            fillColor: "#f8fafc",
+            text,
+            bold: true,
+            color: WHITE,
+            fontSize: 11,
+            fillColor: PURPLE,
           },
         ],
       ],
     },
-    layout: cardTableLayout,
-    style: "card",
-    width: "*",
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
   };
 }
 
-function createSectionValueNodes(section, isLast) {
-  const value = section.value;
+function createKeyValueTable(rows) {
+  const body = rows.map(([label, value]) => [
+    {
+      text: label,
+      bold: true,
+      fontSize: 10,
+      fillColor: LIGHT_GRAY,
+    },
+    {
+      text: value || "Not provided",
+      fontSize: 10,
+    },
+  ]);
 
-  if (value && typeof value === "object") {
-    if (value.kind === "list") {
-      return [createListValue(value.items, value.fallback, isLast)];
-    }
-
-    if (value.kind === "muted") {
-      return [createMutedValue(value.text, isLast)];
-    }
-
-    if (value.kind === "nodes" && Array.isArray(value.nodes)) {
-      return value.nodes.map((node, index) =>
-        applyTrailingMargin(node, isLast && index === value.nodes.length - 1)
-      );
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((node, index) =>
-      applyTrailingMargin(node, isLast && index === value.length - 1)
-    );
-  }
-
-  if (typeof value === "string") {
-    return [createValueNode(value, isLast)];
-  }
-
-  if (value == null && section.fallback) {
-    return [createValueNode(section.fallback, isLast)];
-  }
-
-  if (value == null) {
-    return [createMutedValue("Not provided", isLast)];
-  }
-
-  return [createValueNode(String(value), isLast)];
-}
-
-function applyTrailingMargin(node, isLast) {
   return {
-    ...node,
-    margin: [0, 0, 0, isLast ? 0 : 8],
+    table: {
+      widths: [150, "*"],
+      body,
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
   };
 }
 
-function createValueNode(text, isLast) {
+function createLabelDescriptionRow(label, description) {
   return {
-    text,
-    style: "value",
-    margin: [0, 0, 0, isLast ? 0 : 8],
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            text: [
+              { text: label, bold: true, fontSize: 10 },
+              { text: " " + description, italics: true, fontSize: 9, color: GRAY_TEXT },
+            ],
+          },
+        ],
+      ],
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
   };
 }
 
-function createMutedValue(text, isLast) {
+function createDescriptionRow(text) {
   return {
-    text,
-    style: "muted",
-    margin: [0, 0, 0, isLast ? 0 : 8],
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            text,
+            italics: true,
+            fontSize: 9,
+            color: GRAY_TEXT,
+          },
+        ],
+      ],
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
   };
 }
 
-function createListValue(items, fallback, isLast) {
-  if (Array.isArray(items) && items.length > 0) {
-    return {
-      ul: items,
-      style: "value",
-      margin: [0, 0, 0, isLast ? 0 : 8],
-    };
+function createValueRow(value) {
+  return {
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            text: value || "Not provided",
+            fontSize: 10,
+          },
+        ],
+      ],
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
+}
+
+function createTwoColumnListTable(label1, items1, label2, items2) {
+  const list1 = Array.isArray(items1) && items1.length > 0
+    ? { ul: items1.map(item => ({ text: item, fontSize: 10 })), margin: [0, 4, 0, 0] }
+    : { text: "Not provided", fontSize: 10, italics: true, color: GRAY_TEXT };
+
+  const list2 = Array.isArray(items2) && items2.length > 0
+    ? { ul: items2.map(item => ({ text: item, fontSize: 10 })), margin: [0, 4, 0, 0] }
+    : { text: "Not provided", fontSize: 10, italics: true, color: GRAY_TEXT };
+
+  return {
+    table: {
+      widths: ["50%", "50%"],
+      body: [
+        [
+          {
+            stack: [
+              { text: label1, bold: true, fontSize: 10 },
+              list1,
+            ],
+          },
+          {
+            stack: [
+              { text: label2, bold: true, fontSize: 10 },
+              list2,
+            ],
+          },
+        ],
+      ],
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
+}
+
+function createTwoColumnListTableWithDescriptions(label1, desc1, items1, label2, desc2, items2) {
+  const list1 = Array.isArray(items1) && items1.length > 0
+    ? { ul: items1.map(item => ({ text: item, fontSize: 10 })), margin: [0, 4, 0, 0] }
+    : { text: "Not provided", fontSize: 10, italics: true, color: GRAY_TEXT };
+
+  const list2 = Array.isArray(items2) && items2.length > 0
+    ? { ul: items2.map(item => ({ text: item, fontSize: 10 })), margin: [0, 4, 0, 0] }
+    : { text: "Not provided", fontSize: 10, italics: true, color: GRAY_TEXT };
+
+  return {
+    table: {
+      widths: ["50%", "50%"],
+      body: [
+        [
+          {
+            stack: [
+              { text: label1, bold: true, fontSize: 10 },
+              { text: desc1, italics: true, fontSize: 8, color: GRAY_TEXT, margin: [0, 2, 0, 4] },
+            ],
+          },
+          {
+            stack: [
+              { text: label2, bold: true, fontSize: 10 },
+              { text: desc2, italics: true, fontSize: 8, color: GRAY_TEXT, margin: [0, 2, 0, 4] },
+            ],
+          },
+        ],
+        [
+          list1,
+          list2,
+        ],
+      ],
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
+}
+
+function createMilestonesTable(milestones) {
+  const headerRow = [
+    { text: "Milestone / Key Deliverables", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+    { text: "Anticipated Completion / Delivery Date", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+  ];
+
+  const body = [headerRow];
+
+  if (milestones.length === 0) {
+    body.push([
+      { text: "No milestones provided", colSpan: 2, italics: true, color: GRAY_TEXT, fontSize: 10 },
+      {},
+    ]);
+  } else {
+    milestones.forEach((milestone) => {
+      body.push([
+        { text: `${milestone.phase} – ${milestone.deliverable}`, fontSize: 10 },
+        { text: milestone.dateDisplay, fontSize: 10 },
+      ]);
+    });
   }
 
-  return createMutedValue(fallback, isLast);
+  return {
+    table: {
+      widths: ["60%", "40%"],
+      body,
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
+}
+
+function createSuccessMetricsTable(metrics) {
+  const headerRow = [
+    { text: "Business Benefit", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+    { text: "Metric", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+    { text: "System of Measurement", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+  ];
+
+  const body = [headerRow];
+
+  if (metrics.length === 0) {
+    body.push([
+      { text: "No success metrics provided", colSpan: 3, italics: true, color: GRAY_TEXT, fontSize: 10 },
+      {},
+      {},
+    ]);
+  } else {
+    metrics.forEach((metric) => {
+      body.push([
+        { text: metric.benefit || "Not provided", fontSize: 10 },
+        { text: metric.metric || "Not provided", fontSize: 10 },
+        { text: metric.system_of_measurement || "Not provided", fontSize: 10 },
+      ]);
+    });
+  }
+
+  return {
+    table: {
+      widths: ["33%", "34%", "33%"],
+      body,
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
+}
+
+function createCoreTeamTable(coreTeam) {
+  const headerRow = [
+    { text: "Name", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+    { text: "Role", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+    { text: "Project Responsibilities", bold: true, fontSize: 10, fillColor: LIGHT_GRAY },
+  ];
+
+  const body = [headerRow];
+
+  if (coreTeam.length === 0) {
+    body.push([
+      { text: "No team members documented", colSpan: 3, italics: true, color: GRAY_TEXT, fontSize: 10 },
+      {},
+      {},
+    ]);
+  } else {
+    coreTeam.forEach((member) => {
+      const responsibilities = Array.isArray(member.responsibilities) && member.responsibilities.length > 0
+        ? { ul: member.responsibilities.map(r => ({ text: r, fontSize: 10 })) }
+        : { text: member.responsibilities || "Not provided", fontSize: 10 };
+
+      body.push([
+        { text: member.name || "Not provided", fontSize: 10 },
+        { text: member.role || "Not provided", fontSize: 10 },
+        responsibilities,
+      ]);
+    });
+  }
+
+  return {
+    table: {
+      widths: ["25%", "25%", "50%"],
+      body,
+    },
+    layout: sectionTableLayout,
+    margin: [0, 0, 0, 0],
+  };
 }
 
 function buildTemplateData(charter) {
@@ -364,10 +448,20 @@ function buildTemplateData(charter) {
             return null;
           }
 
+          // Handle responsibilities as array (new format) or string (legacy)
+          let responsibilities = member.responsibilities;
+          if (Array.isArray(responsibilities)) {
+            responsibilities = responsibilities.filter(r => typeof r === "string" && r.trim());
+          } else if (typeof responsibilities === "string" && responsibilities.trim()) {
+            responsibilities = [responsibilities.trim()];
+          } else {
+            responsibilities = null;
+          }
+
           return {
             name: toDisplayText(member.name),
             role: toDisplayText(member.role),
-            responsibilities: toOptionalText(member.responsibilities),
+            responsibilities,
           };
         })
         .filter(Boolean)
@@ -418,16 +512,6 @@ function toDisplayText(value) {
   return "Not provided";
 }
 
-function toOptionalText(value) {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length > 0) {
-      return trimmed;
-    }
-  }
-  return null;
-}
-
 function formatDate(value) {
   if (value instanceof Date && !Number.isNaN(value.valueOf())) {
     return new Intl.DateTimeFormat("en-US", {
@@ -459,40 +543,39 @@ function formatDate(value) {
 }
 
 const styles = {
+  headerTitle: {
+    fontSize: 18,
+    bold: true,
+    color: PURPLE,
+  },
   title: {
     fontSize: 24,
     bold: true,
-    color: "#0f172a",
+    color: DARK_TEXT,
     margin: [0, 0, 0, 6],
   },
   generated: {
     fontSize: 10,
-    color: "#475569",
+    color: GRAY_TEXT,
   },
   sectionHeading: {
-    fontSize: 14,
+    fontSize: 12,
     bold: true,
-    color: "#0f172a",
-    characterSpacing: 1.2,
-  },
-  card: {
-    margin: [0, 0, 0, 16],
+    color: WHITE,
   },
   label: {
-    fontSize: 9,
+    fontSize: 10,
     bold: true,
-    color: "#64748b",
-    margin: [0, 0, 0, 4],
-    characterSpacing: 1,
+    color: DARK_TEXT,
   },
   value: {
-    fontSize: 11,
-    color: "#0f172a",
+    fontSize: 10,
+    color: DARK_TEXT,
     lineHeight: 1.35,
   },
   muted: {
-    fontSize: 11,
-    color: "#94a3b8",
+    fontSize: 10,
+    color: GRAY_TEXT,
     italics: true,
   },
 };

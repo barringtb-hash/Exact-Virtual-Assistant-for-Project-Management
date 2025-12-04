@@ -226,6 +226,122 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - The caller is responsible for prompting downloads (`URL.createObjectURL` on the frontend) or forwarding to storage.
   - **Legacy alias:** `POST /api/charter/render` forwards to this route with `docType=charter`.
 
+## Document review – `POST /api/documents/review`
+Analyzes a document and returns structured feedback with quality scores.
+- **Body**
+  ```json
+  {
+    "docType": "charter",
+    "document": {
+      "project_name": "Customer Portal Redesign",
+      "vision": "Improve customer experience",
+      ...
+    },
+    "options": {
+      "dimensions": ["completeness", "specificity"],
+      "severity": "all",
+      "model": "gpt-4o-mini"
+    }
+  }
+  ```
+  `options` is optional; when omitted, all dimensions are evaluated.
+- **Response**
+  ```json
+  {
+    "reviewId": "rev_abc123",
+    "overall_score": 72,
+    "dimension_scores": {
+      "completeness": 85,
+      "specificity": 60,
+      ...
+    },
+    "strengths": ["Clear project timeline..."],
+    "feedback": [
+      {
+        "id": "fb_001",
+        "field": "vision",
+        "dimension": "specificity",
+        "severity": "important",
+        "issue": "Vision lacks quantifiable targets",
+        "recommendation": "Add specific metrics",
+        "status": "pending"
+      }
+    ],
+    "summary": "This charter provides a solid foundation..."
+  }
+  ```
+- **Notes**
+  - Injects relevant knowledge base entries into the review prompt.
+  - Feedback items are categorized by severity: `critical`, `important`, or `suggestion`.
+  - See [`docs/DOCUMENT_REVIEW_SYSTEM.md`](DOCUMENT_REVIEW_SYSTEM.md) for full response schema.
+
+## Document review streaming – `POST /api/documents/review-stream`
+Streams review results as Server-Sent Events.
+- **Body** – Same as `/api/documents/review`.
+- **Response** – SSE stream with events:
+  ```text
+  event: start
+  data: {"reviewId": "rev_abc123", "docType": "charter"}
+
+  event: overall
+  data: {"score": 72, "summary": "..."}
+
+  event: dimension
+  data: {"name": "completeness", "score": 85}
+
+  event: feedback
+  data: {"id": "fb_001", "field": "vision", ...}
+
+  event: complete
+  data: {"reviewId": "rev_abc123", "feedbackCount": 8}
+  ```
+- **Notes**
+  - Enables real-time feedback display as the review progresses.
+  - Close the EventSource when `event: complete` is received.
+
+## Interactive review session – `POST /api/assistant/review/start`
+Initiates a conversational review session.
+- **Body**
+  ```json
+  {
+    "docType": "charter",
+    "document": { ... }
+  }
+  ```
+- **Response**
+  ```json
+  {
+    "sessionId": "review_xyz789",
+    "status": "reviewing",
+    "overallScore": 72,
+    "feedbackCount": 8,
+    "message": "## Interactive Review Session\n\nYour charter scored **72%**..."
+  }
+  ```
+
+## Interactive review messages – `POST /api/assistant/review/messages`
+Processes user input in an interactive review session.
+- **Body**
+  ```json
+  {
+    "sessionId": "review_xyz789",
+    "message": "accept"
+  }
+  ```
+- **Commands** – `accept`, `dismiss`, `next`, `previous`, `tell me more`, `done`, `goto 3`
+- **Response**
+  ```json
+  {
+    "sessionId": "review_xyz789",
+    "status": "reviewing",
+    "currentIndex": 1,
+    "message": "Moving to next feedback item..."
+  }
+  ```
+- **Notes**
+  - Session state is managed by [`server/review/Orchestrator.js`](../server/review/Orchestrator.js).
+  - Sessions expire after 30 minutes of inactivity.
+
 ## Charter PDF export – `POST /api/export/pdf`
 - **Body** – Charter JSON matching the schema consumed by `/api/charter/render`.
 - **Response** – Binary PDF buffer streamed with `Content-Disposition: attachment; filename=project_charter.pdf`.

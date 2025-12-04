@@ -25,6 +25,9 @@ Historical documentation from the refactoring effort is archived in [`docs/archi
 ### Guided charter flow
 - The charter experience defaults to a guided chat that replaces the wizard UI, walks through each schema field sequentially, and pauses background extraction until the session finishes. The feature is enabled by `VITE_CHARTER_GUIDED_CHAT_ENABLED` and starts from the **Start Charter** button beneath the composer; set `VITE_CHARTER_GUIDED_BACKEND=on` to exercise the dedicated charter backend used by CI, then see [`docs/charter-guided-chat.md`](docs/charter-guided-chat.md) for behaviour, commands, and flag details. 【F:docs/charter-guided-chat.md†L1-L44】【F:docs/charter-guided-chat.md†L12-L22】【F:package.json†L13-L19】
 
+### Document review
+- AI-powered document review evaluates charters and DDPs across six quality dimensions (completeness, specificity, feasibility, risk coverage, scope clarity, metric measurability) and provides prioritized, actionable feedback. Use the **Review Charter** button in the preview panel to trigger a review; optionally enable `VITE_REQUIRE_REVIEW_BEFORE_EXPORT=true` to gate exports on review completion. See [`docs/DOCUMENT_REVIEW_SYSTEM.md`](docs/DOCUMENT_REVIEW_SYSTEM.md) for full feature documentation.
+
 ## Intent-only extraction contract
 - **Upload only** → No extraction. The preview remains unchanged and `/api/documents/extract` is never called.
 - **Natural-language charter or DDP request** → Extraction runs exactly once per intent and populates the preview.

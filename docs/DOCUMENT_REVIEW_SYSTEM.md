@@ -41,6 +41,90 @@ Real-time feedback display via Server-Sent Events for responsive UX during long 
 
 ---
 
+## UI Integration
+
+### Review Charter Button
+A "Review Charter" button appears in the preview panel next to the "Export Charter" button. Clicking it triggers an AI-powered review of the current document.
+
+### ReviewPanel Component
+The `ReviewPanel.jsx` component displays:
+- Overall score and dimension breakdown
+- Feedback items with severity indicators (critical/important/suggestion)
+- Strengths identified in the document
+- Action buttons: Accept, Dismiss, "Tell me more"
+
+The panel can be toggled open/closed and persists state during the session.
+
+### FieldFeedbackIndicator Component
+The `FieldFeedbackIndicator.jsx` component renders inline icons next to form fields that have associated feedback. Hovering displays a tooltip with the feedback summary.
+
+---
+
+## Hooks & State Management
+
+### useCharterReview Hook
+`src/hooks/useCharterReview.ts` provides API integration for review operations:
+
+```typescript
+const {
+  startReview,       // Triggers POST /api/documents/review
+  isLoading,         // True while review is in progress
+  review,            // Current review result
+  error,             // Error state if review failed
+  acceptFeedback,    // Mark feedback item as accepted
+  dismissFeedback,   // Mark feedback item as dismissed
+} = useCharterReview();
+```
+
+### useFieldFeedback Hook
+`src/hooks/useFieldFeedback.ts` maps review feedback to specific form fields:
+
+```typescript
+const { getFeedbackForField } = useFieldFeedback(review);
+
+// Returns feedback items targeting the "vision" field
+const visionFeedback = getFeedbackForField('vision');
+```
+
+### State Slices
+
+**reviewSession** (`src/state/slices/reviewSession.ts`)
+Manages active review state including current feedback index, acceptance/dismissal status, and session metadata.
+
+**reviewHistory** (`src/state/slices/reviewHistory.ts`)
+Persists past reviews to localStorage, enabling users to reference previous review scores and track document quality improvement over time.
+
+---
+
+## Export Gating
+
+When `VITE_REQUIRE_REVIEW_BEFORE_EXPORT=true`, the export flow enforces review quality gates:
+
+| Condition | Behavior |
+|-----------|----------|
+| No review exists | Export blocked with prompt to review first |
+| Critical issues present | Export blocked until critical issues are resolved |
+| Score < 70% | Warning displayed, but export allowed |
+| Score ≥ 70%, no critical issues | Export proceeds normally |
+
+This ensures documents meet minimum quality standards before distribution.
+
+---
+
+## DDP Support
+
+Design & Development Plan documents now support full review functionality:
+
+| File | Purpose |
+|------|---------|
+| `templates/ddp/review_prompt.txt` | DDP-specific review prompt |
+| `templates/ddp/review_rules.json` | DDP review evaluation rules |
+| `templates/knowledge/ddp/` | Knowledge base for DDP best practices |
+
+The review engine automatically uses document-type-specific prompts and rules based on the `docType` parameter.
+
+---
+
 ## API Reference
 
 ### POST /api/documents/review
@@ -228,31 +312,41 @@ api/
 │       └── messages.js        # Process session messages
 
 lib/doc/
-├── review.js                  # Core review engine
+├── review.js                  # Core review engine with LLM integration
 
 server/
 ├── knowledge/
 │   └── query.js               # Knowledge database query service
 ├── review/
-│   └── Orchestrator.ts        # Interactive session state machine
+│   └── Orchestrator.js        # Interactive session state machine
 
 src/
 ├── components/
-│   └── ReviewPanel.jsx        # React review display component
+│   ├── ReviewPanel.jsx        # Main review UI component
+│   └── FieldFeedbackIndicator.jsx  # Inline field feedback icons
+├── hooks/
+│   ├── useCharterReview.ts    # React hook for review API
+│   └── useFieldFeedback.ts    # Field-level feedback mapping
 ├── state/slices/
-│   └── reviewSession.ts       # Review state management
+│   ├── reviewSession.ts       # Review state management
+│   └── reviewHistory.ts       # Persists past reviews to localStorage
 
 templates/
 ├── registry.js                # Extended with review config
 ├── charter/
 │   ├── review_prompt.txt      # Charter review prompt
 │   └── review_rules.json      # Charter review rules
+├── ddp/
+│   ├── review_prompt.txt      # DDP review prompt
+│   └── review_rules.json      # DDP review rules
 ├── knowledge/
 │   ├── index.json             # Knowledge category manifest
 │   ├── charter/
 │   │   ├── best_practices.json
 │   │   ├── checklists.json
 │   │   └── anti_patterns.json
+│   ├── ddp/
+│   │   └── *.json             # DDP knowledge entries
 │   └── general/
 │       └── principles.json
 ```
@@ -295,6 +389,7 @@ review: {
 |----------|---------|-------------|
 | `REVIEW_MODEL` | `gpt-4o-mini` | OpenAI model for review |
 | `OPENAI_API_KEY` | (required) | OpenAI API key |
+| `VITE_REQUIRE_REVIEW_BEFORE_EXPORT` | `false` | When `true`, blocks export if no review exists or critical issues are present. Shows warning (but allows export) if score < 70%. |
 
 ---
 
@@ -381,3 +476,19 @@ The core review engine handles all document types automatically based on registr
 | 60-74 | Adequate | Meets minimum requirements but needs improvement |
 | 40-59 | Needs Work | Significant gaps that could impact project success |
 | 0-39 | Critical | Major issues that must be addressed before proceeding |
+
+---
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `lib/doc/review.js` | Review engine with LLM integration |
+| `server/review/Orchestrator.js` | Interactive session state machine |
+| `server/knowledge/query.js` | Knowledge database query service |
+| `src/hooks/useCharterReview.ts` | React hook for review API |
+| `src/hooks/useFieldFeedback.ts` | Field-level feedback mapping |
+| `src/state/slices/reviewSession.ts` | Review state management |
+| `src/state/slices/reviewHistory.ts` | Review history persistence |
+| `src/components/ReviewPanel.jsx` | Main review UI component |
+| `src/components/FieldFeedbackIndicator.jsx` | Inline field feedback icons |

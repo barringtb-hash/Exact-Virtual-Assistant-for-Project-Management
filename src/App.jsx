@@ -3355,9 +3355,59 @@ const resolveDocTypeForManualSync = useCallback(
     }
   };
 
+  /**
+   * Check if export is allowed based on review gate settings
+   * Returns { allowed: true } or { allowed: false, reason: string }
+   */
+  const checkReviewGate = useCallback(() => {
+    const requireReviewBeforeExport = import.meta.env.VITE_REQUIRE_REVIEW_BEFORE_EXPORT === "true";
+
+    if (!requireReviewBeforeExport) {
+      return { allowed: true };
+    }
+
+    const review = charterReview.review;
+    const reviewThreshold = 70;
+
+    if (!review) {
+      pushToast({
+        tone: "warning",
+        message: "Please review your charter before exporting. Click 'Review Charter' to get feedback.",
+      });
+      setShowReviewPanel(true);
+      return { allowed: false, reason: "review_required" };
+    }
+
+    if (review.scores?.overall < reviewThreshold) {
+      const criticalCount = review.feedback?.filter(f => f.severity === "critical").length || 0;
+
+      if (criticalCount > 0) {
+        pushToast({
+          tone: "warning",
+          message: `Your charter has ${criticalCount} critical issues. Please address them before exporting.`,
+        });
+        setShowReviewPanel(true);
+        return { allowed: false, reason: "review_score_low" };
+      }
+
+      appendAssistantMessage(
+        `**Review Score Warning**\n\n` +
+        `Your charter scored ${Math.round(review.scores.overall)}%, which is below the recommended ${reviewThreshold}% threshold.\n\n` +
+        `You can still export, but consider addressing the feedback to improve your charter quality.`
+      );
+    }
+
+    return { allowed: true };
+  }, [charterReview.review, pushToast, appendAssistantMessage]);
+
   const exportDocxViaChat = async (baseName = defaultShareBaseName) => {
     if (isExportingDocx || isGeneratingExportLinks || isExportingPdf) {
       return { ok: false, reason: "busy" };
+    }
+
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
     }
 
     setIsExportingDocx(true);
@@ -3366,7 +3416,7 @@ const resolveDocTypeForManualSync = useCallback(
         baseName,
         includeDocx: true,
         includePdf: false,
-        introText: `Here’s your DOCX download for ${baseName}:`,
+        introText: `Here's your DOCX download for ${baseName}:`,
       });
     } finally {
       setIsExportingDocx(false);
@@ -3378,13 +3428,18 @@ const resolveDocTypeForManualSync = useCallback(
       return { ok: false, reason: "busy" };
     }
 
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
+    }
+
     setIsExportingPdf(true);
     try {
       return await makeShareLinksAndReply({
         baseName,
         includeDocx: false,
         includePdf: true,
-        introText: `Here’s your PDF download for ${baseName}:`,
+        introText: `Here's your PDF download for ${baseName}:`,
       });
     } finally {
       setIsExportingPdf(false);
@@ -3396,44 +3451,9 @@ const resolveDocTypeForManualSync = useCallback(
       return { ok: false, reason: "busy" };
     }
 
-    // Check if pre-export review gate is enabled
-    const requireReviewBeforeExport = import.meta.env.VITE_REQUIRE_REVIEW_BEFORE_EXPORT === "true";
-
-    if (requireReviewBeforeExport) {
-      // Check if there's a recent review with passing score
-      const review = charterReview.review;
-      const reviewThreshold = 70; // Minimum overall score required
-
-      if (!review) {
-        // No review exists - prompt user to review first
-        pushToast({
-          tone: "warning",
-          message: "Please review your charter before exporting. Click 'Review Charter' to get feedback.",
-        });
-        setShowReviewPanel(true);
-        return { ok: false, reason: "review_required" };
-      }
-
-      if (review.scores?.overall < reviewThreshold) {
-        // Review exists but score is below threshold
-        const criticalCount = review.feedback?.filter(f => f.severity === "critical").length || 0;
-
-        if (criticalCount > 0) {
-          pushToast({
-            tone: "warning",
-            message: `Your charter has ${criticalCount} critical issues. Please address them before exporting.`,
-          });
-          setShowReviewPanel(true);
-          return { ok: false, reason: "review_score_low" };
-        }
-
-        // Show warning but allow export with confirmation
-        appendAssistantMessage(
-          `**Review Score Warning**\n\n` +
-          `Your charter scored ${Math.round(review.scores.overall)}%, which is below the recommended ${reviewThreshold}% threshold.\n\n` +
-          `You can still export, but consider addressing the feedback to improve your charter quality.`
-        );
-      }
+    const gateResult = checkReviewGate();
+    if (!gateResult.allowed) {
+      return { ok: false, reason: gateResult.reason };
     }
 
     setIsGeneratingExportLinks(true);

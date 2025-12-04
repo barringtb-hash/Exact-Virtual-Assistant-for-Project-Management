@@ -1,0 +1,57 @@
+[
+  {
+    "id": "principle-stakeholder-alignment",
+    "category": "general",
+    "type": "best_practice",
+    "title": "Stakeholder Alignment Principle",
+    "content": "Project success depends on stakeholder alignment from the start. Key principles: (1) Identify all stakeholders early, not just the obvious ones, (2) Document and validate expectations explicitly, (3) Establish communication cadence and escalation paths, (4) Get formal sign-off on key documents like charters and scope statements, (5) Address conflicts early rather than hoping they resolve.",
+    "triggers": {},
+    "priority": "high",
+    "tags": ["stakeholders", "alignment", "communication"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "principle-iterative-planning",
+    "category": "general",
+    "type": "best_practice",
+    "title": "Progressive Elaboration",
+    "content": "Initial project documentation should be 'good enough' rather than perfect. The principle of progressive elaboration recognizes that understanding improves over time. Start with high-level scope and refine as you learn more. Build in review points to update plans based on new information. Don't delay project start waiting for perfect requirements.",
+    "triggers": {},
+    "priority": "medium",
+    "tags": ["planning", "iteration", "agile"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "principle-constraints-triangle",
+    "category": "general",
+    "type": "best_practice",
+    "title": "Project Constraints Triangle",
+    "content": "Every project balances three constraints: Scope (what will be delivered), Time (when it will be delivered), Cost (resources required). Changing one constraint affects the others. A good charter acknowledges these trade-offs and identifies which constraint has the least flexibility. For fixed-date projects, scope or resources must flex. For fixed-scope projects, timeline or resources must flex.",
+    "triggers": {},
+    "priority": "high",
+    "tags": ["constraints", "scope", "schedule", "budget"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "principle-communication",
+    "category": "general",
+    "type": "best_practice",
+    "title": "Communication is Key",
+    "content": "Most project failures trace back to communication issues, not technical problems. Effective project documentation: (1) Uses clear, unambiguous language, (2) Avoids jargon that not all stakeholders understand, (3) Includes visual aids where helpful, (4) Is accessible to all who need it, (5) Is kept current as the project evolves. Review documents from the perspective of someone new to the project.",
+    "triggers": {},
+    "priority": "high",
+    "tags": ["communication", "clarity", "documentation"],
+    "source": "internal"
+  },
+  {
+    "id": "principle-risk-proactive",
+    "category": "general",
+    "type": "best_practice",
+    "title": "Proactive Risk Management",
+    "content": "Risk management is not about predicting the future—it's about preparing for uncertainty. Effective risk documentation: (1) Identifies risks early, before they become issues, (2) Distinguishes between risks (uncertain events) and issues (current problems), (3) Considers both probability and impact, (4) Includes response strategies, not just risk identification, (5) Is reviewed and updated regularly throughout the project.",
+    "triggers": {},
+    "priority": "high",
+    "tags": ["risks", "proactive", "management"],
+    "source": "PMBOK"
+  }
+]

@@ -108,6 +108,27 @@ function buildTemplateRegistry() {
       errorName: "CharterValidationError",
       errorMessage: "Charter payload failed validation.",
     },
+    review: {
+      prompt: "charter/review_prompt.txt",
+      rules: "charter/review_rules.json",
+      knowledgeCategories: ["charter", "general"],
+      dimensions: [
+        "completeness",
+        "specificity",
+        "feasibility",
+        "risk_coverage",
+        "scope_clarity",
+        "metric_measurability",
+      ],
+      thresholds: {
+        completeness: 0.8,
+        specificity: 0.7,
+        feasibility: 0.75,
+        risk_coverage: 0.7,
+        scope_clarity: 0.75,
+        metric_measurability: 0.7,
+      },
+    },
     blank: () => createBlankCharter(),
   }),
     ddp: createDocTypeManifest({

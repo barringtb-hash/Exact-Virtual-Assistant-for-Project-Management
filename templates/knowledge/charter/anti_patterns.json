@@ -1,0 +1,103 @@
+[
+  {
+    "id": "anti-vague-vision",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Vague Vision Statements",
+    "content": "Avoid vision statements that use buzzwords without substance: 'leverage synergies', 'drive innovation', 'enhance capabilities', 'improve efficiency'. These statements don't provide clear direction or measurable outcomes. Instead, specify what will be different, for whom, and how you'll know you've succeeded.",
+    "triggers": {
+      "fields": ["vision"],
+      "keywords": ["synergy", "leverage", "enhance", "drive innovation", "capabilities"]
+    },
+    "priority": "high",
+    "tags": ["vision", "anti-pattern", "buzzwords"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-solution-problem",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Solution Masquerading as Problem",
+    "content": "Avoid problem statements that assume a solution: 'We need a new CRM system' or 'We need to implement Agile'. These skip the problem analysis and limit solution options. Instead, describe the actual business problem: 'Sales teams spend 40% of their time on manual data entry, reducing customer engagement time.'",
+    "triggers": {
+      "fields": ["problem"],
+      "keywords": ["need to implement", "need a new", "should use", "must adopt"]
+    },
+    "priority": "high",
+    "tags": ["problem", "anti-pattern", "solution-bias"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-scope-everything",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Unbounded Scope",
+    "content": "Avoid scope statements that are too broad: 'All customer-facing processes', 'Complete system overhaul', 'End-to-end transformation'. These set unrealistic expectations and guarantee scope creep. Define specific, bounded deliverables that can be completed within the project timeline.",
+    "triggers": {
+      "fields": ["scope_in"],
+      "keywords": ["all", "complete", "entire", "comprehensive", "end-to-end"]
+    },
+    "priority": "high",
+    "tags": ["scope", "anti-pattern", "unbounded"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-missing-out-scope",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Missing Out-of-Scope Section",
+    "content": "Not defining out-of-scope items leads to scope creep and stakeholder misalignment. If a charter only lists what's in scope, stakeholders will assume everything else is included. Explicitly list items that might be expected but won't be delivered: 'Does NOT include legacy system decommissioning', 'Mobile app is out of scope for this phase'.",
+    "triggers": {
+      "fields": ["scope_out"],
+      "conditions": [
+        { "field": "scope_out", "operator": "empty", "value": true }
+      ]
+    },
+    "priority": "high",
+    "tags": ["scope", "anti-pattern", "boundaries"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-optimistic-risks",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Optimistic Risk Assessment",
+    "content": "Avoid risk lists that only include minor or unlikely risks while ignoring obvious challenges. Common omissions: key person dependency, technology learning curve, integration complexity, stakeholder availability, competing priorities. If a project has no significant risks listed, the assessment is incomplete.",
+    "triggers": {
+      "fields": ["risks"],
+      "conditions": [
+        { "field": "risks", "operator": "less_than", "value": 3 }
+      ]
+    },
+    "priority": "high",
+    "tags": ["risks", "anti-pattern", "optimism-bias"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-vanity-metrics",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Vanity Metrics",
+    "content": "Avoid metrics that sound good but don't indicate real success: 'Number of users trained', 'Features delivered', 'Meetings held'. These activity metrics don't measure outcomes. Focus on outcome metrics: 'Reduction in processing errors', 'Time saved per transaction', 'Customer satisfaction score improvement'.",
+    "triggers": {
+      "fields": ["success_metrics"],
+      "keywords": ["number of", "count of", "training completed", "features delivered"]
+    },
+    "priority": "medium",
+    "tags": ["metrics", "anti-pattern", "vanity"],
+    "source": "internal"
+  },
+  {
+    "id": "anti-back-loaded-milestones",
+    "category": "charter",
+    "type": "anti_pattern",
+    "title": "Back-Loaded Milestones",
+    "content": "Avoid milestone schedules where all major deliverables are clustered at the end of the project timeline. This pattern indicates insufficient planning and creates high risk of delays. Distribute milestones evenly across the project lifecycle with early validation points.",
+    "triggers": {
+      "fields": ["milestones"]
+    },
+    "priority": "medium",
+    "tags": ["milestones", "anti-pattern", "planning"],
+    "source": "internal"
+  }
+]

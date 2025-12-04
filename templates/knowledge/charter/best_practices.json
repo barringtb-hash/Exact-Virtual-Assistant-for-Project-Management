@@ -1,0 +1,112 @@
+[
+  {
+    "id": "charter-vision-specificity",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Vision Statement Specificity",
+    "content": "A strong project vision should answer three key questions: What will change? For whom? By when? Avoid abstract statements like 'improve efficiency' without quantifiable targets. Include specific metrics (e.g., 'reduce processing time by 30%') or clear outcomes (e.g., 'enable same-day customer onboarding').",
+    "triggers": {
+      "fields": ["vision"],
+      "conditions": [
+        { "field": "vision", "operator": "not_empty", "value": true }
+      ]
+    },
+    "priority": "high",
+    "tags": ["vision", "clarity", "measurable"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-scope-boundaries",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Clear Scope Boundaries",
+    "content": "Define scope using the MECE principle: Mutually Exclusive, Collectively Exhaustive. Each in-scope item should be distinct (no overlap), and together they should cover everything the project will deliver. Out-of-scope items should explicitly list common assumptions that stakeholders might expect but won't be delivered.",
+    "triggers": {
+      "fields": ["scope_in", "scope_out"]
+    },
+    "priority": "high",
+    "tags": ["scope", "boundaries", "MECE"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-risk-categories",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Risk Category Coverage",
+    "content": "A comprehensive risk assessment should cover at least five categories: (1) Technical risks - technology, integration, complexity; (2) Resource risks - staffing, skills, availability; (3) Schedule risks - dependencies, timeline compression; (4) Scope risks - requirements changes, scope creep; (5) External risks - vendors, regulations, market changes. Each risk should describe the potential impact, not just the risk event.",
+    "triggers": {
+      "fields": ["risks"],
+      "conditions": [
+        { "field": "risks", "operator": "less_than", "value": 5 }
+      ]
+    },
+    "priority": "high",
+    "tags": ["risks", "categories", "coverage"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-smart-metrics",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "SMART Success Metrics",
+    "content": "Success metrics should follow the SMART framework: Specific (clear what's being measured), Measurable (quantifiable), Achievable (realistic given constraints), Relevant (aligned with project goals), Time-bound (has a measurement period). Each metric needs a baseline, target, and measurement system. Avoid subjective metrics like 'improved satisfaction' without defining how satisfaction is measured.",
+    "triggers": {
+      "fields": ["success_metrics"]
+    },
+    "priority": "high",
+    "tags": ["metrics", "SMART", "measurable"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-milestone-phases",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Project Phase Coverage",
+    "content": "Milestones should cover all standard project phases: Initiation (project kickoff, charter approval), Planning (requirements complete, design approved), Execution (development milestones, testing phases), and Closure (go-live, lessons learned). Each milestone should have a clear deliverable and target date. Avoid clustering all milestones at the end of the project.",
+    "triggers": {
+      "fields": ["milestones"]
+    },
+    "priority": "medium",
+    "tags": ["milestones", "phases", "planning"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-team-raci",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Team Role Clarity",
+    "content": "Core team definitions should follow RACI principles: each team member should have clear Responsibilities (what they do) and Accountabilities (what they own). Avoid generic role descriptions like 'helps with project'. Include key stakeholders who have decision-making authority, not just executors. For larger projects, distinguish between core team (daily involvement) and extended team (periodic involvement).",
+    "triggers": {
+      "fields": ["core_team"]
+    },
+    "priority": "medium",
+    "tags": ["team", "roles", "RACI", "responsibilities"],
+    "source": "PMBOK"
+  },
+  {
+    "id": "charter-problem-impact",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Problem Statement with Business Impact",
+    "content": "A compelling problem statement should describe: (1) The current state (what's happening now), (2) The pain points (what problems this causes), (3) The business impact (quantified if possible - cost, time, risk). Avoid problem statements that only describe symptoms without root causes, or that assume a solution ('we need a new system').",
+    "triggers": {
+      "fields": ["problem"]
+    },
+    "priority": "high",
+    "tags": ["problem", "impact", "business-case"],
+    "source": "internal"
+  },
+  {
+    "id": "charter-assumptions-risks",
+    "category": "charter",
+    "type": "best_practice",
+    "title": "Assumptions as Potential Risks",
+    "content": "Every assumption is a potential risk if it proves false. Document assumptions explicitly and consider adding corresponding risks for critical assumptions. Common assumptions to document: resource availability, technology stability, stakeholder availability, budget approval, third-party dependencies. Each assumption should be validated early in the project.",
+    "triggers": {
+      "fields": ["assumptions", "risks"]
+    },
+    "priority": "medium",
+    "tags": ["assumptions", "risks", "validation"],
+    "source": "internal"
+  }
+]

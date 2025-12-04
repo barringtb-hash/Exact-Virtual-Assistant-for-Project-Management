@@ -1,0 +1,251 @@
+{
+  "version": "1.0",
+  "docType": "charter",
+  "fields": {
+    "project_name": {
+      "dimension": "completeness",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 10,
+          "severity": "important",
+          "message": "Project name should be descriptive (at least 10 characters)"
+        },
+        {
+          "condition": "notContains",
+          "value": ["TBD", "TODO", "Untitled", "New Project"],
+          "severity": "critical",
+          "message": "Project name contains placeholder text"
+        }
+      ]
+    },
+    "vision": {
+      "dimension": "specificity",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 100,
+          "severity": "important",
+          "message": "Vision statement should be more detailed (at least 100 characters)"
+        },
+        {
+          "condition": "shouldContain",
+          "value": ["improve", "increase", "reduce", "enable", "transform", "deliver"],
+          "severity": "suggestion",
+          "message": "Vision should describe a tangible outcome or transformation"
+        },
+        {
+          "condition": "shouldContainMetric",
+          "value": true,
+          "severity": "important",
+          "message": "Vision should include measurable targets (percentages, numbers, timeframes)"
+        }
+      ]
+    },
+    "problem": {
+      "dimension": "specificity",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 100,
+          "severity": "important",
+          "message": "Problem statement should be more detailed"
+        },
+        {
+          "condition": "shouldDescribeImpact",
+          "value": true,
+          "severity": "suggestion",
+          "message": "Problem statement should describe the business impact"
+        }
+      ]
+    },
+    "description": {
+      "dimension": "completeness",
+      "rules": [
+        {
+          "condition": "minLength",
+          "value": 200,
+          "severity": "important",
+          "message": "Project description should provide comprehensive context (at least 200 characters)"
+        }
+      ]
+    },
+    "scope_in": {
+      "dimension": "scope_clarity",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "important",
+          "message": "In-scope should have at least 3 clearly defined items"
+        },
+        {
+          "condition": "itemMinLength",
+          "value": 20,
+          "severity": "suggestion",
+          "message": "Scope items should be descriptive (at least 20 characters each)"
+        }
+      ]
+    },
+    "scope_out": {
+      "dimension": "scope_clarity",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 2,
+          "severity": "important",
+          "message": "Out-of-scope should explicitly list at least 2 exclusions to prevent scope creep"
+        }
+      ]
+    },
+    "risks": {
+      "dimension": "risk_coverage",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 5,
+          "severity": "critical",
+          "message": "Should identify at least 5 project risks"
+        },
+        {
+          "condition": "shouldCoverCategories",
+          "value": ["technical", "resource", "schedule", "scope", "external"],
+          "severity": "important",
+          "message": "Risks should cover multiple categories: technical, resource, schedule, scope, external"
+        }
+      ]
+    },
+    "assumptions": {
+      "dimension": "risk_coverage",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "suggestion",
+          "message": "Should document at least 3 key assumptions"
+        }
+      ]
+    },
+    "milestones": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 4,
+          "severity": "important",
+          "message": "Should have at least 4 milestones covering project phases"
+        },
+        {
+          "condition": "shouldHavePhases",
+          "value": ["initiate", "planning", "execution", "closure"],
+          "severity": "suggestion",
+          "message": "Milestones should cover standard project phases"
+        },
+        {
+          "condition": "datesShouldBeSequential",
+          "value": true,
+          "severity": "important",
+          "message": "Milestone dates should be in chronological order"
+        }
+      ]
+    },
+    "success_metrics": {
+      "dimension": "metric_measurability",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 3,
+          "severity": "critical",
+          "message": "Should define at least 3 success metrics"
+        },
+        {
+          "condition": "shouldHaveMeasurement",
+          "value": true,
+          "severity": "important",
+          "message": "Each metric must have a clear system of measurement"
+        },
+        {
+          "condition": "metricsShouldBeQuantifiable",
+          "value": true,
+          "severity": "important",
+          "message": "Metrics should be quantifiable (include numbers, percentages, or clear criteria)"
+        }
+      ]
+    },
+    "core_team": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "minItems",
+          "value": 2,
+          "severity": "important",
+          "message": "Should identify at least 2 core team members"
+        },
+        {
+          "condition": "shouldHaveRoles",
+          "value": true,
+          "severity": "important",
+          "message": "Each team member should have a defined role"
+        },
+        {
+          "condition": "shouldHaveResponsibilities",
+          "value": true,
+          "severity": "suggestion",
+          "message": "Team members should have responsibilities defined"
+        }
+      ]
+    },
+    "start_date": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "shouldBeValidDate",
+          "value": true,
+          "severity": "critical",
+          "message": "Start date must be a valid date"
+        }
+      ]
+    },
+    "end_date": {
+      "dimension": "feasibility",
+      "rules": [
+        {
+          "condition": "shouldBeValidDate",
+          "value": true,
+          "severity": "critical",
+          "message": "End date must be a valid date"
+        },
+        {
+          "condition": "shouldBeAfterStartDate",
+          "value": true,
+          "severity": "critical",
+          "message": "End date must be after start date"
+        },
+        {
+          "condition": "durationShouldBeReasonable",
+          "minDays": 14,
+          "maxDays": 730,
+          "severity": "suggestion",
+          "message": "Project duration should be between 2 weeks and 2 years"
+        }
+      ]
+    }
+  },
+  "thresholds": {
+    "overall": 70,
+    "completeness": 80,
+    "specificity": 70,
+    "feasibility": 75,
+    "risk_coverage": 70,
+    "scope_clarity": 75,
+    "metric_measurability": 70
+  },
+  "weights": {
+    "completeness": 1.2,
+    "specificity": 1.2,
+    "feasibility": 1.0,
+    "risk_coverage": 0.9,
+    "scope_clarity": 1.0,
+    "metric_measurability": 0.9
+  }
+}

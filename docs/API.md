@@ -148,11 +148,140 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
   - Voice defaults to `OPENAI_REALTIME_VOICE` or `shimmer`.
   - Adds `OpenAI-Beta: realtime=v1` automatically when the model name contains `preview`.
 
+## Document analysis – `POST /api/documents/analyze`
+Analyzes an uploaded document to determine its type and suggest extraction targets. This is the first step in the analysis-driven extraction flow when `DOCUMENT_ANALYSIS_ENABLED=true`.
+
+- **Body**
+  ```json
+  {
+    "attachments": [
+      {
+        "id": "file_123",
+        "name": "Project Scope.pdf",
+        "mimeType": "application/pdf",
+        "text": "Extracted document text..."
+      }
+    ],
+    "conversationContext": ["Previous chat messages..."],
+    "existingDraft": {
+      "project_name": "Existing value"
+    }
+  }
+  ```
+  `attachments` is required and should contain the extracted text from uploaded files. `conversationContext` and `existingDraft` are optional and help provide context for the analysis.
+
+- **Response**
+  ```json
+  {
+    "status": "analyzed",
+    "analysisId": "analysis_abc123",
+    "analysis": {
+      "documentClassification": {
+        "primaryType": "project_scope",
+        "confidence": 0.87,
+        "signals": ["Contains 'Project Scope' heading", "Has milestone table"]
+      },
+      "suggestedTargets": [
+        {
+          "docType": "charter",
+          "confidence": 0.87,
+          "rationale": "Document contains project scope, vision, and timeline information suitable for a Project Charter",
+          "previewFields": {
+            "project_name": "Customer Portal Redesign",
+            "vision": "Modernize customer-facing portal..."
+          },
+          "coverage": {
+            "available": ["project_name", "vision", "scope_in", "scope_out"],
+            "missing": ["sponsor", "project_lead"],
+            "inferrable": ["start_date"]
+          }
+        }
+      ],
+      "alternativeTargets": [
+        {
+          "docType": "ddp",
+          "confidence": 0.62,
+          "rationale": "Requirements section could populate a Design & Development Plan"
+        }
+      ],
+      "clarificationQuestions": []
+    },
+    "raw": {
+      "extractedText": "Full document text...",
+      "tables": [],
+      "metadata": {}
+    }
+  }
+  ```
+  When confidence is low (<50%), `status` may be `"needs_clarification"` and `clarificationQuestions` will contain prompts for the user.
+
+- **Notes**
+  - Analysis results are cached for 15 minutes (configurable via `ANALYSIS_CACHE_TTL_SECONDS`)
+  - Use the returned `analysisId` when calling `/api/documents/confirm`
+  - Confidence thresholds: High (>80%), Medium (50-80%), Low (<50%)
+
+## Document confirmation – `POST /api/documents/confirm`
+Confirms user selection and triggers extraction based on a prior analysis.
+
+- **Body**
+  ```json
+  {
+    "analysisId": "analysis_abc123",
+    "confirmed": {
+      "docType": "charter",
+      "action": "create",
+      "fieldOverrides": {
+        "sponsor": "User-provided value"
+      }
+    }
+  }
+  ```
+  `analysisId` references the cached analysis from `/api/documents/analyze`. `fieldOverrides` allows users to correct preview values before extraction.
+
+- **Response**
+  ```json
+  {
+    "status": "extracted",
+    "extractionId": "ext_xyz789",
+    "fields": {
+      "project_name": "Customer Portal Redesign",
+      "sponsor": "User-provided value",
+      "vision": "Modernize customer-facing portal...",
+      "scope_in": ["Feature A", "Feature B"]
+    }
+  }
+  ```
+
+- **Notes**
+  - Retrieves cached analysis and triggers full extraction
+  - `fieldOverrides` values take precedence over extracted values
+  - Returns HTTP 404 if `analysisId` is expired or invalid
+  - Returns HTTP 400 if confirmation data is malformed
+
+## Get cached analysis – `GET /api/documents/analysis/:id`
+Retrieves a cached analysis result by ID.
+
+- **Response**
+  ```json
+  {
+    "analysisId": "analysis_abc123",
+    "status": "pending",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "ttl": 900,
+    "analysis": { ... }
+  }
+  ```
+
+- **Notes**
+  - Returns HTTP 404 if the analysis has expired or doesn't exist
+  - Useful for resuming a confirmation flow after navigation
+
 ## Document extraction – `POST /api/documents/extract`
 - **Body**
   ```json
   {
     "docType": "charter",
+    "analysisId": "analysis_abc123",
     "messages": [
       { "role": "user", "content": "Project kickoff notes..." }
     ],
@@ -173,7 +302,11 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
     }
   }
   ```
-  `docType` selects the prompt/schema pair. Supported values are listed in [`lib/doc/registry.js`](../lib/doc/registry.js) (`charter`, `ddp`, …). `attachments` must include a `text` excerpt (up to ~20k characters are considered) so the extractor can build context; additional metadata like `mimeType` or `name` is optional but encouraged. `voice` should be an array of transcript events with `text` (and optionally `timestamp` in milliseconds) in the order they were captured. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
+  `docType` selects the prompt/schema pair. Supported values are listed in [`lib/doc/registry.js`](../lib/doc/registry.js) (`charter`, `ddp`, …).
+
+  **New:** `analysisId` can be provided to use cached analysis results from `/api/documents/analyze`, which improves extraction quality and performance.
+
+  `attachments` must include a `text` excerpt (up to ~20k characters are considered) so the extractor can build context; additional metadata like `mimeType` or `name` is optional but encouraged. `voice` should be an array of transcript events with `text` (and optionally `timestamp` in milliseconds) in the order they were captured. `seed` should contain the current draft so the extractor can retain known values and fill gaps.
 - **Response**
   ```json
   {
@@ -191,8 +324,10 @@ All backend logic is implemented as Vercel-style serverless functions under `/ap
     ]
   }
   ```
-  The payload matches the schema for the chosen document type. When parsing fails or intent is missing, the extractor returns `{ "result": "no_op" }` so callers can surface a no-op state without treating it as an error.
+  The payload matches the schema for the chosen document type. When parsing fails or intent is missing (in fallback mode), the extractor returns `{ "result": "no_op" }` so callers can surface a no-op state without treating it as an error.
 - **Notes**
+  - When `analysisId` is provided, uses cached analysis context for improved extraction
+  - When `analysisId` is not provided and `DOCUMENT_ANALYSIS_ENABLED=false`, requires explicit intent (legacy fallback mode)
   - Prepends the system prompt registered for the doc type before requesting structured data from OpenAI.
   - Returns normalized JSON when the model emits a valid object; downstream callers should merge the payload with manual edits, skipping locked fields.
   - `voice` is optional and should include the consolidated transcript of the latest recording.

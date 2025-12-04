@@ -48,7 +48,8 @@ The application uses a unified tinyStore-based state management pattern with the
 ## Frontend (`src/`)
 - `src/App.jsx`
   - Main application entry that coordinates state, chat, and document preview.
-  - Detects charter intent via [`detectCharterIntent`](../src/utils/detectCharterIntent.js) and, when matched, calls [`useBackgroundExtraction.trigger()`](../src/hooks/useBackgroundExtraction.js).
+  - When `DOCUMENT_ANALYSIS_ENABLED=true`: Triggers document analysis on file upload via `/api/documents/analyze`.
+  - When `DOCUMENT_ANALYSIS_ENABLED=false` (fallback): Detects charter intent via [`detectCharterIntent`](../src/utils/detectCharterIntent.js) and calls extraction.
   - Renders chat composer, transcript, attachment chips, the editable charter preview, realtime voice controls, and the appearance selector in the footer.
 - `src/components/PreviewEditable.jsx`
   - Editable charter form that drives the preview panel. Field edits immediately update the draft and mark the associated path as locked to prevent overwriting during extraction.
@@ -57,6 +58,7 @@ The application uses a unified tinyStore-based state management pattern with the
   - Exposes a `trigger()` method that runs charter extraction **only** when called. All automatic/debounced watchers have been removed.
   - Handles the network request to `/api/documents/extract`, merges unlocked fields into the draft, and surfaces errors in the UI.
 - `src/utils/detectCharterIntent.js`
+  - **Fallback mode only** (when `DOCUMENT_ANALYSIS_ENABLED=false`).
   - Parses user text (typed or transcribed) and returns `{ docType: 'charter', action: 'create' | 'update', intentText }` when natural-language intent is detected.
 - `src/main.jsx`
   - Boots the React app, wraps it with Tailwind styles, and mounts onto `#root`.
@@ -66,15 +68,23 @@ The application uses a unified tinyStore-based state management pattern with the
   - Chat messages constrained to max-width ~70ch for optimal readability (see `src/chat/ChatMessageBubble.tsx`).
 
 ## Serverless API (`api/`)
+- `api/documents/analyze.js`
+  - Analyzes uploaded documents using LLM-based classification.
+  - Returns document type classification, confidence scores, and field preview.
+  - Caches results for confirmation flow (`ANALYSIS_CACHE_TTL_SECONDS`).
+- `api/documents/confirm.js`
+  - Processes user confirmation of document type selection.
+  - Triggers full extraction using cached analysis context.
 - `api/documents/extract.js`
-  - Guards against missing intent or context and returns HTTP 400/422 respectively. Only proceeds to call OpenAI when intent metadata is present.
+  - Accepts `analysisId` for analysis-driven flow (uses cached context).
+  - In fallback mode: Guards against missing intent or context and returns HTTP 400/422 respectively.
   - Loads prompts and metadata via [`lib/doc/registry.js`](../lib/doc/registry.js) and injects them into the structured extraction request.
 - `api/documents/validate.js`
   - Compiles the schema + field rules for the requested doc type and returns `{ ok: true }` or detailed Ajv errors.
 - `api/documents/render.js`
   - Streams DOCX exports using the doc-type configuration (charter uses `templates/project_charter_tokens.docx.b64`).
 - `api/chat.js`, `api/chat/stream.js`, `api/transcribe.js`, `api/voice/sdp.js`, `api/files/text.js`
-  - Remain unchanged but feed transcript/context into the client-side intent detection flow. `api/chat/stream.js` is gated by `CHAT_STREAMING` for SSE delivery.
+  - Remain unchanged but feed transcript/context into the client-side flow. `api/chat/stream.js` is gated by `CHAT_STREAMING` for SSE delivery.
 
 ## Templates (`templates/`)
 - `extract_prompt.txt` – Charter extraction prompt that returns `{ "result": "no_op" }` when invoked without intent metadata.
@@ -85,9 +95,25 @@ The application uses a unified tinyStore-based state management pattern with the
 - `renderers.js` – Shared buffer generators for JSON/XLSX downloads (XLSX currently throws a `FormatNotImplementedError`).
 
 ## Data flow
-### Natural-language intent to charter extraction
-1. User attaches the demo TPP or another charter source document.
-2. User submits a natural-language request such as “Please create a project charter from the attached document.”
+
+### Primary: Analysis-driven extraction (DOCUMENT_ANALYSIS_ENABLED=true)
+1. User uploads a document (project scope, meeting notes, requirements, etc.).
+2. `src/App.jsx` calls `/api/documents/analyze` with the document text.
+3. `api/documents/analyze.js` performs LLM-based classification and returns:
+   - Document type classification with confidence score
+   - Suggested extraction targets (Charter, DDP, etc.)
+   - Field preview with extractable values
+4. User sees analysis results and confirms document type.
+5. `src/App.jsx` calls `/api/documents/confirm` with the `analysisId` and confirmed type.
+6. `api/documents/confirm.js` retrieves cached analysis and triggers full extraction.
+7. `api/documents/extract.js` uses analysis context to extract all fields.
+8. The hook merges unlocked fields into the preview. Manual edits remain untouched.
+9. `api/documents/validate.js` validates the extracted data against the schema.
+10. `api/documents/render.js` streams a finished document using the encoded template.
+
+### Fallback: Intent-driven extraction (DOCUMENT_ANALYSIS_ENABLED=false)
+1. User attaches a charter source document.
+2. User submits a natural-language request such as "Please create a project charter from the attached document."
 3. `detectCharterIntent` returns `{ docType: 'charter', action: 'create', intentText }`.
 4. `src/App.jsx` calls `useBackgroundExtraction.trigger({ intent, attachments, draft })`.
 5. `useBackgroundExtraction.trigger()` posts to `/api/documents/extract` with intent metadata and the active attachments.
@@ -97,19 +123,29 @@ The application uses a unified tinyStore-based state management pattern with the
 9. `api/documents/validate.js` can be called to compile the schema + field rules and return Ajv validation results.
 10. `api/documents/render.js` streams a finished charter document using the encoded template.
 
-### Natural-language intent to DDP extraction
-1. User attaches a representative DDP source document.
-2. User submits a request such as “Create a design & development plan from the attached document.”
-3. The router resolves `docType: 'ddp'` from the intent detector.
-4. `/api/documents/extract?docType=ddp` runs the DDP manifest defined in [`templates/doc-types/ddp/`](../templates/doc-types/ddp/).
-5. `/api/documents/validate?docType=ddp` and `/api/documents/render?docType=ddp` follow the same schema + template path as the charter flow, producing structured DDP output on demand.
+### DDP extraction
+Both analysis-driven and intent-driven flows support DDP documents:
+- Analysis-driven: System may suggest DDP when document contains requirements or technical specifications.
+- Intent-driven: User requests "Create a design & development plan from the attached document."
+- `/api/documents/extract?docType=ddp` runs the DDP manifest defined in [`templates/doc-types/ddp/`](../templates/doc-types/ddp/).
+- `/api/documents/validate?docType=ddp` and `/api/documents/render?docType=ddp` follow the same schema + template path.
 
-### Non-intent flows (no-op)
-- Uploading files without intent leaves the preview unchanged and never calls `/api/documents/extract`.
-- Speaking without a charter request produces transcripts but `detectCharterIntent` returns `null`, so extraction is skipped.
-- Idle prompt invocations (e.g., automated cron jobs) must expect `{ "result": "no_op" }` when intent or context is missing.
+### Non-extraction flows
+- **Analysis mode**: User can dismiss suggestions or choose not to confirm, leaving the preview unchanged.
+- **Fallback mode**: Uploading files without intent leaves the preview unchanged and never calls `/api/documents/extract`.
+- Speaking without a charter request produces transcripts but `detectCharterIntent` returns `null` in fallback mode.
+- Idle prompt invocations must expect `{ "result": "no_op" }` when intent or context is missing.
 
 ## Server-Side (`server/`)
+- `server/documents/analysis/` – LLM-based document analysis service
+  - `DocumentAnalyzer.ts` – Main analysis orchestrator
+  - `ContentExtractor.ts` – Text/table extraction from files
+  - `TypeClassifier.ts` – Document type classification
+  - `IntentInferrer.ts` – Purpose/intent inference
+  - `FieldMapper.ts` – Preview field mapping
+  - `ConfidenceScorer.ts` – Confidence calculation
+  - `AnalysisCache.ts` – Caching layer with TTL
+  - `types.ts` – Shared type definitions
 - `server/charter/` – Charter-specific extraction and orchestration
   - `Orchestrator.ts` – Server-side orchestration logic
   - `extractFieldsFromUtterance.ts` – Field extraction from voice/text input

@@ -113,23 +113,54 @@ const __dirname = typeof document === "undefined" ? path.dirname(__filename) : "
 let charterExtractionModule = null;
 
 /**
- * Dynamically compiles and loads the TS module that provides:
- *   - extractFieldsFromUtterance
- *   - extractFieldsFromUtterances
+ * Try to load the pre-compiled JavaScript module.
+ * This is the production path - compiled by build:server.
  */
-async function loadCharterExtraction() {
-  if (charterExtractionModule) return charterExtractionModule;
+async function loadPrecompiledCharterExtraction() {
+  // In Vercel production, the compiled JS is at dist/server/server/charter/
+  // relative to the project root
+  const compiledPaths = [
+    // Production: compiled output from build:server
+    path.resolve(__dirname, "../../dist/server/server/charter/extractFieldsFromUtterance.js"),
+    // Alternative production path (flat structure)
+    path.resolve(__dirname, "../../dist/server/extractFieldsFromUtterance.js"),
+  ];
 
+  for (const compiledPath of compiledPaths) {
+    try {
+      // Check if file exists before importing
+      await fs.access(compiledPath);
+      const module = await import(compiledPath);
+      if (
+        typeof module.extractFieldsFromUtterance === "function" &&
+        typeof module.extractFieldsFromUtterances === "function"
+      ) {
+        return module;
+      }
+    } catch {
+      // File doesn't exist or import failed, try next path
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Dynamically compile TypeScript source at runtime.
+ * This is the development fallback when pre-compiled JS isn't available.
+ */
+async function loadCharterExtractionFromSource() {
   const tsPath = path.resolve(
     __dirname,
     "../../server/charter/extractFieldsFromUtterance.ts",
   );
+
   let tsSource;
   try {
     tsSource = await fs.readFile(tsPath, "utf8");
   } catch (err) {
-    // Surface a clear message rather than a generic 500
-    throw new Error(`Charter extraction source not found at ${tsPath}`);
+    return null;
   }
 
   // Transform TypeScript -> ESM JavaScript
@@ -144,16 +175,50 @@ async function loadCharterExtraction() {
     "data:text/javascript;base64," + Buffer.from(code).toString("base64");
   const module = await import(dataUri);
 
-  // Basic shape assertion (optional but helpful)
-  if (typeof module.extractFieldsFromUtterance !== "function") {
-    throw new Error("extractFieldsFromUtterance export missing after transform");
-  }
-  if (typeof module.extractFieldsFromUtterances !== "function") {
-    throw new Error("extractFieldsFromUtterances export missing after transform");
+  if (
+    typeof module.extractFieldsFromUtterance !== "function" ||
+    typeof module.extractFieldsFromUtterances !== "function"
+  ) {
+    return null;
   }
 
-  charterExtractionModule = module;
   return module;
+}
+
+/**
+ * Loads the charter extraction module:
+ *   - extractFieldsFromUtterance
+ *   - extractFieldsFromUtterances
+ *
+ * Tries pre-compiled JavaScript first (production), falls back to
+ * dynamic TypeScript compilation (development).
+ */
+async function loadCharterExtraction() {
+  if (charterExtractionModule) return charterExtractionModule;
+
+  // Try pre-compiled JavaScript first (production path)
+  const precompiled = await loadPrecompiledCharterExtraction();
+  if (precompiled) {
+    charterExtractionModule = precompiled;
+    return precompiled;
+  }
+
+  // Fall back to dynamic TypeScript compilation (development path)
+  const fromSource = await loadCharterExtractionFromSource();
+  if (fromSource) {
+    charterExtractionModule = fromSource;
+    return fromSource;
+  }
+
+  // Neither worked - provide helpful error message
+  const tsPath = path.resolve(__dirname, "../../server/charter/extractFieldsFromUtterance.ts");
+  const jsPath = path.resolve(__dirname, "../../dist/server/server/charter/extractFieldsFromUtterance.js");
+  throw new Error(
+    `Charter extraction module not found. Expected either:\n` +
+    `  - Pre-compiled: ${jsPath}\n` +
+    `  - TypeScript source: ${tsPath}\n` +
+    `Run 'npm run build:server' to compile the TypeScript module.`
+  );
 }
 
 /** Honors test overrides, then dynamic load */

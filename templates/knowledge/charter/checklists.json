@@ -1,0 +1,42 @@
+[
+  {
+    "id": "charter-completeness-checklist",
+    "category": "charter",
+    "type": "checklist",
+    "title": "Charter Completeness Checklist",
+    "content": "Before finalizing a project charter, verify:\n- Project name clearly identifies the initiative\n- Sponsor and project lead are named individuals (not roles)\n- Start and end dates are realistic and approved\n- Vision describes the desired future state\n- Problem statement explains why the project is needed\n- Description provides sufficient context for stakeholders\n- At least 3 in-scope items with specific deliverables\n- At least 2 out-of-scope items to prevent scope creep\n- At least 5 risks across different categories\n- At least 3 assumptions that could affect project success\n- Milestones cover all project phases with dates\n- Success metrics are quantifiable with measurement systems\n- Core team includes all key roles with responsibilities",
+    "triggers": {},
+    "priority": "high",
+    "tags": ["checklist", "completeness", "quality"],
+    "source": "internal"
+  },
+  {
+    "id": "charter-stakeholder-checklist",
+    "category": "charter",
+    "type": "checklist",
+    "title": "Stakeholder Alignment Checklist",
+    "content": "Ensure stakeholder alignment by verifying:\n- Sponsor has formally approved the charter\n- Project lead understands and accepts accountability\n- Key stakeholders have reviewed scope boundaries\n- Success metrics are agreed upon by business owners\n- Resource commitments are confirmed by functional managers\n- Timeline is validated against organizational constraints\n- Budget (if applicable) is approved or pending approval\n- Dependencies on other projects/teams are acknowledged",
+    "triggers": {
+      "fields": ["sponsor", "project_lead", "core_team"]
+    },
+    "priority": "medium",
+    "tags": ["stakeholder", "alignment", "approval"],
+    "source": "internal"
+  },
+  {
+    "id": "charter-risk-checklist",
+    "category": "charter",
+    "type": "checklist",
+    "title": "Risk Assessment Checklist",
+    "content": "Common risk categories to consider:\n- Technical: New technology, integration complexity, data migration\n- Resource: Key person dependency, skill gaps, availability conflicts\n- Schedule: Aggressive timeline, external dependencies, holiday impacts\n- Scope: Unclear requirements, stakeholder changes, feature creep\n- External: Vendor reliability, regulatory changes, market shifts\n- Organizational: Priority conflicts, budget changes, restructuring\n- Quality: Testing coverage, performance requirements, security needs",
+    "triggers": {
+      "fields": ["risks"],
+      "conditions": [
+        { "field": "risks", "operator": "less_than", "value": 5 }
+      ]
+    },
+    "priority": "high",
+    "tags": ["risks", "checklist", "categories"],
+    "source": "internal"
+  }
+]

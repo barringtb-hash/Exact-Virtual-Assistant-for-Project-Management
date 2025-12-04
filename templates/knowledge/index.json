@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "description": "Knowledge database for document review feedback",
+  "categories": [
+    {
+      "id": "charter",
+      "label": "Project Charter",
+      "description": "Best practices and guidelines for project charters",
+      "files": [
+        "charter/best_practices.json",
+        "charter/checklists.json",
+        "charter/anti_patterns.json"
+      ]
+    },
+    {
+      "id": "general",
+      "label": "General Project Management",
+      "description": "General project management principles applicable to all document types",
+      "files": [
+        "general/principles.json"
+      ]
+    }
+  ],
+  "updatedAt": "2024-12-04"
+}

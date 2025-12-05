@@ -11,7 +11,8 @@ import {
   recordDocumentAudit,
   resolveDetectionFromRequest,
 } from "../../lib/doc/audit.js";
-import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
+import { isIntentOnlyExtractionEnabled, isDocumentAnalysisEnabled } from "../../config/featureFlags.js";
+import { getAnalysis, confirmAnalysis } from "../../server/documents/analysis/AnalysisCache.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
 import {
   formatErrorResponse,
@@ -265,6 +266,20 @@ export default async function handler(req, res) {
 
     const detection = resolveDetectionFromRequest({ ...req, body });
 
+    // Check for analysisId - if provided and valid, use cached analysis context
+    // This enables the analysis-driven extraction flow (DOCUMENT_ANALYSIS_ENABLED=true)
+    const analysisId = body?.analysisId;
+    let cachedAnalysis = null;
+    const documentAnalysisEnabled = isDocumentAnalysisEnabled();
+
+    if (analysisId && typeof analysisId === "string" && documentAnalysisEnabled) {
+      cachedAnalysis = getAnalysis(analysisId);
+      if (cachedAnalysis) {
+        // Mark analysis as used and confirm it
+        confirmAnalysis(analysisId);
+      }
+    }
+
     const attachments = Array.isArray(body.attachments) ? body.attachments : [];
     const voice = Array.isArray(body.voice) ? body.voice : [];
     const messages = sanitizeUserMessages(body.messages);
@@ -281,14 +296,32 @@ export default async function handler(req, res) {
     const intentReasonRaw = body?.intentReason;
     const detectIntentRaw = body?.detect;
 
-    const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
+    // When document analysis is enabled and we have a cached analysis, bypass intent-only extraction
+    const hasAnalysisContext = !!cachedAnalysis;
+    const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled() && !hasAnalysisContext;
     const allowIntentDetection = detectIntentRaw !== false;
 
     let resolvedIntent = intentOnlyExtractionEnabled ? normalizeIntent(intentRaw) : null;
     let resolvedIntentSource =
       typeof intentSourceRaw === "string" && intentSourceRaw.trim() ? intentSourceRaw.trim() : null;
 
-    if (config.type === "charter") {
+    // Determine if this is a guided request BEFORE checking intent
+    // Guided requests bypass intent-only extraction requirements
+    const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
+      ? body.guidedRequests
+      : Array.isArray(body?.requests)
+      ? body.requests
+      : null;
+    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
+
+    const guidedFlagEnabled = isGuidedEnabled(body?.guided);
+    const hasGuidedRequestPayload =
+      Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
+    const isGuidedCharterRequest =
+      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
+
+    // Intent check only applies to non-guided charter requests
+    if (config.type === "charter" && !isGuidedCharterRequest) {
       if (intentOnlyExtractionEnabled && !resolvedIntent && allowIntentDetection) {
         const lastUserMessage = getLastUserMessageText(messages);
         const detectedIntent = detectCharterIntent(lastUserMessage);
@@ -304,19 +337,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ status: "skipped", reason: "no_intent", fields: {} });
       }
     }
-
-    const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
-      ? body.guidedRequests
-      : Array.isArray(body?.requests)
-      ? body.requests
-      : null;
-    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
-
-    const guidedFlagEnabled = isGuidedEnabled(body?.guided);
-    const hasGuidedRequestPayload =
-      Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
-    const isGuidedCharterRequest =
-      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
 
     const hasGuidedContext = Array.isArray(guidedRequestsRaw)
       ? guidedRequestsRaw.some((entry) => {

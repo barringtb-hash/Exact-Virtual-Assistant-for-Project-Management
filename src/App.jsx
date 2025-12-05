@@ -1376,6 +1376,71 @@ export default function ExactVirtualAssistantPM() {
       };
     }
 
+    // Handle pending status - extraction succeeded but has warnings requiring confirmation
+    if (response.status === "pending") {
+      const pending = response.pending || {};
+      return {
+        ok: true,
+        fields: pending.fields || {},
+        warnings: Array.isArray(pending.warnings) ? pending.warnings : [],
+        rawToolArguments: pending.arguments || null,
+      };
+    }
+
+    // Handle skipped status - extraction was skipped (e.g., no intent detected)
+    if (response.status === "skipped") {
+      return {
+        ok: false,
+        error: {
+          code: "skipped",
+          message: response.reason === "no_intent"
+            ? "Please provide more context about what you'd like to extract."
+            : "Extraction was skipped.",
+        },
+        warnings,
+        fields: {},
+        rawToolArguments: null,
+      };
+    }
+
+    // Handle batch status - multiple extraction results
+    if (response.status === "batch" && Array.isArray(response.results)) {
+      const first = response.results[0];
+      if (!first) {
+        return {
+          ok: false,
+          error: { code: "empty_batch", message: "No extraction results returned." },
+          warnings: [],
+          fields: {},
+          rawToolArguments: null,
+        };
+      }
+      if (first.status === "ok") {
+        return {
+          ok: true,
+          fields: first.fields || {},
+          warnings: Array.isArray(first.warnings) ? first.warnings : [],
+          rawToolArguments: null,
+        };
+      }
+      if (first.status === "pending") {
+        const pending = first.pending || {};
+        return {
+          ok: true,
+          fields: pending.fields || {},
+          warnings: Array.isArray(pending.warnings) ? pending.warnings : [],
+          rawToolArguments: pending.arguments || null,
+        };
+      }
+      return {
+        ok: false,
+        error: first.error || null,
+        warnings: Array.isArray(first.warnings) ? first.warnings : [],
+        fields: first.fields || {},
+        rawToolArguments: null,
+      };
+    }
+
     throw new Error(`Unsupported extractor status: ${response.status}`);
   }, []);
   const initialDraftValue = initialDraftRef.current;

@@ -144,15 +144,31 @@ export default async function handler(req, res) {
       });
     }
 
-    // Retrieve cached analysis
-    const cachedAnalysis = getAnalysis(analysisId);
+    // Retrieve cached analysis (may fail in serverless environments)
+    let cachedAnalysis = getAnalysis(analysisId);
+
+    // In serverless environments, in-memory cache may not persist between invocations.
+    // Fall back to inline data sent by the client.
     if (!cachedAnalysis) {
-      return res.status(404).json({
-        error: {
-          code: "ANALYSIS_NOT_FOUND",
-          message: "Analysis not found or expired. Please re-analyze the document.",
-        },
-      });
+      const inlineAnalysis = body.analysisData;
+      const inlineRawContent = body.rawContent;
+
+      if (inlineAnalysis && inlineRawContent) {
+        console.log("[/api/documents/confirm] Using inline analysis data (cache miss in serverless)");
+        cachedAnalysis = {
+          analysisId,
+          analysis: inlineAnalysis,
+          rawContent: inlineRawContent,
+          status: "pending",
+        };
+      } else {
+        return res.status(404).json({
+          error: {
+            code: "ANALYSIS_NOT_FOUND",
+            message: "Analysis not found or expired. Please re-analyze the document.",
+          },
+        });
+      }
     }
 
     // Validate confirmed object

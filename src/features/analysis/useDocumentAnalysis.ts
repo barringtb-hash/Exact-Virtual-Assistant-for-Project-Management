@@ -16,6 +16,7 @@ import {
   useAnalysisStatus,
   useAnalysisId,
   useAnalysisResult,
+  useRawContent,
   useSelectedTarget,
   useFieldOverrides,
   useAnalysisError,
@@ -183,6 +184,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   const status = useAnalysisStatus();
   const analysisId = useAnalysisId();
   const analysis = useAnalysisResult();
+  const rawContent = useRawContent();
   const selectedTarget = useSelectedTarget();
   const fieldOverrides = useFieldOverrides();
   const error = useAnalysisError();
@@ -260,6 +262,8 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   const confirm = useCallback(
     async (options?: ConfirmOptions): Promise<void> => {
       const currentAnalysisId = analysisId;
+      const currentAnalysis = analysis;
+      const currentRawContent = rawContent;
       const currentSelectedTarget = selectedTarget;
       const currentFieldOverrides = fieldOverrides;
 
@@ -275,11 +279,16 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
       try {
         analysisActions.startExtraction();
 
+        // Send analysis data inline to work around serverless cache limitations
+        // The server will use inline data when in-memory cache lookup fails
         const response = await fetch("/api/documents/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             analysisId: currentAnalysisId,
+            // Include cached analysis data for serverless environments
+            analysisData: currentAnalysis,
+            rawContent: currentRawContent,
             confirmed: {
               docType,
               action: options?.action ?? "create",
@@ -300,7 +309,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
         throw err;
       }
     },
-    [analysisId, selectedTarget, fieldOverrides]
+    [analysisId, analysis, rawContent, selectedTarget, fieldOverrides]
   );
 
   /**

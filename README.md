@@ -110,7 +110,7 @@ Chat endpoints remain available for conversational assistance:
 The app ships with a React client, serverless API routes, and a template registry wired through a central document router. Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for context, component breakdowns, and Mermaid diagrams. For implementation details, consult [`docs/CODEMAP.md`](docs/CODEMAP.md) and [`docs/document-workflow.md`](docs/document-workflow.md).
 
 Key router touchpoints:
-- `server/documents/analysis/DocumentAnalyzer.ts` orchestrates LLM-based document analysis, classification, and field preview generation.
+- `server/documents/analysis/DocumentAnalyzer.js` orchestrates LLM-based document analysis, classification, and field preview generation.
 - `api/documents/analyze.js` analyzes uploaded documents and returns classification with confidence scores.
 - `api/documents/confirm.js` processes user confirmation and triggers extraction with cached analysis context.
 - [`src/utils/detectCharterIntent.js`](src/utils/detectCharterIntent.js) **(fallback mode)** parses user messages and returns `{ docType: 'charter', action: 'create' | 'update', intentText }` when intent is detected.

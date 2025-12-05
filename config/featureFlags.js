@@ -103,7 +103,7 @@ export function isAutoExtractionEnabled() {
  * When enabled, uploaded documents are analyzed before extraction to determine
  * their type and suggest extraction targets with confidence scores.
  *
- * @returns {boolean} True if document analysis is enabled (default: false)
+ * @returns {boolean} True if document analysis is enabled (default: true)
  */
 export function isDocumentAnalysisEnabled() {
   const clientValue = readImportMetaEnvFlag("VITE_DOCUMENT_ANALYSIS_ENABLED");
@@ -112,7 +112,7 @@ export function isDocumentAnalysisEnabled() {
   const rawValue = clientValue !== undefined ? clientValue : serverValue;
   const parsed = parseBooleanFlag(rawValue);
 
-  return parsed ?? false;
+  return parsed ?? true;
 }
 
 /**

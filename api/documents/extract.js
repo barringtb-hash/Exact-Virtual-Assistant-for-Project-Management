@@ -288,7 +288,23 @@ export default async function handler(req, res) {
     let resolvedIntentSource =
       typeof intentSourceRaw === "string" && intentSourceRaw.trim() ? intentSourceRaw.trim() : null;
 
-    if (config.type === "charter") {
+    // Determine if this is a guided request BEFORE checking intent
+    // Guided requests bypass intent-only extraction requirements
+    const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
+      ? body.guidedRequests
+      : Array.isArray(body?.requests)
+      ? body.requests
+      : null;
+    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
+
+    const guidedFlagEnabled = isGuidedEnabled(body?.guided);
+    const hasGuidedRequestPayload =
+      Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
+    const isGuidedCharterRequest =
+      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
+
+    // Intent check only applies to non-guided charter requests
+    if (config.type === "charter" && !isGuidedCharterRequest) {
       if (intentOnlyExtractionEnabled && !resolvedIntent && allowIntentDetection) {
         const lastUserMessage = getLastUserMessageText(messages);
         const detectedIntent = detectCharterIntent(lastUserMessage);
@@ -304,19 +320,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ status: "skipped", reason: "no_intent", fields: {} });
       }
     }
-
-    const guidedRequestsRaw = Array.isArray(body?.guidedRequests)
-      ? body.guidedRequests
-      : Array.isArray(body?.requests)
-      ? body.requests
-      : null;
-    const guidedConfirmation = sanitizeGuidedConfirmation(body?.guidedConfirmation);
-
-    const guidedFlagEnabled = isGuidedEnabled(body?.guided);
-    const hasGuidedRequestPayload =
-      Array.isArray(guidedRequestsRaw) && guidedRequestsRaw.length > 0;
-    const isGuidedCharterRequest =
-      config.type === "charter" && (guidedFlagEnabled || hasGuidedRequestPayload || !!guidedConfirmation);
 
     const hasGuidedContext = Array.isArray(guidedRequestsRaw)
       ? guidedRequestsRaw.some((entry) => {

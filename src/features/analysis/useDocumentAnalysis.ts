@@ -217,14 +217,26 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
       try {
         analysisActions.startAnalysis();
 
+        // Debug logging before fetch
+        const requestBody = {
+          attachments: options.attachments,
+          conversationContext: options.conversationContext,
+          existingDraft: options.existingDraft,
+        };
+        console.log("[useDocumentAnalysis] Sending to API:", {
+          attachmentsCount: requestBody.attachments?.length ?? 0,
+          attachments: requestBody.attachments?.map((a) => ({
+            name: a.name,
+            mimeType: a.mimeType,
+            textLength: a.text?.length ?? 0,
+            textPreview: a.text?.slice(0, 100),
+          })),
+        });
+
         const response = await fetch("/api/documents/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            attachments: options.attachments,
-            conversationContext: options.conversationContext,
-            existingDraft: options.existingDraft,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         const data = await parseResponse<AnalyzeResponse>(response);

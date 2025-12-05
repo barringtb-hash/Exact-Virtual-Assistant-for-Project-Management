@@ -24,7 +24,6 @@ import { mergeStoredSession, readStoredSession } from "./utils/storage.js";
 import { docApi } from "./lib/docApi.js";
 import {
   isIntentOnlyExtractionEnabled,
-  isDocumentAnalysisEnabled,
 } from "../config/featureFlags.js";
 import {
   useDocumentAnalysis,
@@ -4981,7 +4980,7 @@ const resolveDocTypeForManualSync = useCallback(
         message: "Document fields extracted successfully.",
       });
     }
-  }, [isAnalysisComplete, analysisExtractedFields, resetAnalysis, pushToast]);
+  }, [isAnalysisComplete, analysisExtractedFields, resetAnalysis, pushToast, applyCharterDraft]);
 
   const handleFilePick = async (e) => {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];

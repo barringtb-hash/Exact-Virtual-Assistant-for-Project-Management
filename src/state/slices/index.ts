@@ -82,6 +82,35 @@ export {
   type DocTypeSuggestion,
 } from "./docType";
 
+// Analysis slice
+export {
+  analysisSlice,
+  analysisActions,
+  analysisStoreApi,
+  useAnalysisStatus,
+  useAnalysisId,
+  useAnalysisResult,
+  useSelectedDocType as useAnalysisSelectedDocType,
+  useSelectedTarget,
+  useFieldOverrides,
+  useExtractionId,
+  useExtractedFields,
+  useAnalysisError,
+  useRawContent,
+  useIsAnalyzing,
+  useIsAwaitingConfirmation,
+  useIsExtracting,
+  useIsComplete as useIsAnalysisComplete,
+  useHasError as useHasAnalysisError,
+  useNeedsClarification,
+  useSuggestedTargets,
+  useAlternativeTargets,
+  useClarificationQuestions,
+  useDocumentClassification,
+  usePreviewFieldsWithOverrides,
+  type AnalysisSliceState,
+} from "./analysis";
+
 // Re-export existing stores with wrapper access
 // These maintain backwards compatibility while using the unified system
 

@@ -4849,6 +4849,13 @@ const resolveDocTypeForManualSync = useCallback(
             setExtractionSeed(Date.now());
           }
 
+          // Debug: Log the feature flag status
+          console.log("[Document Analysis] Feature flag check:", {
+            isAnalysisFeatureEnabled,
+            legacyAutoExtractionEnabled,
+            updatedAttachmentsLength: updatedAttachments.length,
+          });
+
           // Trigger LLM-based document analysis if enabled
           if (isAnalysisFeatureEnabled) {
             // Only proceed if we actually have attachments with text

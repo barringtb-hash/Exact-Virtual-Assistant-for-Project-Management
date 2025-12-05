@@ -10,7 +10,7 @@ The assistant is composed of a Vite-powered React client, serverless API routes,
 - **Document Analysis Service (`server/documents/analysis/`)** – LLM-powered document classification, intent inference, and field preview generation.
 
 ## Core Components
-- **Document Analyzer (`server/documents/analysis/DocumentAnalyzer.ts`)** – Orchestrates LLM-based document analysis, classifies document types, and generates extraction previews.
+- **Document Analyzer (`server/documents/analysis/DocumentAnalyzer.js`)** – Orchestrates LLM-based document analysis, classifies document types, and generates extraction previews.
 - **Analysis Handler (`api/documents/analyze.js`)** – Analyzes uploaded documents, returns classification with confidence scores and suggested targets.
 - **Confirmation Handler (`api/documents/confirm.js`)** – Processes user confirmation and triggers the extraction pipeline.
 - **Intent Detection (`src/utils/detectCharterIntent.js`)** – **Fallback mode:** Returns `{ docType, action, intentText }` when user input clearly requests a document. Used when `DOCUMENT_ANALYSIS_ENABLED=false`.

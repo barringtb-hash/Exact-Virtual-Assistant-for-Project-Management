@@ -153,7 +153,7 @@ Strategy documents (`docs/LLM-DOCUMENT-EXTRACTION-STRATEGY.md`, `docs/ARCHITECTU
 - Users would confirm the suggested document type before extraction proceeds
 - Confidence scoring would guide UI behavior
 
-**Note:** The implementation files for this feature (`server/documents/analysis/DocumentAnalyzer.ts`, `api/documents/analyze.js`, `api/documents/confirm.js`) are not yet implemented. The system currently operates in intent-only mode.
+**Note:** The implementation is in `server/documents/analysis/DocumentAnalyzer.js`, `api/documents/analyze.js`, and `api/documents/confirm.js`. The feature is enabled by default but can be disabled by setting `DOCUMENT_ANALYSIS_ENABLED=false`.
 
 ### Document Router Pattern
 

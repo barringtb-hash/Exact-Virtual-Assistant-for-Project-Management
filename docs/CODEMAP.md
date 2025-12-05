@@ -138,14 +138,8 @@ Both analysis-driven and intent-driven flows support DDP documents:
 
 ## Server-Side (`server/`)
 - `server/documents/analysis/` – LLM-based document analysis service
-  - `DocumentAnalyzer.ts` – Main analysis orchestrator
-  - `ContentExtractor.ts` – Text/table extraction from files
-  - `TypeClassifier.ts` – Document type classification
-  - `IntentInferrer.ts` – Purpose/intent inference
-  - `FieldMapper.ts` – Preview field mapping
-  - `ConfidenceScorer.ts` – Confidence calculation
-  - `AnalysisCache.ts` – Caching layer with TTL
-  - `types.ts` – Shared type definitions
+  - `DocumentAnalyzer.js` – Main analysis orchestrator (includes classification, field mapping, confidence scoring)
+  - `AnalysisCache.js` – Caching layer with TTL
 - `server/charter/` – Charter-specific extraction and orchestration
   - `Orchestrator.ts` – Server-side orchestration logic
   - `extractFieldsFromUtterance.ts` – Field extraction from voice/text input

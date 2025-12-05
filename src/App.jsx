@@ -4837,13 +4837,12 @@ const resolveDocTypeForManualSync = useCallback(
           // Trigger LLM-based document analysis if enabled
           if (isAnalysisFeatureEnabled) {
             try {
-              // Format attachments for the analyzer (it expects id, name, type, content)
+              // Format attachments for the analyzer (API expects: id, name, mimeType, text)
               const analysisAttachments = updatedAttachments.map((att, idx) => ({
                 id: `attachment-${Date.now()}-${idx}`,
                 name: att.name,
-                type: att.mimeType || "text/plain",
-                size: att.text?.length || 0,
-                content: att.text,
+                mimeType: att.mimeType || "text/plain",
+                text: att.text,
               }));
 
               // Get conversation context from recent messages

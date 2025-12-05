@@ -39,15 +39,14 @@ import type {
 import { isDocumentAnalysisEnabled } from "../../../config/featureFlags";
 
 /**
- * Attachment type matching the existing codebase pattern.
+ * Attachment type matching the API expectations.
+ * The /api/documents/analyze endpoint expects { id?, name?, mimeType?, text: string }
  */
 export interface Attachment {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  content?: string;
-  url?: string;
+  id?: string;
+  name?: string;
+  mimeType?: string;
+  text: string;
 }
 
 /**

@@ -98,9 +98,84 @@ export function isAutoExtractionEnabled() {
   return parsed ?? false;
 }
 
+/**
+ * Check if LLM-based document analysis is enabled.
+ * When enabled, uploaded documents are analyzed before extraction to determine
+ * their type and suggest extraction targets with confidence scores.
+ *
+ * @returns {boolean} True if document analysis is enabled (default: false)
+ */
+export function isDocumentAnalysisEnabled() {
+  const clientValue = readImportMetaEnvFlag("VITE_DOCUMENT_ANALYSIS_ENABLED");
+  const serverValue = readProcessEnvFlag("DOCUMENT_ANALYSIS_ENABLED");
+
+  const rawValue = clientValue !== undefined ? clientValue : serverValue;
+  const parsed = parseBooleanFlag(rawValue);
+
+  return parsed ?? false;
+}
+
+/**
+ * Get the TTL for cached analysis results in seconds.
+ * @returns {number} Cache TTL in seconds (default: 900 = 15 minutes)
+ */
+export function getAnalysisCacheTTL() {
+  const serverValue = readProcessEnvFlag("ANALYSIS_CACHE_TTL_SECONDS");
+  if (serverValue !== undefined) {
+    const parsed = parseInt(serverValue, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 900; // 15 minutes default
+}
+
+/**
+ * Get the minimum confidence threshold for auto-suggesting document types.
+ * @returns {number} Confidence threshold (0-1, default: 0.5)
+ */
+export function getAnalysisConfidenceThreshold() {
+  const serverValue = readProcessEnvFlag("ANALYSIS_CONFIDENCE_THRESHOLD");
+  if (serverValue !== undefined) {
+    const parsed = parseFloat(serverValue);
+    if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+      return parsed;
+    }
+  }
+  return 0.5;
+}
+
+/**
+ * Get the model to use for document analysis.
+ * @returns {string} Model name (default: "gpt-4o")
+ */
+export function getAnalysisModel() {
+  const serverValue = readProcessEnvFlag("ANALYSIS_MODEL");
+  if (serverValue && typeof serverValue === "string" && serverValue.trim()) {
+    return serverValue.trim();
+  }
+  return "gpt-4o";
+}
+
+/**
+ * Get the current extraction mode based on feature flags.
+ * @returns {"analysis-driven" | "intent-driven"} The active extraction mode
+ */
+export function getExtractionMode() {
+  if (isDocumentAnalysisEnabled()) {
+    return "analysis-driven";
+  }
+  return "intent-driven";
+}
+
 export default {
   isIntentOnlyExtractionEnabled,
   isCharterConversationPersistenceEnabled,
   isCharterWizardVisible,
   isAutoExtractionEnabled,
+  isDocumentAnalysisEnabled,
+  getAnalysisCacheTTL,
+  getAnalysisConfidenceThreshold,
+  getAnalysisModel,
+  getExtractionMode,
 };

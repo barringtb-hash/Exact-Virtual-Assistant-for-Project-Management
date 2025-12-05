@@ -11,7 +11,8 @@ import {
   recordDocumentAudit,
   resolveDetectionFromRequest,
 } from "../../lib/doc/audit.js";
-import { isIntentOnlyExtractionEnabled } from "../../config/featureFlags.js";
+import { isIntentOnlyExtractionEnabled, isDocumentAnalysisEnabled } from "../../config/featureFlags.js";
+import { getAnalysis, confirmAnalysis } from "../../server/documents/analysis/AnalysisCache.js";
 import { detectCharterIntent } from "../../src/utils/detectCharterIntent.js";
 import {
   formatErrorResponse,
@@ -265,6 +266,20 @@ export default async function handler(req, res) {
 
     const detection = resolveDetectionFromRequest({ ...req, body });
 
+    // Check for analysisId - if provided and valid, use cached analysis context
+    // This enables the analysis-driven extraction flow (DOCUMENT_ANALYSIS_ENABLED=true)
+    const analysisId = body?.analysisId;
+    let cachedAnalysis = null;
+    const documentAnalysisEnabled = isDocumentAnalysisEnabled();
+
+    if (analysisId && typeof analysisId === "string" && documentAnalysisEnabled) {
+      cachedAnalysis = getAnalysis(analysisId);
+      if (cachedAnalysis) {
+        // Mark analysis as used and confirm it
+        confirmAnalysis(analysisId);
+      }
+    }
+
     const attachments = Array.isArray(body.attachments) ? body.attachments : [];
     const voice = Array.isArray(body.voice) ? body.voice : [];
     const messages = sanitizeUserMessages(body.messages);
@@ -281,7 +296,9 @@ export default async function handler(req, res) {
     const intentReasonRaw = body?.intentReason;
     const detectIntentRaw = body?.detect;
 
-    const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled();
+    // When document analysis is enabled and we have a cached analysis, bypass intent-only extraction
+    const hasAnalysisContext = !!cachedAnalysis;
+    const intentOnlyExtractionEnabled = isIntentOnlyExtractionEnabled() && !hasAnalysisContext;
     const allowIntentDetection = detectIntentRaw !== false;
 
     let resolvedIntent = intentOnlyExtractionEnabled ? normalizeIntent(intentRaw) : null;

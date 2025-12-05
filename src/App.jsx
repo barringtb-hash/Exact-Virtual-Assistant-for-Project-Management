@@ -4995,9 +4995,12 @@ const resolveDocTypeForManualSync = useCallback(
     }
   }, [confirmAnalysis, pushToast]);
 
-  // Merge extracted fields from analysis into draft when complete
+  // Merge extracted fields from analysis into draft when complete and start guided charter
   useEffect(() => {
     if (isAnalysisComplete && analysisExtractedFields) {
+      // Capture the selected doc type before resetting
+      const selectedDocType = analysisSelectedTarget?.docType;
+
       const normalizedFields = normalizeCharter(analysisExtractedFields);
       applyCharterDraft(normalizedFields, { resetLocks: false });
       resetAnalysis();
@@ -5005,8 +5008,16 @@ const resolveDocTypeForManualSync = useCallback(
         tone: "success",
         message: "Document fields extracted successfully.",
       });
+
+      // Start the guided charter wizard if the selected doc type was 'charter'
+      if (selectedDocType === "charter" && startGuidedCharterRef.current) {
+        // Give a small delay to ensure draft state is updated before starting charter
+        setTimeout(() => {
+          startGuidedCharterRef.current?.();
+        }, 100);
+      }
     }
-  }, [isAnalysisComplete, analysisExtractedFields, resetAnalysis, pushToast, applyCharterDraft]);
+  }, [isAnalysisComplete, analysisExtractedFields, analysisSelectedTarget, resetAnalysis, pushToast, applyCharterDraft]);
 
   const handleFilePick = async (e) => {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];

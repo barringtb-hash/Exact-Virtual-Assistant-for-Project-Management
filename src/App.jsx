@@ -4824,49 +4824,29 @@ const resolveDocTypeForManualSync = useCallback(
         }
 
         if (processedAttachments.length) {
-          // Debug: Log what we're about to merge
-          console.log("[Document Analysis] Step 1 - processedAttachments:", {
-            count: processedAttachments.length,
-            items: processedAttachments.map((a) => ({
-              name: a.name,
-              mimeType: a.mimeType,
-              textLength: a.text?.length || 0,
-            })),
+          // Compute the merged attachments directly (don't rely on setState callback timing)
+          const currentAttachments = attachmentsRef.current || [];
+          const mergedAttachments = [...currentAttachments, ...processedAttachments];
+
+          console.log("[Document Analysis] Attachments ready:", {
+            current: currentAttachments.length,
+            processed: processedAttachments.length,
+            merged: mergedAttachments.length,
+            firstProcessedText: processedAttachments[0]?.text?.slice(0, 100),
           });
 
-          let updatedAttachments = [];
-          setAttachments((prev) => {
-            console.log("[Document Analysis] Step 2 - prev attachments:", prev?.length || 0);
-            updatedAttachments = [...prev, ...processedAttachments];
-            console.log("[Document Analysis] Step 3 - updatedAttachments:", updatedAttachments.length);
-            return updatedAttachments;
-          });
-
-          // Debug: Verify updatedAttachments has content after setAttachments
-          console.log("[Document Analysis] Step 4 - after setAttachments, updatedAttachments:", updatedAttachments.length);
+          // Update React state
+          setAttachments(mergedAttachments);
 
           if (legacyAutoExtractionEnabled) {
             setExtractionSeed(Date.now());
           }
 
-          // Debug: Log the feature flag status
-          console.log("[Document Analysis] Feature flag check:", {
-            isAnalysisFeatureEnabled,
-            legacyAutoExtractionEnabled,
-            updatedAttachmentsLength: updatedAttachments.length,
-          });
-
           // Trigger LLM-based document analysis if enabled
-          if (isAnalysisFeatureEnabled) {
-            // Only proceed if we actually have attachments with text
-            if (updatedAttachments.length === 0) {
-              console.warn("[Document Analysis] No attachments to analyze - skipping");
-              return;
-            }
-
+          if (isAnalysisFeatureEnabled && mergedAttachments.length > 0) {
             try {
               // Format attachments for the analyzer (API expects: id, name, mimeType, text)
-              const analysisAttachments = updatedAttachments.map((att, idx) => ({
+              const analysisAttachments = mergedAttachments.map((att, idx) => ({
                 id: `attachment-${Date.now()}-${idx}`,
                 name: att.name,
                 mimeType: att.mimeType || "text/plain",
@@ -4907,12 +4887,12 @@ const resolveDocTypeForManualSync = useCallback(
               // Fall back to legacy behavior on error
               try {
                 await onFileAttached({
-                  attachments: updatedAttachments,
+                  attachments: mergedAttachments,
                   messages,
                   voice: voiceTranscripts,
                   trigger: (overrides = {}) =>
                     triggerExtraction({
-                      attachments: updatedAttachments,
+                      attachments: mergedAttachments,
                       messages,
                       voice: voiceTranscripts,
                       ...overrides,
@@ -4927,12 +4907,12 @@ const resolveDocTypeForManualSync = useCallback(
             // Use legacy file attached behavior
             try {
               await onFileAttached({
-                attachments: updatedAttachments,
+                attachments: mergedAttachments,
                 messages,
                 voice: voiceTranscripts,
                 trigger: (overrides = {}) =>
                   triggerExtraction({
-                    attachments: updatedAttachments,
+                    attachments: mergedAttachments,
                     messages,
                     voice: voiceTranscripts,
                     ...overrides,

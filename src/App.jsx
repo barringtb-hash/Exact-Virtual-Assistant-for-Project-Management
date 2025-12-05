@@ -4851,6 +4851,17 @@ const resolveDocTypeForManualSync = useCallback(
                 .slice(-5)
                 .map((m) => m.text);
 
+              // Debug logging
+              console.log("[Document Analysis] Sending attachments:", {
+                count: analysisAttachments.length,
+                attachments: analysisAttachments.map((a) => ({
+                  name: a.name,
+                  mimeType: a.mimeType,
+                  textLength: a.text?.length || 0,
+                  hasText: Boolean(a.text?.trim()),
+                })),
+              });
+
               await analyzeDocument({
                 attachments: analysisAttachments,
                 conversationContext,

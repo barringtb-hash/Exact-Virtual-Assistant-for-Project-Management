@@ -138,10 +138,13 @@ export interface UseDocumentAnalysisReturn {
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    // API returns { error: { code, message } } format
+    const errorInfo = errorData.error || errorData;
+    console.error("[useDocumentAnalysis] API error response:", errorData);
     throw {
-      message: errorData.message || `Request failed with status ${response.status}`,
-      code: errorData.code || `HTTP_${response.status}`,
-      details: errorData.details,
+      message: errorInfo.message || `Request failed with status ${response.status}`,
+      code: errorInfo.code || `HTTP_${response.status}`,
+      details: errorInfo.details,
     } as AnalysisError;
   }
   return response.json();

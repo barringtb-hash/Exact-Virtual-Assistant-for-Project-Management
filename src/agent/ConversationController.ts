@@ -124,6 +124,11 @@ export class ConversationController {
         buffer = await this.processBuffer(buffer, () => {
           completed = true;
         });
+
+        if (completed) {
+          reader.cancel().catch(() => {});
+          break;
+        }
       }
 
       if (buffer.trim()) {

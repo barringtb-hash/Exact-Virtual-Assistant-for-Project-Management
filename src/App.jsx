@@ -4824,11 +4824,26 @@ const resolveDocTypeForManualSync = useCallback(
         }
 
         if (processedAttachments.length) {
+          // Debug: Log what we're about to merge
+          console.log("[Document Analysis] Step 1 - processedAttachments:", {
+            count: processedAttachments.length,
+            items: processedAttachments.map((a) => ({
+              name: a.name,
+              mimeType: a.mimeType,
+              textLength: a.text?.length || 0,
+            })),
+          });
+
           let updatedAttachments = [];
           setAttachments((prev) => {
+            console.log("[Document Analysis] Step 2 - prev attachments:", prev?.length || 0);
             updatedAttachments = [...prev, ...processedAttachments];
+            console.log("[Document Analysis] Step 3 - updatedAttachments:", updatedAttachments.length);
             return updatedAttachments;
           });
+
+          // Debug: Verify updatedAttachments has content after setAttachments
+          console.log("[Document Analysis] Step 4 - after setAttachments, updatedAttachments:", updatedAttachments.length);
 
           if (legacyAutoExtractionEnabled) {
             setExtractionSeed(Date.now());
@@ -4836,6 +4851,12 @@ const resolveDocTypeForManualSync = useCallback(
 
           // Trigger LLM-based document analysis if enabled
           if (isAnalysisFeatureEnabled) {
+            // Only proceed if we actually have attachments with text
+            if (updatedAttachments.length === 0) {
+              console.warn("[Document Analysis] No attachments to analyze - skipping");
+              return;
+            }
+
             try {
               // Format attachments for the analyzer (API expects: id, name, mimeType, text)
               const analysisAttachments = updatedAttachments.map((att, idx) => ({
@@ -4845,6 +4866,9 @@ const resolveDocTypeForManualSync = useCallback(
                 text: att.text,
               }));
 
+              // Filter out attachments without text
+              const validAttachments = analysisAttachments.filter((a) => a.text?.trim());
+
               // Get conversation context from recent messages
               const conversationContext = messages
                 .filter((m) => m.role === "user" && m.text)
@@ -4852,18 +4876,23 @@ const resolveDocTypeForManualSync = useCallback(
                 .map((m) => m.text);
 
               // Debug logging
-              console.log("[Document Analysis] Sending attachments:", {
-                count: analysisAttachments.length,
-                attachments: analysisAttachments.map((a) => ({
+              console.log("[Document Analysis] Step 5 - Sending to API:", {
+                analysisAttachmentsCount: analysisAttachments.length,
+                validAttachmentsCount: validAttachments.length,
+                attachments: validAttachments.map((a) => ({
                   name: a.name,
                   mimeType: a.mimeType,
                   textLength: a.text?.length || 0,
-                  hasText: Boolean(a.text?.trim()),
                 })),
               });
 
+              if (validAttachments.length === 0) {
+                console.warn("[Document Analysis] No attachments with text content - skipping");
+                return;
+              }
+
               await analyzeDocument({
-                attachments: analysisAttachments,
+                attachments: validAttachments,
                 conversationContext,
               });
             } catch (error) {

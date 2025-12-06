@@ -4,6 +4,450 @@
 
 This document outlines a strategy for integrating Model Context Protocol (MCP) into the Exact Virtual Assistant to enable Smartsheet, Office 365, and other external service integrations.
 
+---
+
+# Part 1: Improving Existing Tools with MCP
+
+## Current Limitation: Single AI-Callable Tool
+
+The application currently exposes **only ONE tool** to the AI via OpenAI function calling:
+
+```typescript
+// server/charter/extractFieldsFromUtterance.ts
+const TOOL_NAME = "extract_charter_fields";
+```
+
+All other capabilities (validation, review, rendering, analysis) exist as API endpoints but **the AI cannot call them directly**. The frontend must orchestrate these calls.
+
+### Current Flow (Frontend-Orchestrated)
+
+```
+User: "Create a charter from this document and review it"
+    ↓
+AI: Calls extract_charter_fields → Returns fields
+    ↓
+AI: "I've extracted the fields. [Cannot review - no tool available]"
+    ↓
+Frontend: Must manually call /api/documents/validate
+Frontend: Must manually call /api/documents/review
+Frontend: Must manually call /api/documents/render
+    ↓
+User sees results pieced together by frontend
+```
+
+### With MCP (AI-Orchestrated)
+
+```
+User: "Create a charter from this document and review it"
+    ↓
+AI: Calls document_extract → Returns fields
+AI: Calls document_validate → Returns validation results
+AI: Calls document_review → Returns scores and feedback
+AI: Calls document_render → Returns download link
+    ↓
+AI: "I've created your charter (score: 85/100). Here are 3 suggestions
+     to improve it, and here's the download link."
+```
+
+## Existing Capabilities → MCP Tools
+
+| Current Capability | Current Access | As MCP Tool | Benefit |
+|-------------------|----------------|-------------|---------|
+| Field Extraction | OpenAI function | `document_extract` | Unified interface |
+| Schema Validation | API only | `document_validate` | AI can self-check |
+| Document Review | API only | `document_review` | AI-initiated quality checks |
+| Document Render | API only | `document_render` | AI delivers final product |
+| Document Analysis | API only | `document_analyze` | AI classifies uploads |
+| Field Feedback | API only | `field_feedback` | AI explains issues |
+
+## Proposed Internal MCP Server
+
+Create an MCP server that wraps your existing capabilities:
+
+### Tool Definitions
+
+```typescript
+// mcp-servers/exact-va/tools.ts
+export const exactVATools = [
+  // Document Extraction (wraps existing extractFieldsFromUtterance)
+  {
+    name: 'document_extract',
+    description: 'Extract structured fields from uploaded documents or conversation context',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docType: {
+          type: 'string',
+          enum: ['charter', 'ddp', 'sow'],
+          description: 'Target document type'
+        },
+        context: {
+          type: 'string',
+          description: 'Text content to extract from'
+        },
+        attachmentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'IDs of uploaded attachments'
+        },
+        fieldIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Specific fields to extract (optional, extracts all if omitted)'
+        }
+      },
+      required: ['docType']
+    }
+  },
+
+  // Document Validation (wraps /api/documents/validate)
+  {
+    name: 'document_validate',
+    description: 'Validate extracted document fields against schema rules',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docType: { type: 'string', enum: ['charter', 'ddp', 'sow'] },
+        fields: { type: 'object', description: 'Field values to validate' }
+      },
+      required: ['docType', 'fields']
+    }
+  },
+
+  // Document Review (wraps /api/documents/review)
+  {
+    name: 'document_review',
+    description: 'Get AI-powered quality review with scores across 6 dimensions',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docType: { type: 'string', enum: ['charter', 'ddp', 'sow'] },
+        fields: { type: 'object' },
+        dimensions: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['completeness', 'specificity', 'feasibility',
+                   'risk_coverage', 'scope_clarity', 'metric_measurability']
+          },
+          description: 'Specific dimensions to evaluate (optional)'
+        }
+      },
+      required: ['docType', 'fields']
+    }
+  },
+
+  // Document Rendering (wraps /api/documents/render)
+  {
+    name: 'document_render',
+    description: 'Render document to DOCX or PDF format',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docType: { type: 'string', enum: ['charter', 'ddp', 'sow'] },
+        fields: { type: 'object' },
+        format: { type: 'string', enum: ['docx', 'pdf'], default: 'docx' }
+      },
+      required: ['docType', 'fields']
+    }
+  },
+
+  // Document Analysis (wraps /api/documents/analyze)
+  {
+    name: 'document_analyze',
+    description: 'Analyze uploaded document to classify type and suggest extraction targets',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        attachmentId: { type: 'string' },
+        content: { type: 'string', description: 'Raw text content if no attachment' }
+      }
+    }
+  },
+
+  // Field-Level Feedback
+  {
+    name: 'field_feedback',
+    description: 'Get detailed feedback for a specific field value',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docType: { type: 'string' },
+        fieldId: { type: 'string' },
+        currentValue: { type: 'string' },
+        context: { type: 'string', description: 'Surrounding context for better suggestions' }
+      },
+      required: ['docType', 'fieldId', 'currentValue']
+    }
+  },
+
+  // Draft Management
+  {
+    name: 'draft_update',
+    description: 'Update specific fields in the current draft',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fields: {
+          type: 'object',
+          description: 'Field ID to value mapping'
+        },
+        respectLocks: {
+          type: 'boolean',
+          default: true,
+          description: 'Skip fields that user has manually edited'
+        }
+      },
+      required: ['fields']
+    }
+  },
+
+  // Session Navigation
+  {
+    name: 'guided_navigate',
+    description: 'Navigate the guided charter session',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['next', 'back', 'skip', 'review', 'goto'],
+          description: 'Navigation action'
+        },
+        targetFieldId: {
+          type: 'string',
+          description: 'For goto action, the field to jump to'
+        }
+      },
+      required: ['action']
+    }
+  }
+];
+```
+
+### Resources (Read-Only Data)
+
+```typescript
+export const exactVAResources = [
+  {
+    uri: 'exact-va://draft/current',
+    name: 'Current Draft',
+    description: 'The current document draft with all field values',
+    mimeType: 'application/json'
+  },
+  {
+    uri: 'exact-va://schema/{docType}',
+    name: 'Document Schema',
+    description: 'Field definitions and validation rules for a document type',
+    mimeType: 'application/json'
+  },
+  {
+    uri: 'exact-va://review/latest',
+    name: 'Latest Review',
+    description: 'Most recent review results and scores',
+    mimeType: 'application/json'
+  },
+  {
+    uri: 'exact-va://session/state',
+    name: 'Session State',
+    description: 'Current guided charter session state',
+    mimeType: 'application/json'
+  }
+];
+```
+
+## Concrete Improvements
+
+### 1. AI Self-Correction Loop
+
+**Before:** AI extracts, frontend validates separately, user sees disconnected errors
+
+**After:**
+```
+AI extracts fields
+    ↓
+AI calls document_validate
+    ↓
+Validation fails on "budget" field
+    ↓
+AI calls field_feedback for "budget"
+    ↓
+AI: "The budget field needs a specific dollar amount.
+     You wrote 'TBD' - could you provide an estimate?"
+```
+
+### 2. Proactive Quality Checks
+
+**Before:** User must click "Review" button, wait, see results
+
+**After:**
+```
+User: "I think the charter is ready"
+    ↓
+AI calls document_review
+    ↓
+AI: "Your charter scores 72/100. The main issues are:
+     - Risk Coverage: 45/100 - Only 2 risks identified, consider adding...
+     - Metric Measurability: 60/100 - Success metrics need specific targets
+
+     Want me to help improve these sections?"
+```
+
+### 3. One-Shot Document Generation
+
+**Before:** Multi-step process requiring user clicks between each stage
+
+**After:**
+```
+User: "Create a complete charter from this scope document"
+    ↓
+AI calls document_analyze → Confirms charter is appropriate
+AI calls document_extract → Extracts all fields
+AI calls document_validate → Checks for issues
+AI calls document_review → Gets quality score
+AI calls document_render → Generates DOCX
+    ↓
+AI: "I've created your charter (score: 88/100).
+     Download: [link]
+
+     Two suggestions to get to 95+:
+     1. Add a contingency plan for the vendor dependency risk
+     2. Specify the Q2 milestone date"
+```
+
+### 4. Context-Aware Field Collection
+
+**Before:** Guided chat asks questions linearly
+
+**After:**
+```
+AI reads exact-va://draft/current resource
+AI reads exact-va://schema/charter resource
+    ↓
+AI: "I see you've filled in the project name and objectives.
+     Based on those, I'd suggest these stakeholders: [list]
+     Should I add them, or would you like to specify different ones?"
+```
+
+## Implementation: Internal MCP Server
+
+```typescript
+// mcp-servers/exact-va/index.ts
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { extractFieldsFromUtterance } from '../../server/charter/extractFieldsFromUtterance.js';
+import { reviewDocument } from '../../lib/doc/review.js';
+import { validateDocument } from '../../api/documents/validate.js';
+import { renderDocument } from '../../api/documents/render.js';
+
+class ExactVAMCPServer {
+  private server: Server;
+
+  constructor() {
+    this.server = new Server(
+      { name: 'exact-va', version: '1.0.0' },
+      { capabilities: { tools: {}, resources: {} } }
+    );
+    this.setupHandlers();
+  }
+
+  private setupHandlers() {
+    // Tool handlers - wrap existing implementations
+    this.server.setRequestHandler('tools/call', async (request) => {
+      const { name, arguments: args } = request.params;
+
+      switch (name) {
+        case 'document_extract':
+          return this.handleExtract(args);
+        case 'document_validate':
+          return this.handleValidate(args);
+        case 'document_review':
+          return this.handleReview(args);
+        case 'document_render':
+          return this.handleRender(args);
+        // ... other tools
+      }
+    });
+
+    // Resource handlers
+    this.server.setRequestHandler('resources/read', async (request) => {
+      const { uri } = request.params;
+
+      if (uri === 'exact-va://draft/current') {
+        return this.getCurrentDraft();
+      }
+      // ... other resources
+    });
+  }
+
+  private async handleExtract(args: any) {
+    // Wraps existing extractFieldsFromUtterance
+    const result = await extractFieldsFromUtterance({
+      requestedFieldIds: args.fieldIds || 'all',
+      messages: [{ role: 'user', content: args.context }],
+      // ... map other args
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: result.ok,
+          fields: result.fields,
+          warnings: result.warnings,
+        }, null, 2)
+      }]
+    };
+  }
+
+  private async handleReview(args: any) {
+    // Wraps existing reviewDocument
+    const result = await reviewDocument(args.docType, args.fields, {
+      dimensions: args.dimensions,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  }
+
+  // ... other handlers wrap existing implementations
+}
+```
+
+## Migration Path
+
+### Phase 1: Create Internal MCP Server (Low Risk)
+- Wrap existing functions as MCP tools
+- No changes to existing API endpoints
+- MCP server runs alongside existing system
+
+### Phase 2: Add MCP Client to Chat Handler
+- Chat handler gets tools from MCP server
+- Existing functionality unchanged
+- New capability: AI can call more tools
+
+### Phase 3: Deprecate Direct API Calls (Optional)
+- Frontend can call through MCP client
+- Unified interface for all operations
+- Easier testing and monitoring
+
+## Benefits Summary
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| **AI Tool Access** | 1 tool | 8+ tools |
+| **Orchestration** | Frontend-driven | AI-driven |
+| **Error Handling** | Disconnected | AI self-corrects |
+| **User Experience** | Multi-step manual | Single request |
+| **Extensibility** | Custom per feature | Plug-in new tools |
+| **Testing** | Integration tests | Standardized MCP tests |
+| **External Access** | None | Other AI clients can use |
+
+---
+
 ## Why MCP for These Integrations
 
 ### Traditional API Integration vs MCP

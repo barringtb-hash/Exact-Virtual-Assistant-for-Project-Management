@@ -420,16 +420,17 @@ export async function handleGuidedNavigate(
   args: Record<string, unknown>,
   context: ToolContext
 ): Promise<ToolResponse> {
-  const { action, targetFieldId } = args as {
+  const { action, targetFieldId, conversationId } = args as {
     action: string;
     targetFieldId?: string;
+    conversationId?: string;
   };
 
   if (!action) {
     return error("action is required");
   }
 
-  const validActions = ["next", "back", "skip", "review", "goto"];
+  const validActions = ["next", "back", "skip", "review", "goto", "start"];
   if (!validActions.includes(action)) {
     return error(`Invalid action: ${action}. Must be one of: ${validActions.join(", ")}`);
   }
@@ -438,22 +439,88 @@ export async function handleGuidedNavigate(
     return error("targetFieldId is required for 'goto' action");
   }
 
+  // Use context conversationId or provided one
+  const sessionId = conversationId || context.conversationId || `mcp-session-${Date.now()}`;
+
   try {
-    // This would integrate with the guided charter orchestrator
-    // For now, return a simulated response
+    // Dynamic import to avoid circular dependencies
+    const {
+      startSession,
+      handleCommand,
+      getState,
+      hasSession,
+      promptCurrentField,
+    } = await import("../../server/charter/Orchestrator.js");
+
+    const interactionOptions = {
+      conversationId: sessionId,
+    };
+
+    let result;
+
+    if (action === "start") {
+      // Start a new session
+      result = await startSession(interactionOptions);
+      return success({
+        action: "start",
+        sessionId,
+        sessionStarted: true,
+        state: {
+          currentField: result.state.currentFieldId,
+          phase: result.state.phase,
+          progress: calculateProgress(result.state),
+        },
+        messages: result.assistantMessages,
+      });
+    }
+
+    if (!hasSession(sessionId)) {
+      return error(`No active session found. Use action 'start' to begin a new guided session.`);
+    }
+
+    if (action === "next") {
+      // Prompt for the current field (effectively moves to next if current is filled)
+      result = await promptCurrentField(interactionOptions);
+    } else if (action === "back" || action === "skip" || action === "review") {
+      // Handle navigation commands
+      result = await handleCommand(action, interactionOptions);
+    } else if (action === "goto" && targetFieldId) {
+      // Handle goto with edit command
+      result = await handleCommand(`edit ${targetFieldId}`, interactionOptions);
+    } else {
+      return error(`Unsupported action: ${action}`);
+    }
+
+    const currentState = getState(sessionId);
+
     return success({
       action,
       targetFieldId,
-      message: `Navigation action '${action}' would be executed`,
-      // In real implementation, this would return:
-      // - currentField: the new current field
-      // - progress: completion percentage
-      // - nextPrompt: the AI prompt for the next field
+      sessionId,
+      handled: result.handled,
+      state: {
+        currentField: currentState.currentFieldId,
+        phase: currentState.phase,
+        progress: calculateProgress(currentState),
+        completedFields: Object.keys(currentState.fields).filter(
+          (k) => currentState.fields[k as keyof typeof currentState.fields] != null
+        ),
+      },
+      messages: result.assistantMessages,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return error(`Navigation failed: ${message}`);
   }
+}
+
+/**
+ * Calculate progress percentage for a guided session
+ */
+function calculateProgress(state: { fields: Record<string, unknown> }): number {
+  const totalFields = 12; // Charter has ~12 main fields
+  const filledFields = Object.values(state.fields).filter((v) => v != null).length;
+  return Math.round((filledFields / totalFields) * 100);
 }
 
 /**

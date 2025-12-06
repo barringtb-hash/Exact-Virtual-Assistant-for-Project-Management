@@ -218,14 +218,18 @@ export const draftUpdateTool: Tool = {
 export const guidedNavigateTool: Tool = {
   name: "guided_navigate",
   description:
-    "Navigate within the guided document creation session. Supports moving between fields, skipping, going back, or jumping to review.",
+    "Navigate and control the guided document creation session. Use 'start' to begin a new session, then navigate between fields.",
   inputSchema: {
     type: "object" as const,
     properties: {
       action: {
         type: "string",
-        enum: ["next", "back", "skip", "review", "goto"],
-        description: "Navigation action to perform",
+        enum: ["start", "next", "back", "skip", "review", "goto"],
+        description: "Navigation action: 'start' begins session, 'next' moves forward, 'back' goes back, 'skip' skips current field, 'review' shows progress, 'goto' jumps to specific field",
+      },
+      conversationId: {
+        type: "string",
+        description: "Session identifier. Required for all actions except 'start' which creates a new session.",
       },
       targetFieldId: {
         type: "string",

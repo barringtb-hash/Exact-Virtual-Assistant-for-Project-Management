@@ -23,6 +23,7 @@ import * as handlers from "./handlers.js";
  */
 export interface ToolContext {
   sessionId?: string;
+  conversationId?: string;
   draftStore?: Map<string, unknown>;
   reviewCache?: Map<string, unknown>;
 }

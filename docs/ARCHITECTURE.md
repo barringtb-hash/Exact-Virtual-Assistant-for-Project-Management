@@ -155,6 +155,85 @@ flowchart LR
 - **OpenAI SDK** – LLM interactions for analysis, extraction, and chat.
 - **Ajv** – JSON Schema validation in the `/api/documents/validate` handler.
 - **Docxtemplater/pdfmake utilities** – Template rendering for charter and future doc types.
+- **@modelcontextprotocol/sdk** – MCP client/server implementation for AI tool orchestration.
+- **@azure/msal-node** – Microsoft authentication for Office 365 integration.
+
+## MCP Integration
+
+Model Context Protocol (MCP) enables AI-orchestrated workflows where the AI can autonomously call tools to complete complex tasks.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Exact Virtual Assistant                       │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                    MCP Client Layer                       │   │
+│  │   (server/mcp/MCPClientManager.ts)                        │   │
+│  └────────────────────────┬─────────────────────────────────┘   │
+│                           │                                      │
+│  ┌────────────────────────┴─────────────────────────────────┐   │
+│  │              OpenAI Tool Bridge                           │   │
+│  │   (server/mcp/openaiToolBridge.ts)                        │   │
+│  │   Converts MCP tools to OpenAI function calling format    │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+              │                    │                    │
+              ▼                    ▼                    ▼
+    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+    │  exact-va       │  │  smartsheet     │  │  office365      │
+    │  MCP Server     │  │  MCP Server     │  │  MCP Server     │
+    │  (internal)     │  │  (external)     │  │  (external)     │
+    └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+             │                    │                    │
+             ▼                    ▼                    ▼
+    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+    │  Existing APIs  │  │  Smartsheet     │  │  Microsoft      │
+    │  extract/       │  │  REST API       │  │  Graph API      │
+    │  validate/      │  │                 │  │  SharePoint/    │
+    │  review/render  │  │                 │  │  Teams/Outlook  │
+    └─────────────────┘  └─────────────────┘  └─────────────────┘
+```
+
+### MCP Servers
+
+| Server | Location | Purpose |
+|--------|----------|---------|
+| exact-va | `mcp-servers/exact-va/` | Wraps internal document capabilities as tools |
+| smartsheet | `mcp-servers/smartsheet/` | Smartsheet sheet and row operations |
+| office365 | `mcp-servers/office365/` | SharePoint, Teams, Outlook, Excel via Graph API |
+
+### Internal Tools (exact-va)
+
+| Tool | Wraps |
+|------|-------|
+| `document_extract` | `extractFieldsFromUtterance()` |
+| `document_validate` | `/api/documents/validate` |
+| `document_review` | `/api/documents/review` |
+| `document_render` | `/api/documents/render` |
+| `document_analyze` | `/api/documents/analyze` |
+| `field_feedback` | Field validation + schema hints |
+| `draft_update` | Draft store updates |
+| `guided_navigate` | Guided session navigation |
+
+### Configuration
+
+MCP servers are configured in `config/mcp-servers.json`:
+
+```json
+{
+  "servers": {
+    "exact-va": { "enabled": true },
+    "smartsheet": { "enabled": false, "requiredEnv": ["SMARTSHEET_API_KEY"] },
+    "office365": { "enabled": false, "requiredEnv": ["AZURE_CLIENT_ID", "..."] }
+  }
+}
+```
+
+Environment variables control which servers are active:
+- `MCP_ENABLED` – Master switch for MCP integration
+- `SMARTSHEET_API_KEY` – Enables Smartsheet server
+- `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` – Enables Office 365 server
 
 ## Observability & Failure Modes
 - **Analysis guardrails** – `/api/documents/analyze` returns classification with confidence scores; low-confidence results trigger clarification flows.
@@ -166,5 +245,6 @@ flowchart LR
 
 ## Related Documentation
 - [`docs/LLM-DOCUMENT-EXTRACTION-STRATEGY.md`](./LLM-DOCUMENT-EXTRACTION-STRATEGY.md) – Full strategy document for the analysis-driven extraction system
+- [`docs/MCP-INTEGRATION-STRATEGY.md`](./MCP-INTEGRATION-STRATEGY.md) – MCP integration for AI orchestration and external services
 - [`docs/document-workflow.md`](./document-workflow.md) – Detailed workflow documentation
 - [`docs/API.md`](./API.md) – API endpoint reference

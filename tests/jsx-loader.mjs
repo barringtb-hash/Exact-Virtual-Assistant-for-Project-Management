@@ -52,6 +52,29 @@ async function tryResolveWithExtensions(specifier, parentURL) {
   return null;
 }
 
+async function tryResolveJsToTs(specifier, parentURL) {
+  // Handle .js -> .ts mapping
+  if (!specifier.endsWith(".js")) {
+    return null;
+  }
+  const tsSpecifier = specifier.slice(0, -3) + ".ts";
+  const tsxSpecifier = specifier.slice(0, -3) + ".tsx";
+
+  for (const candidate of [tsSpecifier, tsxSpecifier]) {
+    const base = new URL(candidate, parentURL);
+    try {
+      await access(base, fsConstants.F_OK);
+      return base.href;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
 export async function resolve(specifier, context, defaultResolve) {
   const overrideMap =
     globalThis.process?.__TEST_MODULE_OVERRIDES ?? globalThis?.__TEST_MODULE_OVERRIDES;
@@ -76,6 +99,14 @@ export async function resolve(specifier, context, defaultResolve) {
       error.code === "ERR_MODULE_NOT_FOUND" &&
       (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/"))
     ) {
+      // First try .js -> .ts mapping
+      if (specifier.endsWith(".js")) {
+        const tsResolvedUrl = await tryResolveJsToTs(specifier, context.parentURL);
+        if (tsResolvedUrl) {
+          return { shortCircuit: true, url: tsResolvedUrl };
+        }
+      }
+      // Then try adding extensions
       const resolvedUrl = await tryResolveWithExtensions(specifier, context.parentURL);
       if (resolvedUrl) {
         return { shortCircuit: true, url: resolvedUrl };

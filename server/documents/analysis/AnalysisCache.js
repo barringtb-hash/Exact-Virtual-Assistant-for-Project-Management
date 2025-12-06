@@ -6,8 +6,82 @@
  * @module server/documents/analysis/AnalysisCache
  */
 
-import { randomUUID } from "crypto";
+import crypto, { randomUUID } from "crypto";
 import { getAnalysisCacheTTL } from "../../../config/featureFlags.js";
+
+/**
+ * Get the analysis signing secret
+ * @returns {string} The secret key for HMAC signing
+ */
+function getSigningSecret() {
+  // Reuse FILES_LINK_SECRET or use a dedicated secret
+  return process.env.FILES_LINK_SECRET || process.env.ANALYSIS_SIGNING_SECRET || "";
+}
+
+/**
+ * Create an HMAC signature for analysis data
+ * Used to verify inline analysis data in serverless environments
+ *
+ * @param {string} analysisId - The analysis ID
+ * @param {Object} analysis - The analysis object
+ * @param {Object} rawContent - The raw content object
+ * @returns {string} HMAC signature (hex)
+ */
+export function createAnalysisSignature(analysisId, analysis, rawContent) {
+  const secret = getSigningSecret();
+  if (!secret) {
+    // If no secret configured, return empty string (signature verification will fail)
+    return "";
+  }
+
+  // Create a deterministic payload for signing
+  const payload = JSON.stringify({
+    analysisId,
+    classification: analysis?.documentClassification?.primaryType || "unknown",
+    confidence: analysis?.documentClassification?.confidence || 0,
+    targetCount: analysis?.suggestedTargets?.length || 0,
+    contentLength: rawContent?.extractedText?.length || 0,
+  });
+
+  return crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("hex");
+}
+
+/**
+ * Verify an HMAC signature for analysis data
+ *
+ * @param {string} signature - The signature to verify
+ * @param {string} analysisId - The analysis ID
+ * @param {Object} analysis - The analysis object
+ * @param {Object} rawContent - The raw content object
+ * @returns {boolean} True if signature is valid
+ */
+export function verifyAnalysisSignature(signature, analysisId, analysis, rawContent) {
+  const secret = getSigningSecret();
+  if (!secret) {
+    // If no secret configured, reject all inline data
+    console.warn("[AnalysisCache] No signing secret configured - rejecting inline analysis data");
+    return false;
+  }
+
+  if (!signature || typeof signature !== "string") {
+    return false;
+  }
+
+  const expectedSignature = createAnalysisSignature(analysisId, analysis, rawContent);
+
+  // Use timing-safe comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature, "hex"),
+      Buffer.from(expectedSignature, "hex")
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * @typedef {Object} AnalysisCacheEntry
@@ -108,7 +182,7 @@ startCleanupInterval();
  * @param {Array} params.attachments - Original attachment data
  * @param {Object} params.rawContent - Extracted raw content
  * @param {Object} params.analysis - Analysis results
- * @returns {AnalysisCacheEntry} The stored cache entry
+ * @returns {AnalysisCacheEntry} The stored cache entry (includes signature for serverless fallback)
  */
 export function storeAnalysis({ attachments, rawContent, analysis }) {
   // Note: Cleanup runs on periodic interval (every 60s), not on every write
@@ -118,6 +192,9 @@ export function storeAnalysis({ attachments, rawContent, analysis }) {
   const ttl = getAnalysisCacheTTL();
   const timestamp = Date.now();
 
+  // Generate signature for serverless fallback verification
+  const signature = createAnalysisSignature(analysisId, analysis, rawContent);
+
   const entry = {
     analysisId,
     timestamp,
@@ -126,6 +203,7 @@ export function storeAnalysis({ attachments, rawContent, analysis }) {
     rawContent: rawContent || {},
     analysis: analysis || {},
     status: "pending",
+    signature, // Include signature for client-side storage in serverless environments
   };
 
   cache.set(analysisId, entry);
@@ -209,6 +287,8 @@ export default {
   confirmAnalysis,
   deleteAnalysis,
   getCacheStats,
+  createAnalysisSignature,
+  verifyAnalysisSignature,
   clearCache,
   stopCleanupInterval,
 };

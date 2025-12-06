@@ -30,6 +30,14 @@ Historical documentation from the refactoring effort is archived in [`docs/archi
 ### Document review
 - AI-powered document review evaluates charters and DDPs across six quality dimensions (completeness, specificity, feasibility, risk coverage, scope clarity, metric measurability) and provides prioritized, actionable feedback. Use the **Review Charter** button in the preview panel to trigger a review; optionally enable `VITE_REQUIRE_REVIEW_BEFORE_EXPORT=true` to gate exports on review completion. See [`docs/DOCUMENT_REVIEW_SYSTEM.md`](docs/DOCUMENT_REVIEW_SYSTEM.md) for full feature documentation.
 
+### MCP integration (external services)
+- Model Context Protocol (MCP) enables AI-orchestrated workflows and external service integrations:
+  - **Internal tools**: AI can chain document operations (extract → validate → review → render) in a single conversation turn
+  - **Smartsheet**: Import project data from Smartsheet sheets into charters
+  - **Office 365**: Save documents to SharePoint, send Teams notifications, create Outlook events, read/write Excel
+- Enable with `MCP_ENABLED=true` and configure service credentials in `.env.local`
+- See [`docs/MCP-INTEGRATION-STRATEGY.md`](docs/MCP-INTEGRATION-STRATEGY.md) for architecture and implementation details
+
 ## Document Extraction Contract
 
 ### Primary Mode: LLM-Based Analysis (DOCUMENT_ANALYSIS_ENABLED=true)
@@ -87,6 +95,11 @@ Environment flags keep the router predictable across dev, preview, and productio
 | `VITE_PREVIEW_CONDITIONAL_VISIBILITY` | Show preview panel only during active document sessions. | `true` |
 | `OPENAI_API_KEY` (and related secrets) | Credentials consumed by serverless handlers. | _required_ |
 | `FILES_LINK_SECRET` | HMAC secret for charter share links. | _required for charter links_ |
+| `MCP_ENABLED` | Enable MCP tool integration for AI orchestration. | `true` |
+| `SMARTSHEET_API_KEY` | Smartsheet API key (enables Smartsheet MCP server). | _optional_ |
+| `AZURE_CLIENT_ID` | Azure AD client ID (enables Office 365 MCP server). | _optional_ |
+| `AZURE_CLIENT_SECRET` | Azure AD client secret. | _optional_ |
+| `AZURE_TENANT_ID` | Azure AD tenant ID. | _optional_ |
 
 ## API
 Document pipelines live behind the router-first API layer:

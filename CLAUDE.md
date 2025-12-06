@@ -100,6 +100,24 @@ server/                 # Server-side utilities
   config/               # Server configuration
   middleware/           # Request middleware
   utils/                # Server utilities
+  mcp/                  # MCP (Model Context Protocol) integration
+    MCPClientManager.ts # Manages connections to MCP servers
+    openaiToolBridge.ts # Converts MCP tools to OpenAI functions
+    chatIntegration.ts  # Helpers for tool-aware chat
+    singleton.ts        # Lazy-loaded manager instance
+
+mcp-servers/            # MCP server implementations
+  exact-va/             # Internal tools (wraps existing capabilities)
+    tools.ts            # 8 tool definitions (extract, validate, review, etc.)
+    handlers.ts         # Tool implementations wrapping existing functions
+    resources.ts        # Resource definitions (draft, review, session)
+    index.ts            # Server entry point
+  smartsheet/           # Smartsheet integration
+    tools.ts            # 7 tool definitions (list, get, create, update rows)
+    index.ts            # Server with Smartsheet API client
+  office365/            # Microsoft 365 integration
+    tools.ts            # 12 tools (SharePoint, Teams, Outlook, Excel)
+    index.ts            # Server with Graph API client
 
 templates/              # Document templates and registry
   registry.js           # Document type registry (Charter, DDP, SOW)
@@ -121,6 +139,7 @@ lib/                    # Shared library code
 
 config/                 # Application configuration
   featureFlags.js       # Feature flag utilities
+  mcp-servers.json      # MCP server configurations
 
 tests/                  # Unit, integration, and E2E tests
   _stubs/               # Browser API stubs for testing
@@ -183,6 +202,34 @@ AI-powered document review evaluates documents across six quality dimensions:
 - Orchestrator: `server/review/Orchestrator.ts`
 - Optional gating: `VITE_REQUIRE_REVIEW_BEFORE_EXPORT=true` blocks export if review score is too low
 
+### MCP (Model Context Protocol) Integration
+
+MCP enables AI-orchestrated workflows where the AI can autonomously chain operations (extract → validate → review → render) and integrate with external services.
+
+**Architecture:**
+- `server/mcp/` - MCP client infrastructure (connection management, OpenAI bridging)
+- `mcp-servers/` - MCP server implementations (internal tools + external integrations)
+
+**Internal Tools (exact-va server):**
+| Tool | Purpose |
+|------|---------|
+| `document_extract` | Extract fields from documents/context |
+| `document_validate` | Validate fields against schema |
+| `document_review` | Get AI quality review with scores |
+| `document_render` | Render to DOCX/PDF format |
+| `document_analyze` | Classify uploaded documents |
+| `field_feedback` | Get suggestions for specific fields |
+| `draft_update` | Update draft fields (respects locks) |
+| `guided_navigate` | Control guided session (next/back/skip) |
+
+**External Integrations:**
+| Server | Tools |
+|--------|-------|
+| `smartsheet` | List sheets, get/create/update rows, search |
+| `office365` | SharePoint upload/list, Teams messages, Outlook events, Excel read/write |
+
+**Configuration:** See `config/mcp-servers.json` and MCP environment variables in `.env.example`
+
 ## Main Flows
 
 ### Document Extraction Flow
@@ -226,6 +273,14 @@ VITE_REQUIRE_REVIEW_BEFORE_EXPORT=false # Gate exports on review completion
 # Server-side flags
 INTENT_ONLY_EXTRACTION=true             # Enforce explicit intent (default: true)
 CHAT_STREAMING=false                    # Enable /api/chat/stream Edge handler
+
+# MCP Integration
+MCP_ENABLED=true                        # Enable MCP tool integration
+MCP_EXACT_VA_ENABLED=true               # Enable internal document tools
+SMARTSHEET_API_KEY=...                  # Smartsheet API key (enables smartsheet server)
+AZURE_CLIENT_ID=...                     # Azure AD client ID (enables office365 server)
+AZURE_CLIENT_SECRET=...                 # Azure AD client secret
+AZURE_TENANT_ID=...                     # Azure AD tenant ID
 ```
 
 See `.env.example` for additional options.
@@ -247,6 +302,12 @@ See `.env.example` for additional options.
 | `templates/registry.js` | Document type registry |
 | `templates/field_rules.json` | Validation rules per field |
 | `config/featureFlags.js` | Feature flag utilities |
+| `server/mcp/MCPClientManager.ts` | MCP server connection management |
+| `server/mcp/openaiToolBridge.ts` | Converts MCP tools to OpenAI functions |
+| `mcp-servers/exact-va/tools.ts` | Internal MCP tool definitions |
+| `mcp-servers/smartsheet/index.ts` | Smartsheet MCP server |
+| `mcp-servers/office365/index.ts` | Office 365 MCP server |
+| `config/mcp-servers.json` | MCP server configurations |
 
 ## Testing
 
@@ -259,6 +320,7 @@ Key test files:
 - `tests/api.documents.extract.test.js` - Extraction endpoint tests
 - `tests/conversationMachine.test.ts` - State machine tests
 - `tests/syncStore.test.ts` - Sync store tests
+- `tests/mcp.integration.test.js` - MCP tool bridge and integration tests
 
 ## Documentation
 
@@ -270,6 +332,7 @@ Key docs to reference:
 - `docs/charter-guided-chat.md` - Guided charter feature details
 - `docs/DOCUMENT_REVIEW_SYSTEM.md` - Document review feature
 - `docs/LLM-DOCUMENT-EXTRACTION-STRATEGY.md` - Planned analysis feature design
+- `docs/MCP-INTEGRATION-STRATEGY.md` - MCP integration for AI orchestration and external services
 - `docs/CODEMAP.md` - Detailed code structure
 - `docs/REALTIME_SYNC.md` - Real-time synchronization
 

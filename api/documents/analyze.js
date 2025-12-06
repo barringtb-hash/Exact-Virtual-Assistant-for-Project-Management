@@ -166,10 +166,11 @@ export default async function handler(req, res) {
       analysis: result.analysis,
     });
 
-    // Return analysis result
+    // Return analysis result with signature for serverless fallback
     return res.status(200).json({
       status: result.status,
       analysisId: cacheEntry.analysisId,
+      analysisSignature: cacheEntry.signature, // Client must return this with confirm request
       analysis: result.analysis,
       raw: result.rawContent,
     });

@@ -2,6 +2,15 @@
 import OpenAI from "openai";
 import { registerStreamController } from "./chat/streamingState.js";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
+import {
+  getOrCreateMCPManager,
+  getMCPChatConfig,
+  getMCPToolsForOpenAI,
+  processMCPToolCalls,
+  enhanceSystemPromptWithMCPTools,
+  hasToolCalls,
+  extractToolCalls,
+} from "../server/mcp/index.js";
 
 export class ChatRequestError extends Error {
   constructor(message, status = 400, code = "bad_request") {
@@ -409,7 +418,7 @@ function handleOpenAIEvent(rawEvent, useResponses, send, status) {
   }
 }
 
-async function streamFromOpenAI({ client, messages, signal, send }) {
+async function streamFromOpenAI({ client, messages, signal, send, tools, mcpManager, mcpConfig }) {
   const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
 
   const firstNonEmpty = (...candidates) => {
@@ -423,92 +432,184 @@ async function streamFromOpenAI({ client, messages, signal, send }) {
     return "";
   };
 
+  // Tool-aware streaming loop
+  const maxIterations = mcpConfig?.maxToolCalls || 5;
+  let iterations = 0;
+  let currentMessages = [...messages];
+
   try {
-    if (useResponses) {
-      const stream = await client.responses.create(
+    while (iterations < maxIterations) {
+      iterations++;
+
+      if (useResponses) {
+        // Responses API doesn't support tools yet, just stream normally
+        const stream = await client.responses.create(
+          {
+            model: CHAT_MODEL,
+            temperature: 0.3,
+            input: formatMessagesForResponses(currentMessages),
+            stream: true,
+          },
+          { signal }
+        );
+
+        for await (const event of stream) {
+          if (!event) continue;
+
+          if (event.type === "response.output_text.delta") {
+            const delta = firstNonEmpty(event.delta);
+            if (delta) {
+              send("token", { delta });
+            }
+            continue;
+          }
+
+          if (event.type === "response.completed") {
+            return;
+          }
+
+          if (event.type === "error") {
+            const message = firstNonEmpty(
+              event.message,
+              "OpenAI streaming error"
+            );
+            const code = firstNonEmpty(event.code, "openai_error");
+            throw new OpenAIStreamError(message, 500, code || "openai_error");
+          }
+
+          if (event.type === "response.failed") {
+            const errorInfo = event.response?.error;
+            const message = firstNonEmpty(
+              errorInfo?.message,
+              "OpenAI streaming error"
+            );
+            const code = firstNonEmpty(errorInfo?.code, "openai_error");
+            throw new OpenAIStreamError(message, 500, code || "openai_error");
+          }
+
+          if (event.type === "response.incomplete") {
+            const reason = firstNonEmpty(event.response?.incomplete_details?.reason);
+            const message =
+              reason === "max_output_tokens"
+                ? "OpenAI stopped early because max_output_tokens was reached."
+                : reason === "content_filter"
+                  ? "OpenAI stopped the response due to content filtering."
+                  : "OpenAI response ended prematurely.";
+            const code = reason || "openai_incomplete";
+            throw new OpenAIStreamError(message, 500, code);
+          }
+        }
+
+        return;
+      }
+
+      // Chat completions API with tool support
+      const stream = await client.chat.completions.create(
         {
           model: CHAT_MODEL,
           temperature: 0.3,
-          input: formatMessagesForResponses(messages),
+          messages: currentMessages,
           stream: true,
+          ...(tools?.length > 0 ? { tools } : {}),
         },
         { signal }
       );
 
-      for await (const event of stream) {
-        if (!event) continue;
+      // Collect tool calls during streaming
+      let toolCallsInProgress = {};
+      let hasToolCalls = false;
+      let finishReason = null;
+      let contentBuffer = "";
 
-        if (event.type === "response.output_text.delta") {
-          const delta = firstNonEmpty(event.delta);
-          if (delta) {
-            send("token", { delta });
+      for await (const chunk of stream) {
+        const choices = chunk?.choices;
+        if (!Array.isArray(choices)) continue;
+
+        for (const choice of choices) {
+          // Handle content delta
+          const text = extractDeltaFromChoice(choice);
+          if (typeof text === "string" && text) {
+            contentBuffer += text;
+            send("token", { delta: text });
           }
-          continue;
-        }
 
-        if (event.type === "response.completed") {
-          return;
-        }
+          // Handle tool call deltas
+          const toolCallDeltas = choice?.delta?.tool_calls;
+          if (Array.isArray(toolCallDeltas)) {
+            hasToolCalls = true;
+            for (const toolDelta of toolCallDeltas) {
+              const index = toolDelta.index ?? 0;
+              if (!toolCallsInProgress[index]) {
+                toolCallsInProgress[index] = {
+                  id: toolDelta.id || "",
+                  type: "function",
+                  function: {
+                    name: toolDelta.function?.name || "",
+                    arguments: "",
+                  },
+                };
+              }
+              if (toolDelta.id) {
+                toolCallsInProgress[index].id = toolDelta.id;
+              }
+              if (toolDelta.function?.name) {
+                toolCallsInProgress[index].function.name = toolDelta.function.name;
+              }
+              if (toolDelta.function?.arguments) {
+                toolCallsInProgress[index].function.arguments += toolDelta.function.arguments;
+              }
+            }
+          }
 
-        if (event.type === "error") {
-          const message = firstNonEmpty(
-            event.message,
-            "OpenAI streaming error"
-          );
-          const code = firstNonEmpty(event.code, "openai_error");
-          throw new OpenAIStreamError(message, 500, code || "openai_error");
-        }
-
-        if (event.type === "response.failed") {
-          const errorInfo = event.response?.error;
-          const message = firstNonEmpty(
-            errorInfo?.message,
-            "OpenAI streaming error"
-          );
-          const code = firstNonEmpty(errorInfo?.code, "openai_error");
-          throw new OpenAIStreamError(message, 500, code || "openai_error");
-        }
-
-        if (event.type === "response.incomplete") {
-          const reason = firstNonEmpty(event.response?.incomplete_details?.reason);
-          const message =
-            reason === "max_output_tokens"
-              ? "OpenAI stopped early because max_output_tokens was reached."
-              : reason === "content_filter"
-                ? "OpenAI stopped the response due to content filtering."
-                : "OpenAI response ended prematurely.";
-          const code = reason || "openai_incomplete";
-          throw new OpenAIStreamError(message, 500, code);
+          if (choice?.finish_reason) {
+            finishReason = choice.finish_reason;
+          }
         }
       }
 
+      // If no tool calls, we're done
+      if (finishReason === "stop" || !hasToolCalls || !mcpManager) {
+        return;
+      }
+
+      // Process tool calls
+      if (finishReason === "tool_calls" && mcpManager) {
+        const toolCalls = Object.values(toolCallsInProgress);
+
+        // Notify client that we're processing tools
+        send("tool_calls", {
+          tools: toolCalls.map((tc) => ({
+            id: tc.id,
+            name: tc.function.name,
+          })),
+        });
+
+        // Add assistant message with tool calls to conversation
+        currentMessages.push({
+          role: "assistant",
+          content: contentBuffer || null,
+          tool_calls: toolCalls,
+        });
+
+        // Execute tools and add results
+        const toolResults = await processMCPToolCalls(mcpManager, toolCalls, mcpConfig);
+        currentMessages.push(...toolResults);
+
+        // Notify client of tool results
+        send("tool_results", {
+          count: toolResults.length,
+        });
+
+        // Continue the loop to get the next response
+        continue;
+      }
+
+      // No more iterations needed
       return;
     }
 
-    const stream = await client.chat.completions.create(
-      {
-        model: CHAT_MODEL,
-        temperature: 0.3,
-        messages,
-        stream: true,
-      },
-      { signal }
-    );
-
-    for await (const chunk of stream) {
-      const choices = chunk?.choices;
-      if (!Array.isArray(choices)) continue;
-
-      for (const choice of choices) {
-        const text = extractDeltaFromChoice(choice);
-        if (typeof text === "string" && text) {
-          send("token", { delta: text });
-        }
-        if (choice?.finish_reason === "stop") {
-          return;
-        }
-      }
-    }
+    // Hit max iterations
+    send("token", { delta: "\n\n[Maximum tool iterations reached]" });
   } catch (error) {
     if (signal?.aborted && error?.name === "AbortError") {
       throw error;
@@ -588,7 +689,8 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
-export async function buildChatMessages(client, body) {
+export async function buildChatMessages(client, body, options = {}) {
+  const { mcpTools = [] } = options;
   const payload = body && typeof body === "object" ? body : {};
   const incoming = Array.isArray(payload.messages) ? payload.messages : [];
   const rawAttachments = Array.isArray(payload.attachments)
@@ -646,9 +748,14 @@ export async function buildChatMessages(client, body) {
     .filter(Boolean)
     .join("\n\n");
 
-  const systemContent = attachmentsBlock
+  let systemContent = attachmentsBlock
     ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
     : BASE_SYSTEM_PROMPT;
+
+  // Enhance system prompt with MCP tool descriptions
+  if (mcpTools.length > 0) {
+    systemContent = enhanceSystemPromptWithMCPTools(systemContent, mcpTools);
+  }
 
   const system = {
     role: "system",
@@ -824,9 +931,24 @@ export default async function handler(req, res) {
         return;
       }
 
+      // Initialize MCP tools for streaming requests
+      const mcpConfig = getMCPChatConfig();
+      let mcpTools = [];
+      let mcpManager = null;
+
+      if (mcpConfig.enabled) {
+        try {
+          mcpManager = await getOrCreateMCPManager();
+          mcpTools = await getMCPToolsForOpenAI(mcpManager, mcpConfig);
+        } catch (mcpErr) {
+          // Log but don't fail if MCP initialization fails
+          console.warn("MCP initialization failed for streaming, continuing without tools:", mcpErr?.message);
+        }
+      }
+
       let messages;
       try {
-        ({ messages } = await buildChatMessages(client, body));
+        ({ messages } = await buildChatMessages(client, body, { mcpTools }));
       } catch (prepErr) {
         const mapped = mapStreamError(prepErr);
         send("error", mapped);
@@ -845,6 +967,9 @@ export default async function handler(req, res) {
           messages,
           signal: abortController.signal,
           send,
+          tools: mcpTools,
+          mcpManager,
+          mcpConfig,
         });
         if (!abortController.signal.aborted) {
           send("done");
@@ -868,9 +993,24 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Initialize MCP tools for non-streaming requests
+    const mcpConfig = getMCPChatConfig();
+    let mcpTools = [];
+    let mcpManager = null;
+
+    if (mcpConfig.enabled) {
+      try {
+        mcpManager = await getOrCreateMCPManager();
+        mcpTools = await getMCPToolsForOpenAI(mcpManager, mcpConfig);
+      } catch (mcpErr) {
+        // Log but don't fail if MCP initialization fails
+        console.warn("MCP initialization failed, continuing without tools:", mcpErr?.message);
+      }
+    }
+
     let messages;
     try {
-      ({ messages } = await buildChatMessages(client, body));
+      ({ messages } = await buildChatMessages(client, body, { mcpTools }));
     } catch (prepErr) {
       if (prepErr instanceof ChatRequestError) {
         res
@@ -881,12 +1021,71 @@ export default async function handler(req, res) {
       throw prepErr;
     }
 
+    // Tool-aware completion loop
+    const maxToolIterations = mcpConfig.maxToolCalls || 5;
+    let iterations = 0;
+    let toolsUsed = [];
     let reply = "";
+
     try {
-      reply = await requestChatText(client, {
-        messages,
-        temperature: 0.3,
-      });
+      while (iterations < maxToolIterations) {
+        iterations++;
+
+        // Check if we should use the responses API or chat completions
+        const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+
+        let completion;
+        if (useResponses) {
+          // The responses API doesn't support tool calling yet, fall back to simple request
+          reply = await requestChatText(client, {
+            messages,
+            temperature: 0.3,
+          });
+          break;
+        } else {
+          // Use chat completions with tool support
+          completion = await client.chat.completions.create({
+            model: CHAT_MODEL,
+            temperature: 0.3,
+            messages,
+            ...(mcpTools.length > 0 ? { tools: mcpTools } : {}),
+          });
+        }
+
+        const choice = completion.choices?.[0];
+
+        // If no tool calls, extract the reply and we're done
+        if (!choice?.message?.tool_calls?.length) {
+          reply = choice?.message?.content || "";
+          break;
+        }
+
+        // Process tool calls
+        if (mcpManager) {
+          const toolCalls = choice.message.tool_calls;
+          toolsUsed.push(...toolCalls.map((tc) => tc.function.name));
+
+          // Add assistant message with tool calls
+          messages.push({
+            role: "assistant",
+            content: choice.message.content || "",
+            tool_calls: toolCalls,
+          });
+
+          // Execute tools and add results
+          const toolResults = await processMCPToolCalls(mcpManager, toolCalls, mcpConfig);
+          messages.push(...toolResults);
+        } else {
+          // No MCP manager, just return the content
+          reply = choice?.message?.content || "";
+          break;
+        }
+      }
+
+      // If we hit max iterations, note it
+      if (iterations >= maxToolIterations && !reply) {
+        reply = "Maximum tool iterations reached.";
+      }
     } catch (apiErr) {
       const status = apiErr?.status || apiErr?.response?.status;
       const message =
@@ -905,10 +1104,16 @@ export default async function handler(req, res) {
     }
 
     if (!reply.trim()) {
-      reply = "I couldn’t produce a reply for this prompt.";
+      reply = "I couldn't produce a reply for this prompt.";
     }
 
-    res.status(200).json({ reply });
+    // Include tools used in response if any
+    const response = { reply };
+    if (toolsUsed.length > 0) {
+      response.toolsUsed = toolsUsed;
+    }
+
+    res.status(200).json(response);
   } catch (err) {
     try {
       console.error("API /api/chat error", {

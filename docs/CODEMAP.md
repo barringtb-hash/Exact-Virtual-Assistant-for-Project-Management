@@ -136,6 +136,22 @@ Both analysis-driven and intent-driven flows support DDP documents:
 - Speaking without a charter request produces transcripts but `detectCharterIntent` returns `null` in fallback mode.
 - Idle prompt invocations must expect `{ "result": "no_op" }` when intent or context is missing.
 
+### MCP-orchestrated flow (AI-driven)
+When MCP is enabled, the AI can autonomously chain operations:
+1. User: "Create a charter from this document and review it"
+2. AI calls `exact-va__document_extract` → extracts fields
+3. AI calls `exact-va__document_validate` → checks for errors
+4. AI calls `exact-va__document_review` → gets quality score (e.g., 85/100)
+5. AI calls `exact-va__document_render` → generates DOCX
+6. AI responds with summary, download link, and improvement suggestions
+
+External service integration:
+1. User: "Import project data from Smartsheet"
+2. AI calls `smartsheet__smartsheet_search_rows` → finds matching rows
+3. AI calls `exact-va__draft_update` → populates charter fields
+4. User confirms → AI calls `office365__sharepoint_upload_document` → saves to SharePoint
+5. AI calls `office365__teams_send_message` → notifies team
+
 ## Server-Side (`server/`)
 - `server/documents/analysis/` – LLM-based document analysis service
   - `DocumentAnalyzer.js` – Main analysis orchestrator (includes classification, field mapping, confidence scoring)
@@ -151,6 +167,26 @@ Both analysis-driven and intent-driven flows support DDP documents:
 - `server/config/` – Extraction limits and configuration
 - `server/middleware/` – Request validation middleware
 - `server/utils/` – Template preloading, error handling, and logging
+- `server/mcp/` – MCP (Model Context Protocol) integration
+  - `MCPClientManager.ts` – Manages connections to MCP servers
+  - `openaiToolBridge.ts` – Converts MCP tools to OpenAI function calling format
+  - `chatIntegration.ts` – Helpers for tool-aware chat completions
+  - `singleton.ts` – Lazy-loaded manager instance
+
+## MCP Servers (`mcp-servers/`)
+MCP servers expose tools and resources that AI can use to orchestrate workflows and integrate with external services.
+
+- `mcp-servers/exact-va/` – Internal document tools
+  - `tools.ts` – Tool definitions (document_extract, document_validate, document_review, etc.)
+  - `handlers.ts` – Tool implementations wrapping existing functions
+  - `resources.ts` – Resource definitions (draft/current, review/latest, session/state)
+  - `index.ts` – Server entry point using stdio transport
+- `mcp-servers/smartsheet/` – Smartsheet project management integration
+  - `tools.ts` – Sheet and row CRUD tools (smartsheet_list_sheets, smartsheet_get_sheet, etc.)
+  - `index.ts` – Server with Smartsheet API client
+- `mcp-servers/office365/` – Microsoft 365 integration via Graph API
+  - `tools.ts` – SharePoint, Teams, Outlook, Excel tools
+  - `index.ts` – Server with MSAL authentication and Graph client
 
 ## Testing
 The project uses multiple test frameworks organized by scope:

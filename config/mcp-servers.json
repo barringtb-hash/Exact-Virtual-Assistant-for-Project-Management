@@ -1,0 +1,35 @@
+{
+  "$schema": "./mcp-servers.schema.json",
+  "description": "MCP server configurations for Exact Virtual Assistant",
+  "servers": {
+    "exact-va": {
+      "description": "Internal Exact VA document tools",
+      "command": "node",
+      "args": ["--loader", "ts-node/esm", "mcp-servers/exact-va/index.ts"],
+      "enabled": true,
+      "env": {}
+    },
+    "smartsheet": {
+      "description": "Smartsheet project management integration",
+      "command": "node",
+      "args": ["--loader", "ts-node/esm", "mcp-servers/smartsheet/index.ts"],
+      "enabled": false,
+      "env": {
+        "SMARTSHEET_API_KEY": "${SMARTSHEET_API_KEY}"
+      },
+      "requiredEnv": ["SMARTSHEET_API_KEY"]
+    },
+    "office365": {
+      "description": "Microsoft 365 integration (SharePoint, Teams, Outlook, Excel)",
+      "command": "node",
+      "args": ["--loader", "ts-node/esm", "mcp-servers/office365/index.ts"],
+      "enabled": false,
+      "env": {
+        "AZURE_CLIENT_ID": "${AZURE_CLIENT_ID}",
+        "AZURE_CLIENT_SECRET": "${AZURE_CLIENT_SECRET}",
+        "AZURE_TENANT_ID": "${AZURE_TENANT_ID}"
+      },
+      "requiredEnv": ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"]
+    }
+  }
+}

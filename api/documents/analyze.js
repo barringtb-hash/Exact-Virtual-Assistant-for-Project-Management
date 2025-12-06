@@ -116,6 +116,22 @@ export default async function handler(req, res) {
   try {
     const body = parseRequestBody(req.body);
 
+    // Debug logging
+    console.log("[/api/documents/analyze] Received request:", {
+      hasBody: Boolean(req.body),
+      bodyType: typeof req.body,
+      hasAttachments: Boolean(body.attachments),
+      attachmentsType: typeof body.attachments,
+      attachmentsIsArray: Array.isArray(body.attachments),
+      attachmentsLength: Array.isArray(body.attachments) ? body.attachments.length : "N/A",
+      firstAttachmentKeys: Array.isArray(body.attachments) && body.attachments[0]
+        ? Object.keys(body.attachments[0])
+        : "N/A",
+      firstAttachmentHasText: Array.isArray(body.attachments) && body.attachments[0]
+        ? Boolean(body.attachments[0].text)
+        : "N/A",
+    });
+
     // Validate attachments
     const attachmentResult = validateAttachments(body.attachments);
     if (!attachmentResult.valid) {

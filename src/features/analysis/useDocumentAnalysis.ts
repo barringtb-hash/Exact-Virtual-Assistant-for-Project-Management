@@ -16,6 +16,7 @@ import {
   useAnalysisStatus,
   useAnalysisId,
   useAnalysisResult,
+  useRawContent,
   useSelectedTarget,
   useFieldOverrides,
   useAnalysisError,
@@ -39,15 +40,14 @@ import type {
 import { isDocumentAnalysisEnabled } from "../../../config/featureFlags";
 
 /**
- * Attachment type matching the existing codebase pattern.
+ * Attachment type matching the API expectations.
+ * The /api/documents/analyze endpoint expects { id?, name?, mimeType?, text: string }
  */
 export interface Attachment {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  content?: string;
-  url?: string;
+  id?: string;
+  name?: string;
+  mimeType?: string;
+  text: string;
 }
 
 /**
@@ -139,10 +139,13 @@ export interface UseDocumentAnalysisReturn {
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    // API returns { error: { code, message } } format
+    const errorInfo = errorData.error || errorData;
+    console.error("[useDocumentAnalysis] API error response:", errorData);
     throw {
-      message: errorData.message || `Request failed with status ${response.status}`,
-      code: errorData.code || `HTTP_${response.status}`,
-      details: errorData.details,
+      message: errorInfo.message || `Request failed with status ${response.status}`,
+      code: errorInfo.code || `HTTP_${response.status}`,
+      details: errorInfo.details,
     } as AnalysisError;
   }
   return response.json();
@@ -181,6 +184,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   const status = useAnalysisStatus();
   const analysisId = useAnalysisId();
   const analysis = useAnalysisResult();
+  const rawContent = useRawContent();
   const selectedTarget = useSelectedTarget();
   const fieldOverrides = useFieldOverrides();
   const error = useAnalysisError();
@@ -215,14 +219,26 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
       try {
         analysisActions.startAnalysis();
 
+        // Debug logging before fetch
+        const requestBody = {
+          attachments: options.attachments,
+          conversationContext: options.conversationContext,
+          existingDraft: options.existingDraft,
+        };
+        console.log("[useDocumentAnalysis] Sending to API:", {
+          attachmentsCount: requestBody.attachments?.length ?? 0,
+          attachments: requestBody.attachments?.map((a) => ({
+            name: a.name,
+            mimeType: a.mimeType,
+            textLength: a.text?.length ?? 0,
+            textPreview: a.text?.slice(0, 100),
+          })),
+        });
+
         const response = await fetch("/api/documents/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            attachments: options.attachments,
-            conversationContext: options.conversationContext,
-            existingDraft: options.existingDraft,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         const data = await parseResponse<AnalyzeResponse>(response);
@@ -246,6 +262,8 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   const confirm = useCallback(
     async (options?: ConfirmOptions): Promise<void> => {
       const currentAnalysisId = analysisId;
+      const currentAnalysis = analysis;
+      const currentRawContent = rawContent;
       const currentSelectedTarget = selectedTarget;
       const currentFieldOverrides = fieldOverrides;
 
@@ -261,11 +279,16 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
       try {
         analysisActions.startExtraction();
 
+        // Send analysis data inline to work around serverless cache limitations
+        // The server will use inline data when in-memory cache lookup fails
         const response = await fetch("/api/documents/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             analysisId: currentAnalysisId,
+            // Include cached analysis data for serverless environments
+            analysisData: currentAnalysis,
+            rawContent: currentRawContent,
             confirmed: {
               docType,
               action: options?.action ?? "create",
@@ -286,7 +309,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
         throw err;
       }
     },
-    [analysisId, selectedTarget, fieldOverrides]
+    [analysisId, analysis, rawContent, selectedTarget, fieldOverrides]
   );
 
   /**

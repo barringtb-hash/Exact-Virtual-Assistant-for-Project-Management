@@ -25,6 +25,10 @@ import { docApi } from "./lib/docApi.js";
 import {
   isIntentOnlyExtractionEnabled,
 } from "../config/featureFlags.js";
+import {
+  useDocumentAnalysis,
+  AnalysisResultCard,
+} from "./features/analysis/index.ts";
 import { FLAGS } from "./config/flags.ts";
 import { useDocSession } from "./state/docSession";
 import {
@@ -1009,6 +1013,28 @@ export default function ExactVirtualAssistantPM() {
   const { state: docSession, start: startDocSession, end: endDocSession } = useDocSession();
   const [guidedState, setGuidedState] = useState(null);
   const [guidedPendingProposal, setGuidedPendingProposal] = useState(null);
+
+  // Document analysis hook for LLM-based document analysis on file upload
+  const documentAnalysis = useDocumentAnalysis();
+  const {
+    analyze: analyzeDocument,
+    confirm: confirmAnalysis,
+    isAnalyzing: isDocumentAnalyzing,
+    isAwaitingConfirmation: isAnalysisAwaitingConfirmation,
+    isExtracting: isAnalysisExtracting,
+    isComplete: isAnalysisComplete,
+    classification: documentClassification,
+    suggestedTargets: analysisSuggestedTargets,
+    alternativeTargets: analysisAlternativeTargets,
+    selectedTarget: analysisSelectedTarget,
+    fieldOverrides: analysisFieldOverrides,
+    extractedFields: analysisExtractedFields,
+    selectDocType: selectAnalysisDocType,
+    setFieldOverride: setAnalysisFieldOverride,
+    reset: resetAnalysis,
+    isEnabled: isAnalysisFeatureEnabled,
+    error: analysisError,
+  } = documentAnalysis;
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Cypress) {
@@ -4798,32 +4824,104 @@ const resolveDocTypeForManualSync = useCallback(
         }
 
         if (processedAttachments.length) {
-          let updatedAttachments = [];
-          setAttachments((prev) => {
-            updatedAttachments = [...prev, ...processedAttachments];
-            return updatedAttachments;
+          // Compute the merged attachments directly (don't rely on setState callback timing)
+          const currentAttachments = attachmentsRef.current || [];
+          const mergedAttachments = [...currentAttachments, ...processedAttachments];
+
+          console.log("[Document Analysis] Attachments ready:", {
+            current: currentAttachments.length,
+            processed: processedAttachments.length,
+            merged: mergedAttachments.length,
+            firstProcessedText: processedAttachments[0]?.text?.slice(0, 100),
           });
+
+          // Update React state
+          setAttachments(mergedAttachments);
 
           if (legacyAutoExtractionEnabled) {
             setExtractionSeed(Date.now());
           }
 
-          try {
-            await onFileAttached({
-              attachments: updatedAttachments,
-              messages,
-              voice: voiceTranscripts,
-              trigger: (overrides = {}) =>
-                triggerExtraction({
-                  attachments: updatedAttachments,
+          // Trigger LLM-based document analysis if enabled
+          if (isAnalysisFeatureEnabled && mergedAttachments.length > 0) {
+            try {
+              // Format attachments for the analyzer (API expects: id, name, mimeType, text)
+              const analysisAttachments = mergedAttachments.map((att, idx) => ({
+                id: `attachment-${Date.now()}-${idx}`,
+                name: att.name,
+                mimeType: att.mimeType || "text/plain",
+                text: att.text,
+              }));
+
+              // Filter out attachments without text
+              const validAttachments = analysisAttachments.filter((a) => a.text?.trim());
+
+              // Get conversation context from recent messages
+              const conversationContext = messages
+                .filter((m) => m.role === "user" && m.text)
+                .slice(-5)
+                .map((m) => m.text);
+
+              // Debug logging
+              console.log("[Document Analysis] Step 5 - Sending to API:", {
+                analysisAttachmentsCount: analysisAttachments.length,
+                validAttachmentsCount: validAttachments.length,
+                attachments: validAttachments.map((a) => ({
+                  name: a.name,
+                  mimeType: a.mimeType,
+                  textLength: a.text?.length || 0,
+                })),
+              });
+
+              if (validAttachments.length === 0) {
+                console.warn("[Document Analysis] No attachments with text content - skipping");
+                return;
+              }
+
+              await analyzeDocument({
+                attachments: validAttachments,
+                conversationContext,
+              });
+            } catch (error) {
+              console.error("Document analysis failed", error);
+              // Fall back to legacy behavior on error
+              try {
+                await onFileAttached({
+                  attachments: mergedAttachments,
                   messages,
                   voice: voiceTranscripts,
-                  ...overrides,
-                }),
-              requireConfirmation: () => setShowDocTypeModal(true),
-            });
-          } catch (error) {
-            console.error("onFileAttached failed", error);
+                  trigger: (overrides = {}) =>
+                    triggerExtraction({
+                      attachments: mergedAttachments,
+                      messages,
+                      voice: voiceTranscripts,
+                      ...overrides,
+                    }),
+                  requireConfirmation: () => setShowDocTypeModal(true),
+                });
+              } catch (fallbackError) {
+                console.error("onFileAttached fallback failed", fallbackError);
+              }
+            }
+          } else {
+            // Use legacy file attached behavior
+            try {
+              await onFileAttached({
+                attachments: mergedAttachments,
+                messages,
+                voice: voiceTranscripts,
+                trigger: (overrides = {}) =>
+                  triggerExtraction({
+                    attachments: mergedAttachments,
+                    messages,
+                    voice: voiceTranscripts,
+                    ...overrides,
+                  }),
+                requireConfirmation: () => setShowDocTypeModal(true),
+              });
+            } catch (error) {
+              console.error("onFileAttached failed", error);
+            }
           }
         }
       } finally {
@@ -4840,6 +4938,8 @@ const resolveDocTypeForManualSync = useCallback(
       setIsUploadingAttachments,
       setShowDocTypeModal,
       voiceTranscripts,
+      isAnalysisFeatureEnabled,
+      analyzeDocument,
     ]
   );
   const handleDocTypeConfirm = useCallback(
@@ -4881,6 +4981,43 @@ const resolveDocTypeForManualSync = useCallback(
       fileInputRef.current.value = "";
     }
   }, []);
+
+  // Handle document analysis confirmation
+  const handleAnalysisConfirm = useCallback(async () => {
+    try {
+      await confirmAnalysis();
+    } catch (error) {
+      console.error("Analysis confirmation failed", error);
+      pushToast({
+        tone: "error",
+        message: "Failed to extract document fields. Please try again.",
+      });
+    }
+  }, [confirmAnalysis, pushToast]);
+
+  // Merge extracted fields from analysis into draft when complete and start guided charter
+  useEffect(() => {
+    if (isAnalysisComplete && analysisExtractedFields) {
+      // Capture the selected doc type before resetting
+      const selectedDocType = analysisSelectedTarget?.docType;
+
+      const normalizedFields = normalizeCharter(analysisExtractedFields);
+      applyCharterDraft(normalizedFields, { resetLocks: false });
+      resetAnalysis();
+      pushToast({
+        tone: "success",
+        message: "Document fields extracted successfully.",
+      });
+
+      // Start the guided charter wizard if the selected doc type was 'charter'
+      if (selectedDocType === "charter" && startGuidedCharterRef.current) {
+        // Give a small delay to ensure draft state is updated before starting charter
+        setTimeout(() => {
+          startGuidedCharterRef.current?.();
+        }, 100);
+      }
+    }
+  }, [isAnalysisComplete, analysisExtractedFields, analysisSelectedTarget, resetAnalysis, pushToast, applyCharterDraft]);
 
   const handleFilePick = async (e) => {
     const fileList = e.target?.files ? Array.from(e.target.files) : [];
@@ -5097,6 +5234,48 @@ const resolveDocTypeForManualSync = useCallback(
                       hideEmptySections={hideEmptySections}
                     />
                   ))}
+
+                  {/* Document Analysis Card - shown when analyzing or awaiting confirmation */}
+                  {isDocumentAnalyzing && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                      <div className="flex items-center gap-3">
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Analyzing document...
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {isAnalysisAwaitingConfirmation && documentClassification && (
+                    <AnalysisResultCard
+                      classification={documentClassification}
+                      suggestedTarget={analysisSelectedTarget}
+                      alternativeTargets={analysisAlternativeTargets}
+                      fieldOverrides={analysisFieldOverrides}
+                      selectedDocType={analysisSelectedTarget?.docType}
+                      isLoading={isAnalysisExtracting}
+                      onConfirm={handleAnalysisConfirm}
+                      onSelectDocType={selectAnalysisDocType}
+                      onFieldEdit={setAnalysisFieldOverride}
+                      className="animate-fadeIn"
+                    />
+                  )}
+
+                  {analysisError && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/30">
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                        {analysisError.message || "Analysis failed. Please try again."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={resetAnalysis}
+                        className="mt-2 text-sm font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {assistantActivityStatus && (
                   <div className="px-4 pb-2">

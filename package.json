@@ -28,6 +28,7 @@
   "dependencies": {
     "@azure/msal-node": "^2.6.4",
     "@dqbd/tiktoken": "^1.0.7",
+    "@modelcontextprotocol/sdk": "^1.24.3",
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.0",
     "docxtemplater": "^3.32.0",

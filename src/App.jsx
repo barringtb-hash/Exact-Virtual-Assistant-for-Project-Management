@@ -4832,7 +4832,6 @@ const resolveDocTypeForManualSync = useCallback(
             current: currentAttachments.length,
             processed: processedAttachments.length,
             merged: mergedAttachments.length,
-            firstProcessedText: processedAttachments[0]?.text?.slice(0, 100),
           });
 
           // Update React state

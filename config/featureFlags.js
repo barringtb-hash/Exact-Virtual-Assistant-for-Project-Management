@@ -147,14 +147,17 @@ export function getAnalysisConfidenceThreshold() {
 
 /**
  * Get the model to use for document analysis.
- * @returns {string} Model name (default: "gpt-4o")
+ * Uses gpt-4o-mini by default for faster analysis (3-5s vs 10-20s).
+ * Document classification is a straightforward task that doesn't require
+ * the full reasoning capabilities of gpt-4o.
+ * @returns {string} Model name (default: "gpt-4o-mini")
  */
 export function getAnalysisModel() {
   const serverValue = readProcessEnvFlag("ANALYSIS_MODEL");
   if (serverValue && typeof serverValue === "string" && serverValue.trim()) {
     return serverValue.trim();
   }
-  return "gpt-4o";
+  return "gpt-4o-mini";
 }
 
 /**

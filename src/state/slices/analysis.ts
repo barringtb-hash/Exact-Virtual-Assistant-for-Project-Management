@@ -27,6 +27,8 @@ import type {
 export interface AnalysisSliceState {
   /** Current status in the analysis workflow */
   status: AnalysisStatus;
+  /** Status before error occurred (for restoration) */
+  statusBeforeError: AnalysisStatus | null;
   /** Unique identifier for the current analysis session */
   analysisId: string | null;
   /** Complete analysis result from the API */
@@ -55,6 +57,7 @@ export interface AnalysisSliceState {
 
 const initialState: AnalysisSliceState = {
   status: "idle",
+  statusBeforeError: null,
   analysisId: null,
   analysis: null,
   rawContent: null,
@@ -81,6 +84,7 @@ export const analysisSlice = createSlice({
     startAnalysis() {
       setState({
         status: "analyzing",
+        statusBeforeError: null,
         error: null,
         analysisId: null,
         analysis: null,
@@ -207,23 +211,43 @@ export const analysisSlice = createSlice({
     },
 
     /**
-     * Sets an error state.
+     * Sets an error state, preserving the current status for restoration.
      */
     setError(error: AnalysisError) {
+      const { status } = getState();
       setState({
         status: "error",
+        statusBeforeError: status !== "error" ? status : getState().statusBeforeError,
         error,
       });
     },
 
     /**
-     * Clears the error state and returns to previous status.
+     * Clears the error state and returns to the status before the error.
+     * Properly preserves needs_clarification status when applicable.
      */
     clearError() {
-      const { analysisId, analysis } = getState();
+      const { statusBeforeError, analysisId, analysis } = getState();
+
+      // Determine the correct status to restore
+      let restoredStatus: AnalysisStatus;
+      if (statusBeforeError && statusBeforeError !== "error") {
+        // Restore to the status before the error occurred
+        restoredStatus = statusBeforeError;
+      } else if (analysisId && analysis) {
+        // Fallback: determine from analysis state
+        restoredStatus =
+          analysis.clarificationQuestions.length > 0
+            ? "needs_clarification"
+            : "awaiting_confirmation";
+      } else {
+        restoredStatus = "idle";
+      }
+
       setState({
         error: null,
-        status: analysisId && analysis ? "awaiting_confirmation" : "idle",
+        status: restoredStatus,
+        statusBeforeError: null,
       });
     },
 

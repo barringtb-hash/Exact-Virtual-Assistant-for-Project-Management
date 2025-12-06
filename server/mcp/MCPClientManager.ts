@@ -23,6 +23,8 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
   /** Whether this server is enabled */
   enabled?: boolean;
+  /** Environment variables required for this server to work */
+  requiredEnv?: string[];
 }
 
 /**

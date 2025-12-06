@@ -23,7 +23,11 @@
     "docx:smoke": "node templates/tools/render-smoke.mjs",
     "qa:charter-wizard": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs scripts/run-golden-conversations.mjs",
     "dep:check": "node ./scripts/checkCircularDeps.mjs",
-    "analyze:cycles": "node ./scripts/checkCircularDeps.mjs"
+    "analyze:cycles": "node ./scripts/checkCircularDeps.mjs",
+    "mcp:exact-va": "node --experimental-strip-types mcp-servers/exact-va/index.ts",
+    "mcp:smartsheet": "node --experimental-strip-types mcp-servers/smartsheet/index.ts",
+    "mcp:office365": "node --experimental-strip-types mcp-servers/office365/index.ts",
+    "mcp:test": "node --loader ./tests/jsx-loader.mjs --import ./tests/setup-stubs.mjs --test tests/mcp.integration.test.js"
   },
   "dependencies": {
     "@azure/msal-node": "^2.6.4",

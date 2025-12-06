@@ -2,6 +2,15 @@
 import OpenAI from "openai";
 import { registerStreamController } from "./chat/streamingState.js";
 import { chunkByTokens, countTokens } from "../lib/tokenize.js";
+import {
+  getOrCreateMCPManager,
+  getMCPChatConfig,
+  getMCPToolsForOpenAI,
+  processMCPToolCalls,
+  enhanceSystemPromptWithMCPTools,
+  hasToolCalls,
+  extractToolCalls,
+} from "../server/mcp/index.js";
 
 export class ChatRequestError extends Error {
   constructor(message, status = 400, code = "bad_request") {
@@ -588,7 +597,8 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
-export async function buildChatMessages(client, body) {
+export async function buildChatMessages(client, body, options = {}) {
+  const { mcpTools = [] } = options;
   const payload = body && typeof body === "object" ? body : {};
   const incoming = Array.isArray(payload.messages) ? payload.messages : [];
   const rawAttachments = Array.isArray(payload.attachments)
@@ -646,9 +656,14 @@ export async function buildChatMessages(client, body) {
     .filter(Boolean)
     .join("\n\n");
 
-  const systemContent = attachmentsBlock
+  let systemContent = attachmentsBlock
     ? `${attachmentsBlock}\n\n${BASE_SYSTEM_PROMPT}`
     : BASE_SYSTEM_PROMPT;
+
+  // Enhance system prompt with MCP tool descriptions
+  if (mcpTools.length > 0) {
+    systemContent = enhanceSystemPromptWithMCPTools(systemContent, mcpTools);
+  }
 
   const system = {
     role: "system",
@@ -868,9 +883,24 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Initialize MCP tools for non-streaming requests
+    const mcpConfig = getMCPChatConfig();
+    let mcpTools = [];
+    let mcpManager = null;
+
+    if (mcpConfig.enabled) {
+      try {
+        mcpManager = await getOrCreateMCPManager();
+        mcpTools = await getMCPToolsForOpenAI(mcpManager, mcpConfig);
+      } catch (mcpErr) {
+        // Log but don't fail if MCP initialization fails
+        console.warn("MCP initialization failed, continuing without tools:", mcpErr?.message);
+      }
+    }
+
     let messages;
     try {
-      ({ messages } = await buildChatMessages(client, body));
+      ({ messages } = await buildChatMessages(client, body, { mcpTools }));
     } catch (prepErr) {
       if (prepErr instanceof ChatRequestError) {
         res
@@ -881,12 +911,71 @@ export default async function handler(req, res) {
       throw prepErr;
     }
 
+    // Tool-aware completion loop
+    const maxToolIterations = mcpConfig.maxToolCalls || 5;
+    let iterations = 0;
+    let toolsUsed = [];
     let reply = "";
+
     try {
-      reply = await requestChatText(client, {
-        messages,
-        temperature: 0.3,
-      });
+      while (iterations < maxToolIterations) {
+        iterations++;
+
+        // Check if we should use the responses API or chat completions
+        const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
+
+        let completion;
+        if (useResponses) {
+          // The responses API doesn't support tool calling yet, fall back to simple request
+          reply = await requestChatText(client, {
+            messages,
+            temperature: 0.3,
+          });
+          break;
+        } else {
+          // Use chat completions with tool support
+          completion = await client.chat.completions.create({
+            model: CHAT_MODEL,
+            temperature: 0.3,
+            messages,
+            ...(mcpTools.length > 0 ? { tools: mcpTools } : {}),
+          });
+        }
+
+        const choice = completion.choices?.[0];
+
+        // If no tool calls, extract the reply and we're done
+        if (!choice?.message?.tool_calls?.length) {
+          reply = choice?.message?.content || "";
+          break;
+        }
+
+        // Process tool calls
+        if (mcpManager) {
+          const toolCalls = choice.message.tool_calls;
+          toolsUsed.push(...toolCalls.map((tc) => tc.function.name));
+
+          // Add assistant message with tool calls
+          messages.push({
+            role: "assistant",
+            content: choice.message.content || "",
+            tool_calls: toolCalls,
+          });
+
+          // Execute tools and add results
+          const toolResults = await processMCPToolCalls(mcpManager, toolCalls, mcpConfig);
+          messages.push(...toolResults);
+        } else {
+          // No MCP manager, just return the content
+          reply = choice?.message?.content || "";
+          break;
+        }
+      }
+
+      // If we hit max iterations, note it
+      if (iterations >= maxToolIterations && !reply) {
+        reply = "Maximum tool iterations reached.";
+      }
     } catch (apiErr) {
       const status = apiErr?.status || apiErr?.response?.status;
       const message =
@@ -905,10 +994,16 @@ export default async function handler(req, res) {
     }
 
     if (!reply.trim()) {
-      reply = "I couldn’t produce a reply for this prompt.";
+      reply = "I couldn't produce a reply for this prompt.";
     }
 
-    res.status(200).json({ reply });
+    // Include tools used in response if any
+    const response = { reply };
+    if (toolsUsed.length > 0) {
+      response.toolsUsed = toolsUsed;
+    }
+
+    res.status(200).json(response);
   } catch (err) {
     try {
       console.error("API /api/chat error", {

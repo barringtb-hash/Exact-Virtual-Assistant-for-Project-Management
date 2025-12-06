@@ -12,47 +12,50 @@ let initPromise: Promise<MCPClientManager> | null = null;
 
 /**
  * Default MCP configuration
+ *
+ * Returns server configs with their enabled status and required environment variables.
  */
 export function getMCPConfig(): MCPServerConfig[] {
   const configs: MCPServerConfig[] = [];
 
   // Internal Exact VA server (always available when MCP is enabled)
-  if (process.env.MCP_ENABLED !== "false") {
-    configs.push({
-      name: "exact-va",
-      command: "node",
-      args: ["--loader", "ts-node/esm", "mcp-servers/exact-va/index.ts"],
-      enabled: true,
-    });
-  }
+  configs.push({
+    name: "exact-va",
+    command: "node",
+    args: ["--experimental-strip-types", "mcp-servers/exact-va/index.ts"],
+    enabled: process.env.MCP_ENABLED !== "false",
+    requiredEnv: [],
+  });
 
   // Smartsheet integration
-  if (process.env.SMARTSHEET_API_KEY) {
-    configs.push({
-      name: "smartsheet",
-      command: "node",
-      args: ["--loader", "ts-node/esm", "mcp-servers/smartsheet/index.ts"],
-      env: {
-        SMARTSHEET_API_KEY: "${SMARTSHEET_API_KEY}",
-      },
-      enabled: process.env.MCP_SMARTSHEET_ENABLED !== "false",
-    });
-  }
+  const hasSmartsheetKey = Boolean(process.env.SMARTSHEET_API_KEY?.trim());
+  configs.push({
+    name: "smartsheet",
+    command: "node",
+    args: ["--experimental-strip-types", "mcp-servers/smartsheet/index.ts"],
+    env: {
+      SMARTSHEET_API_KEY: process.env.SMARTSHEET_API_KEY || "",
+    },
+    enabled: hasSmartsheetKey && process.env.MCP_SMARTSHEET_ENABLED !== "false",
+    requiredEnv: ["SMARTSHEET_API_KEY"],
+  });
 
   // Office 365 integration
-  if (process.env.AZURE_CLIENT_ID && process.env.AZURE_TENANT_ID) {
-    configs.push({
-      name: "office365",
-      command: "node",
-      args: ["--loader", "ts-node/esm", "mcp-servers/office365/index.ts"],
-      env: {
-        AZURE_CLIENT_ID: "${AZURE_CLIENT_ID}",
-        AZURE_CLIENT_SECRET: "${AZURE_CLIENT_SECRET}",
-        AZURE_TENANT_ID: "${AZURE_TENANT_ID}",
-      },
-      enabled: process.env.MCP_OFFICE365_ENABLED !== "false",
-    });
-  }
+  const hasAzureConfig =
+    Boolean(process.env.AZURE_CLIENT_ID?.trim()) &&
+    Boolean(process.env.AZURE_TENANT_ID?.trim());
+  configs.push({
+    name: "office365",
+    command: "node",
+    args: ["--experimental-strip-types", "mcp-servers/office365/index.ts"],
+    env: {
+      AZURE_CLIENT_ID: process.env.AZURE_CLIENT_ID || "",
+      AZURE_CLIENT_SECRET: process.env.AZURE_CLIENT_SECRET || "",
+      AZURE_TENANT_ID: process.env.AZURE_TENANT_ID || "",
+    },
+    enabled: hasAzureConfig && process.env.MCP_OFFICE365_ENABLED !== "false",
+    requiredEnv: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"],
+  });
 
   return configs;
 }

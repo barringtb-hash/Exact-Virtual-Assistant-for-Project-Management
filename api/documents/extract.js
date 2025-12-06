@@ -412,8 +412,11 @@ export default async function handler(req, res) {
         auditStatus = result.auditStatus;
       }
     } else {
-      const extractPrompt = await loadExtractPrompt(docType, config);
-      const docTypeMetadata = await loadExtractMetadata(config);
+      // Parallelize file operations for better performance
+      const [extractPrompt, docTypeMetadata] = await Promise.all([
+        loadExtractPrompt(docType, config),
+        loadExtractMetadata(config),
+      ]);
 
       const systemSections = [
         formatDocTypeMetadata(docTypeMetadata),

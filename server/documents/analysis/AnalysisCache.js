@@ -111,7 +111,8 @@ startCleanupInterval();
  * @returns {AnalysisCacheEntry} The stored cache entry
  */
 export function storeAnalysis({ attachments, rawContent, analysis }) {
-  cleanup(); // Clean expired entries on write
+  // Note: Cleanup runs on periodic interval (every 60s), not on every write
+  // This avoids O(n) iteration through cache on every insert
 
   const analysisId = generateAnalysisId();
   const ttl = getAnalysisCacheTTL();

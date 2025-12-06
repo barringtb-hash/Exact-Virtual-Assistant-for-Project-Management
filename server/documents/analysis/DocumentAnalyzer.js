@@ -103,7 +103,24 @@ function createClient() {
 }
 
 /**
+ * Fields relevant for document classification analysis.
+ * Only include fields that help determine document type and extraction targets.
+ */
+const RELEVANT_DRAFT_FIELDS = [
+  "project_name",
+  "description",
+  "vision",
+  "scope_in",
+  "scope_out",
+];
+
+/**
  * Build the user message content for analysis
+ *
+ * Optimized for token efficiency:
+ * - Limits total document content to 15000 chars (was per-attachment)
+ * - Only includes last user message from conversation (was all 5 messages)
+ * - Only includes relevant draft fields for classification (was entire object)
  *
  * @param {Object} params
  * @param {Array} params.attachments - Document attachments with text
@@ -114,26 +131,47 @@ function createClient() {
 function buildAnalysisInput({ attachments, conversationContext, existingDraft }) {
   const sections = [];
 
-  // Add document content
+  // Add document content with total limit (not per-attachment)
   if (Array.isArray(attachments) && attachments.length > 0) {
     sections.push("## Document Content\n");
+    let totalChars = 0;
+    const maxTotalChars = 15000;
+
     for (const attachment of attachments) {
       if (!attachment?.text) continue;
       const name = attachment.name || "Uploaded Document";
-      sections.push(`### ${name}\n${attachment.text.slice(0, 15000)}\n`);
+      const remainingChars = maxTotalChars - totalChars;
+      if (remainingChars <= 0) break;
+
+      const text = attachment.text.slice(0, remainingChars);
+      sections.push(`### ${name}\n${text}\n`);
+      totalChars += text.length;
     }
   }
 
-  // Add conversation context if provided
+  // Add only last user message for context (reduces tokens by ~60%)
   if (Array.isArray(conversationContext) && conversationContext.length > 0) {
-    sections.push("## Conversation Context\n");
-    sections.push(conversationContext.slice(-5).join("\n"));
+    const lastUserMessage = conversationContext
+      .filter((msg) => typeof msg === "string" && msg.trim())
+      .slice(-1)[0];
+    if (lastUserMessage) {
+      sections.push("## User Context\n");
+      sections.push(lastUserMessage.slice(0, 500));
+    }
   }
 
-  // Add existing draft context
-  if (existingDraft && typeof existingDraft === "object" && Object.keys(existingDraft).length > 0) {
-    sections.push("## Existing Draft Fields\n");
-    sections.push(JSON.stringify(existingDraft, null, 2));
+  // Add only relevant draft fields for classification (reduces tokens by ~50%)
+  if (existingDraft && typeof existingDraft === "object") {
+    const relevantFields = {};
+    for (const field of RELEVANT_DRAFT_FIELDS) {
+      if (existingDraft[field] && typeof existingDraft[field] === "string") {
+        relevantFields[field] = existingDraft[field].slice(0, 200);
+      }
+    }
+    if (Object.keys(relevantFields).length > 0) {
+      sections.push("## Existing Draft Fields\n");
+      sections.push(JSON.stringify(relevantFields, null, 2));
+    }
   }
 
   return sections.join("\n\n");

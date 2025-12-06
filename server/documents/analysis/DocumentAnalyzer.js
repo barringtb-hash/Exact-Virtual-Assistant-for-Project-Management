@@ -150,10 +150,35 @@ function buildAnalysisInput({ attachments, conversationContext, existingDraft })
   }
 
   // Add only last user message for context (reduces tokens by ~60%)
+  // Handle both string format and structured {role, content} message format
   if (Array.isArray(conversationContext) && conversationContext.length > 0) {
-    const lastUserMessage = conversationContext
-      .filter((msg) => typeof msg === "string" && msg.trim())
-      .slice(-1)[0];
+    let lastUserMessage = null;
+
+    // Iterate in reverse to find last user message
+    for (let i = conversationContext.length - 1; i >= 0; i--) {
+      const msg = conversationContext[i];
+
+      // Handle plain string format
+      if (typeof msg === "string" && msg.trim()) {
+        lastUserMessage = msg.trim();
+        break;
+      }
+
+      // Handle structured {role, content} message format
+      if (msg && typeof msg === "object" && msg.content) {
+        // Only use user messages for context (skip assistant messages)
+        if (msg.role === "user" || !msg.role) {
+          const content = typeof msg.content === "string"
+            ? msg.content.trim()
+            : String(msg.content);
+          if (content) {
+            lastUserMessage = content;
+            break;
+          }
+        }
+      }
+    }
+
     if (lastUserMessage) {
       sections.push("## User Context\n");
       sections.push(lastUserMessage.slice(0, 500));

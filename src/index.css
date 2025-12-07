@@ -76,6 +76,12 @@
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;
+
+  /* Safe area for notched devices */
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
 }
 
 /* Dark mode tokens */
@@ -128,6 +134,8 @@ html {
   height: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevent layout shift from scrollbar */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -136,10 +144,15 @@ body {
   background-color: var(--color-bg-secondary);
   color: var(--color-text-primary);
   line-height: 1.5;
+  /* Support safe areas for notched devices */
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
 }
 
 #root {
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Focus ring styles */
@@ -186,20 +199,53 @@ body {
   background-color: #64748b;
 }
 
+/* Touch device optimizations */
+@media (hover: none) {
+  /* Larger touch targets */
+  button,
+  a,
+  input[type="checkbox"],
+  input[type="radio"],
+  select {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Remove hover states on touch */
+  .hover\:bg-surface-50:hover,
+  .hover\:bg-surface-100:hover {
+    background-color: inherit;
+  }
+}
+
 /* ============================================
-   LAYOUT UTILITIES
+   RESPONSIVE LAYOUT UTILITIES
    ============================================ */
+
+/* Mobile-first bottom sheet */
 .bottom-sheet {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 45vh;
+  height: 50vh;
   max-height: 70vh;
   z-index: 50;
+  border-top-left-radius: var(--radius-xl);
+  border-top-right-radius: var(--radius-xl);
+  /* Safe area for notched devices */
+  padding-bottom: var(--safe-area-inset-bottom);
 }
 
-/* Medium screens (tablets and small laptops) */
+/* Small mobile screens */
+@media (max-width: 474px) {
+  .bottom-sheet {
+    height: 60vh;
+    max-height: 85vh;
+  }
+}
+
+/* Tablet and up - floating card */
 @media (min-width: 768px) {
   .floating-card {
     position: fixed;
@@ -211,9 +257,10 @@ body {
     height: 55vh;
     max-height: 70vh;
     z-index: 50;
+    border-radius: var(--radius-xl);
   }
 
-  /* Voice charter overlay: positioned bottom-right to avoid blocking charter fields */
+  /* Voice charter overlay: positioned to avoid blocking fields */
   .floating-card.voice-charter-overlay {
     left: auto;
     right: 1rem;
@@ -224,7 +271,7 @@ body {
   }
 }
 
-/* Larger screens (standard laptops and desktops) */
+/* Laptop screens */
 @media (min-width: 1024px) {
   .floating-card {
     width: 420px;
@@ -241,7 +288,7 @@ body {
   }
 }
 
-/* Large screens (wide monitors) */
+/* Desktop screens */
 @media (min-width: 1280px) {
   .floating-card {
     width: 450px;
@@ -258,6 +305,14 @@ body {
   }
 }
 
+/* Large desktop screens */
+@media (min-width: 1536px) {
+  .floating-card {
+    width: 480px;
+    min-height: 520px;
+  }
+}
+
 /* Floating chat overlay specific styles */
 .bottom-sheet > div,
 .floating-card > div {
@@ -268,6 +323,7 @@ body {
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
+  overflow: hidden;
 }
 
 .dark .bottom-sheet > div,
@@ -277,7 +333,32 @@ body {
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
 }
 
-/* E2E test mode - disable animations */
+/* ============================================
+   RESPONSIVE CONTAINER UTILITIES
+   ============================================ */
+.container-fluid {
+  width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-fluid {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-fluid {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* ============================================
+   E2E TEST MODE
+   ============================================ */
 body.eva-e2e-mode *,
 body.eva-e2e-mode *::before,
 body.eva-e2e-mode *::after {
@@ -408,16 +489,29 @@ ol.assistant-feedback-list {
 
 /* Modern chat message styling */
 .eva-chat-message {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
   animation: fadeInUp 0.2s ease-out;
+}
+
+@media (min-width: 640px) {
+  .eva-chat-message {
+    margin-bottom: 1.25rem;
+  }
 }
 
 .eva-chat-message .eva-chat-message-bubble {
   border-radius: var(--radius-xl);
-  padding: 1rem 1.25rem;
+  padding: 0.875rem 1rem;
   font-size: 0.9375rem;
   line-height: 1.65;
-  max-width: 85%;
+  max-width: 90%;
+}
+
+@media (min-width: 640px) {
+  .eva-chat-message .eva-chat-message-bubble {
+    padding: 1rem 1.25rem;
+    max-width: 85%;
+  }
 }
 
 @media (min-width: 768px) {
@@ -488,19 +582,37 @@ ol.assistant-feedback-list {
   }
 
   .eva-card-header {
-    padding: 1rem 1.25rem;
+    padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--color-border-muted);
   }
 
+  @media (min-width: 640px) {
+    .eva-card-header {
+      padding: 1rem 1.25rem;
+    }
+  }
+
   .eva-card-body {
-    padding: 1.25rem;
+    padding: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .eva-card-body {
+      padding: 1.25rem;
+    }
   }
 
   .eva-card-footer {
-    padding: 1rem 1.25rem;
+    padding: 0.875rem 1rem;
     border-top: 1px solid var(--color-border-muted);
     background-color: var(--color-bg-muted);
     border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  }
+
+  @media (min-width: 640px) {
+    .eva-card-footer {
+      padding: 1rem 1.25rem;
+    }
   }
 }
 
@@ -522,11 +634,23 @@ ol.assistant-feedback-list {
     cursor: pointer;
     transition: all var(--transition-fast);
     white-space: nowrap;
+    /* Touch-friendly minimum size */
+    min-height: 2.5rem;
+  }
+
+  @media (hover: none) {
+    .eva-btn {
+      min-height: 2.75rem;
+    }
   }
 
   .eva-btn:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+  }
+
+  .eva-btn:active:not(:disabled) {
+    transform: scale(0.98);
   }
 
   .eva-btn-primary {
@@ -544,7 +668,7 @@ ol.assistant-feedback-list {
     background-color: var(--color-bg-elevated);
     border-color: var(--color-border-default);
     color: var(--color-text-primary);
-    box-shadow: var(--shadow-xs);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03);
   }
 
   .eva-btn-secondary:hover:not(:disabled) {
@@ -561,6 +685,17 @@ ol.assistant-feedback-list {
     background-color: var(--color-bg-tertiary);
     color: var(--color-text-primary);
   }
+
+  .eva-btn-danger {
+    background-color: var(--color-error);
+    color: var(--color-text-inverted);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .eva-btn-danger:hover:not(:disabled) {
+    background-color: #dc2626;
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* ============================================
@@ -570,14 +705,22 @@ ol.assistant-feedback-list {
   .eva-input {
     width: 100%;
     padding: 0.625rem 0.875rem;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     line-height: 1.5;
     color: var(--color-text-primary);
     background-color: var(--color-bg-elevated);
     border: 1px solid var(--color-border-default);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: inset 0 1px 2px 0 rgb(0 0 0 / 0.03);
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    /* Prevent zoom on iOS */
+    font-size: 16px;
+  }
+
+  @media (min-width: 640px) {
+    .eva-input {
+      font-size: 0.9375rem;
+    }
   }
 
   .eva-input::placeholder {
@@ -691,6 +834,17 @@ ol.assistant-feedback-list {
   }
 }
 
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes pulse-ring {
   0% {
     transform: scale(0.95);
@@ -702,8 +856,137 @@ ol.assistant-feedback-list {
   }
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
 .animate-pulse-ring {
   animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 2s linear infinite;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 0%,
+    var(--color-bg-secondary) 50%,
+    var(--color-bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ============================================
+   RESPONSIVE TYPOGRAPHY
+   ============================================ */
+@layer utilities {
+  .text-responsive-sm {
+    font-size: 0.8125rem;
+  }
+
+  @media (min-width: 640px) {
+    .text-responsive-sm {
+      font-size: 0.875rem;
+    }
+  }
+
+  .text-responsive-base {
+    font-size: 0.9375rem;
+  }
+
+  @media (min-width: 640px) {
+    .text-responsive-base {
+      font-size: 1rem;
+    }
+  }
+
+  .text-responsive-lg {
+    font-size: 1.125rem;
+  }
+
+  @media (min-width: 640px) {
+    .text-responsive-lg {
+      font-size: 1.25rem;
+    }
+  }
+
+  .text-responsive-xl {
+    font-size: 1.25rem;
+  }
+
+  @media (min-width: 640px) {
+    .text-responsive-xl {
+      font-size: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .text-responsive-xl {
+      font-size: 1.875rem;
+    }
+  }
+}
+
+/* ============================================
+   SKELETON LOADING
+   ============================================ */
+@layer utilities {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-bg-tertiary) 0%,
+      var(--color-bg-secondary) 50%,
+      var(--color-bg-tertiary) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: var(--radius-md);
+  }
+
+  .skeleton-text {
+    height: 1em;
+    width: 100%;
+  }
+
+  .skeleton-circle {
+    border-radius: var(--radius-full);
+  }
+}
+
+/* ============================================
+   REDUCED MOTION SUPPORT
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+
+  .eva-card {
+    border: 1px solid #ccc;
+    box-shadow: none;
+  }
 }
 
 /* ============================================

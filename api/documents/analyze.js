@@ -32,6 +32,7 @@
 import { isDocumentAnalysisEnabled } from "../../config/featureFlags.js";
 import { analyzeDocument } from "../../server/documents/analysis/DocumentAnalyzer.js";
 import { storeAnalysis } from "../../server/documents/analysis/AnalysisCache.js";
+import { securityMiddleware } from "../../server/middleware/security.js";
 
 /**
  * Parse and validate request body
@@ -43,6 +44,35 @@ function parseRequestBody(body) {
     return {};
   }
   return body;
+}
+
+/**
+ * Extract session ID from request headers or cookies
+ * Used for session isolation of cached analyses (MED-05 fix)
+ *
+ * @param {Object} req - Request object
+ * @returns {string|null} Session ID or null
+ */
+function extractSessionId(req) {
+  // Check X-Session-Id header first
+  const headerSessionId = req.headers?.["x-session-id"];
+  if (typeof headerSessionId === "string" && headerSessionId.trim()) {
+    return headerSessionId.trim();
+  }
+
+  // Fall back to sessionId cookie
+  const cookieSessionId = req.cookies?.sessionId;
+  if (typeof cookieSessionId === "string" && cookieSessionId.trim()) {
+    return cookieSessionId.trim();
+  }
+
+  // Check request body for sessionId (some clients may pass it there)
+  const bodySessionId = req.body?.sessionId;
+  if (typeof bodySessionId === "string" && bodySessionId.trim()) {
+    return bodySessionId.trim();
+  }
+
+  return null;
 }
 
 /**
@@ -93,6 +123,12 @@ function validateAttachments(attachments) {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  // This endpoint consumes OpenAI API, so apply stricter rate limits
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   // Only allow POST requests
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -115,6 +151,9 @@ export default async function handler(req, res) {
 
   try {
     const body = parseRequestBody(req.body);
+
+    // MED-05: Extract session ID for cache isolation
+    const sessionId = extractSessionId(req);
 
     // Debug logging
     console.log("[/api/documents/analyze] Received request:", {
@@ -160,10 +199,12 @@ export default async function handler(req, res) {
     });
 
     // Store analysis in cache for later confirmation
+    // MED-05: Include sessionId for user/session isolation
     const cacheEntry = storeAnalysis({
       attachments: attachmentResult.attachments,
       rawContent: result.rawContent,
       analysis: result.analysis,
+      sessionId, // Session isolation - only this session can access this analysis
     });
 
     // Return analysis result with signature for serverless fallback

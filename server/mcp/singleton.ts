@@ -6,9 +6,34 @@
  */
 
 import { MCPClientManager, type MCPServerConfig } from "./MCPClientManager.js";
+import { existsSync } from "fs";
+import { resolve } from "path";
 
 let mcpManager: MCPClientManager | null = null;
 let initPromise: Promise<MCPClientManager> | null = null;
+
+/**
+ * Determine whether to use compiled JS files or TypeScript sources
+ *
+ * In production (Vercel), we use pre-compiled JS files from dist/.
+ * In development, we can use TypeScript files with --experimental-strip-types.
+ */
+function getMCPServerPath(serverName: string): string[] {
+  // Check if running in production/Vercel environment
+  const isProduction = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+
+  // Check if compiled files exist (dist/mcp-servers/...)
+  const compiledPath = `dist/mcp-servers/${serverName}/index.js`;
+  const hasCompiledFiles = existsSync(resolve(process.cwd(), compiledPath));
+
+  if (isProduction || hasCompiledFiles) {
+    // Use compiled JavaScript files
+    return [compiledPath];
+  } else {
+    // Use TypeScript files directly with experimental strip-types
+    return ["--experimental-strip-types", `mcp-servers/${serverName}/index.ts`];
+  }
+}
 
 /**
  * Default MCP configuration
@@ -18,12 +43,16 @@ let initPromise: Promise<MCPClientManager> | null = null;
 export function getMCPConfig(): MCPServerConfig[] {
   const configs: MCPServerConfig[] = [];
 
-  // Internal Exact VA server (always available when MCP is enabled)
+  // Internal Exact VA server
+  // Note: In production/Vercel, the exact-va server is disabled because it has
+  // complex dependencies on the full server codebase that don't bundle well.
+  // The exact-va tools are available through direct API calls instead.
+  const isProduction = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
   configs.push({
     name: "exact-va",
     command: "node",
-    args: ["--experimental-strip-types", "mcp-servers/exact-va/index.ts"],
-    enabled: process.env.MCP_ENABLED !== "false",
+    args: getMCPServerPath("exact-va"),
+    enabled: process.env.MCP_EXACT_VA_ENABLED === "true" || (!isProduction && process.env.MCP_ENABLED !== "false"),
     requiredEnv: [],
   });
 
@@ -32,7 +61,7 @@ export function getMCPConfig(): MCPServerConfig[] {
   configs.push({
     name: "smartsheet",
     command: "node",
-    args: ["--experimental-strip-types", "mcp-servers/smartsheet/index.ts"],
+    args: getMCPServerPath("smartsheet"),
     env: {
       SMARTSHEET_API_KEY: process.env.SMARTSHEET_API_KEY || "",
     },
@@ -47,7 +76,7 @@ export function getMCPConfig(): MCPServerConfig[] {
   configs.push({
     name: "office365",
     command: "node",
-    args: ["--experimental-strip-types", "mcp-servers/office365/index.ts"],
+    args: getMCPServerPath("office365"),
     env: {
       AZURE_CLIENT_ID: process.env.AZURE_CLIENT_ID || "",
       AZURE_CLIENT_SECRET: process.env.AZURE_CLIENT_SECRET || "",

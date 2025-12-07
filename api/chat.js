@@ -135,6 +135,51 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * Retry a function with exponential backoff for rate limit errors
+ */
+async function withRetry(fn, options = {}) {
+  const maxRetries = options.maxRetries ?? 5;
+  const baseDelayMs = options.baseDelayMs ?? 2000;
+  const maxDelayMs = options.maxDelayMs ?? 30000;
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Check if this is a rate limit error (429)
+      const status = error?.status || error?.response?.status || error?.statusCode;
+      const isRateLimited = status === 429 || /rate.?limit/i.test(error?.message || "");
+
+      // Only retry on rate limit errors
+      if (!isRateLimited || attempt === maxRetries) {
+        throw error;
+      }
+
+      // Check for Retry-After header (OpenAI sometimes provides this)
+      const retryAfter = error?.response?.headers?.get?.("retry-after") ||
+                         error?.headers?.["retry-after"];
+      let delay;
+      if (retryAfter) {
+        // Retry-After can be seconds or a date
+        const retryAfterSeconds = parseInt(retryAfter, 10);
+        delay = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : baseDelayMs * Math.pow(2, attempt);
+      } else {
+        // Calculate delay with exponential backoff and jitter
+        delay = Math.min(baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000, maxDelayMs);
+      }
+
+      console.log(`Rate limited, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
 async function summarizeText(client, attachment) {
   const name = attachment?.name || "Attachment";
   const text = typeof attachment?.text === "string" ? attachment.text.trim() : "";
@@ -225,26 +270,29 @@ export function formatMessagesForResponses(messages) {
 
 async function requestChatText(client, { messages, temperature, maxTokens }) {
   const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-  if (useResponses) {
-    const prompt = formatMessagesForResponses(messages);
-    const response = await client.responses.create({
+
+  return withRetry(async () => {
+    if (useResponses) {
+      const prompt = formatMessagesForResponses(messages);
+      const response = await client.responses.create({
+        model: CHAT_MODEL,
+        temperature,
+        input: prompt,
+        ...(Number.isFinite(maxTokens) && maxTokens > 0
+          ? { max_output_tokens: maxTokens }
+          : {}),
+      });
+      return response.output_text ?? "";
+    }
+
+    const completion = await client.chat.completions.create({
       model: CHAT_MODEL,
       temperature,
-      input: prompt,
-      ...(Number.isFinite(maxTokens) && maxTokens > 0
-        ? { max_output_tokens: maxTokens }
-        : {}),
+      messages,
+      ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { max_tokens: maxTokens } : {}),
     });
-    return response.output_text ?? "";
-  }
-
-  const completion = await client.chat.completions.create({
-    model: CHAT_MODEL,
-    temperature,
-    messages,
-    ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { max_tokens: maxTokens } : {}),
+    return completion.choices?.[0]?.message?.content ?? "";
   });
-  return completion.choices?.[0]?.message?.content ?? "";
 }
 
 export function mapChatOpenAIError(status, rawMessage) {
@@ -419,8 +467,6 @@ function handleOpenAIEvent(rawEvent, useResponses, send, status) {
 }
 
 async function streamFromOpenAI({ client, messages, signal, send, tools, mcpManager, mcpConfig }) {
-  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-
   const firstNonEmpty = (...candidates) => {
     for (const value of candidates) {
       if (typeof value !== "string") continue;
@@ -437,20 +483,27 @@ async function streamFromOpenAI({ client, messages, signal, send, tools, mcpMana
   let iterations = 0;
   let currentMessages = [...messages];
 
+  // Determine if we should use tools - use chat completions API when tools are available
+  // The responses API doesn't support tools, so fall back to chat completions
+  const hasTools = tools?.length > 0;
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL) && !hasTools;
+
   try {
     while (iterations < maxIterations) {
       iterations++;
 
       if (useResponses) {
-        // Responses API doesn't support tools yet, just stream normally
-        const stream = await client.responses.create(
-          {
-            model: CHAT_MODEL,
-            temperature: 0.3,
-            input: formatMessagesForResponses(currentMessages),
-            stream: true,
-          },
-          { signal }
+        // Responses API doesn't support tools yet, just stream normally (with retry for rate limits)
+        const stream = await withRetry(() =>
+          client.responses.create(
+            {
+              model: CHAT_MODEL,
+              temperature: 0.3,
+              input: formatMessagesForResponses(currentMessages),
+              stream: true,
+            },
+            { signal }
+          )
         );
 
         for await (const event of stream) {
@@ -503,16 +556,18 @@ async function streamFromOpenAI({ client, messages, signal, send, tools, mcpMana
         return;
       }
 
-      // Chat completions API with tool support
-      const stream = await client.chat.completions.create(
-        {
-          model: CHAT_MODEL,
-          temperature: 0.3,
-          messages: currentMessages,
-          stream: true,
-          ...(tools?.length > 0 ? { tools } : {}),
-        },
-        { signal }
+      // Chat completions API with tool support (with retry for rate limits)
+      const stream = await withRetry(() =>
+        client.chat.completions.create(
+          {
+            model: CHAT_MODEL,
+            temperature: 0.3,
+            messages: currentMessages,
+            stream: true,
+            ...(tools?.length > 0 ? { tools } : {}),
+          },
+          { signal }
+        )
       );
 
       // Collect tool calls during streaming
@@ -1027,29 +1082,33 @@ export default async function handler(req, res) {
     let toolsUsed = [];
     let reply = "";
 
+    // Determine if we should use tools - use chat completions API when tools are available
+    // The responses API doesn't support tools, so fall back to chat completions
+    const hasTools = mcpTools.length > 0;
+    const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL) && !hasTools;
+
     try {
       while (iterations < maxToolIterations) {
         iterations++;
 
-        // Check if we should use the responses API or chat completions
-        const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-
         let completion;
         if (useResponses) {
-          // The responses API doesn't support tool calling yet, fall back to simple request
+          // The responses API doesn't support tool calling, use simple request
           reply = await requestChatText(client, {
             messages,
             temperature: 0.3,
           });
           break;
         } else {
-          // Use chat completions with tool support
-          completion = await client.chat.completions.create({
-            model: CHAT_MODEL,
-            temperature: 0.3,
-            messages,
-            ...(mcpTools.length > 0 ? { tools: mcpTools } : {}),
-          });
+          // Use chat completions with tool support (with retry for rate limits)
+          completion = await withRetry(() =>
+            client.chat.completions.create({
+              model: CHAT_MODEL,
+              temperature: 0.3,
+              messages,
+              ...(mcpTools.length > 0 ? { tools: mcpTools } : {}),
+            })
+          );
         }
 
         const choice = completion.choices?.[0];

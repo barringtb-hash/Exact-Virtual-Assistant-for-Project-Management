@@ -106,6 +106,35 @@ export function enhanceSystemPromptWithMCPTools(
     .map((tool) => `- ${tool.function.name}: ${tool.function.description}`)
     .join("\n");
 
+  // Check if Smartsheet tools are available
+  const hasSmartsheetTools = tools.some((t) =>
+    t.function.name.startsWith("smartsheet_")
+  );
+
+  let smartsheetGuidance = "";
+  if (hasSmartsheetTools) {
+    smartsheetGuidance = `
+
+### Smartsheet Tool Usage Guide
+
+When working with Smartsheet data:
+
+1. **Finding sheets by name**: Use \`smartsheet_search_sheets\` with the sheet name (or part of it) to find matching sheets. This returns sheet IDs and names. This is MUCH faster than listing all sheets.
+
+2. **Getting sheet data**: Once you have the sheet ID from search results, use \`smartsheet_get_sheet\` with the numeric sheet ID.
+
+3. **Searching within a sheet**: Use \`smartsheet_search_rows\` to find specific data within a sheet. You need the sheet ID first.
+
+4. **Listing all sheets**: Only use \`smartsheet_list_sheets\` if you need to see ALL accessible sheets. Prefer \`smartsheet_search_sheets\` when looking for specific sheets.
+
+IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for get_sheet, search_rows, and other operations.
+
+Example workflow for "Get me the Project Plan sheet":
+1. Call smartsheet_search_sheets with query "Project Plan"
+2. Get the sheet ID from the search results
+3. Call smartsheet_get_sheet with that ID`;
+  }
+
   const mcpSection = `
 
 ## Available Tools
@@ -120,6 +149,7 @@ When appropriate, use these tools to:
 - Render documents to downloadable formats
 - Import data from connected services (Smartsheet, SharePoint, etc.)
 - Update project information
+${smartsheetGuidance}
 
 Always explain what you're doing when using tools, and summarize the results for the user.`;
 

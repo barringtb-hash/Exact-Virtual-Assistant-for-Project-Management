@@ -106,6 +106,14 @@ class SmartsheetClient {
       method: "DELETE",
     });
   }
+
+  async searchSheets(query: string): Promise<unknown> {
+    const params = new URLSearchParams();
+    params.set("query", query);
+    // Scope to sheets only for faster results
+    params.set("scopes", "sheetNames");
+    return this.request(`/search?${params.toString()}`);
+  }
 }
 
 /**
@@ -164,6 +172,54 @@ function createServer(apiKey: string): Server {
 
     try {
       switch (name) {
+        case "smartsheet_search_sheets": {
+          const { query } = args as { query: string };
+          const result = (await client.searchSheets(query)) as {
+            results?: Array<{
+              objectType: string;
+              objectId: number;
+              text: string;
+              contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+            }>;
+          };
+
+          // Extract sheet information from search results
+          const sheets: Array<{ id: string; name: string }> = [];
+          if (result.results) {
+            for (const item of result.results) {
+              // Results include the sheet name in text and ID in objectId
+              if (item.objectType === "sheet") {
+                sheets.push({
+                  id: String(item.objectId),
+                  name: item.text,
+                });
+              }
+              // Also check contextData for sheets found via other object types
+              if (item.contextData) {
+                for (const ctx of item.contextData) {
+                  if (ctx.objectType === "sheet") {
+                    sheets.push({
+                      id: String(ctx.objectId),
+                      name: ctx.name,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Deduplicate by ID
+          const uniqueSheets = Array.from(
+            new Map(sheets.map((s) => [s.id, s])).values()
+          );
+
+          return success({
+            query,
+            matchCount: uniqueSheets.length,
+            sheets: uniqueSheets,
+          });
+        }
+
         case "smartsheet_list_sheets": {
           const result = await client.listSheets(args as { includeAll?: boolean });
           return success(result);

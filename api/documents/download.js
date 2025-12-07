@@ -1,5 +1,6 @@
 import crypto from "crypto";
 
+import { applySecurityHeaders } from "../../server/middleware/security.js";
 import {
   MissingDocAssetError,
   UnsupportedDocTypeError,
@@ -45,6 +46,9 @@ export function listSupportedFormats() {
 }
 
 export default async function handler(req, res) {
+  // Apply security headers
+  applySecurityHeaders(req, res);
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
@@ -135,10 +139,9 @@ export default async function handler(req, res) {
 
     if (error instanceof MissingDocAssetError || error?.name === "DocAssetLoadError") {
       console.error("document download asset error", error);
+      // LOW-03: Return generic error message to avoid exposing internal structure
       return res.status(error.statusCode || 500).json({
-        error: error.message,
-        docType: error.docType,
-        assetType: error.assetType,
+        error: "Document asset not available",
       });
     }
 

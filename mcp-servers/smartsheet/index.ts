@@ -18,6 +18,29 @@ import { smartsheetTools } from "./tools.js";
 
 const SMARTSHEET_API_BASE = "https://api.smartsheet.com/2.0";
 
+// ============================================================================
+// Security: Error Sanitization (MED-06)
+// ============================================================================
+
+/**
+ * MED-06: Sanitize Smartsheet API error messages
+ * Returns a generic error message to avoid leaking sensitive details
+ */
+function sanitizeSmartsheetError(status: number, errorBody: string): string {
+  const statusMessages: Record<number, string> = {
+    400: "Invalid request to Smartsheet API",
+    401: "Smartsheet authentication failed",
+    403: "Access denied to Smartsheet resource",
+    404: "Smartsheet resource not found",
+    429: "Smartsheet rate limit exceeded",
+    500: "Smartsheet service error",
+    502: "Smartsheet bad gateway",
+    503: "Smartsheet service unavailable",
+  };
+
+  return statusMessages[status] || `Smartsheet API error (${status})`;
+}
+
 /**
  * Smartsheet API client
  */
@@ -42,10 +65,9 @@ class SmartsheetClient {
     });
 
     if (!response.ok) {
+      // MED-06: Sanitize error to avoid leaking sensitive API response details
       const errorBody = await response.text();
-      throw new Error(
-        `Smartsheet API error (${response.status}): ${errorBody}`
-      );
+      throw new Error(sanitizeSmartsheetError(response.status, errorBody));
     }
 
     return response.json();

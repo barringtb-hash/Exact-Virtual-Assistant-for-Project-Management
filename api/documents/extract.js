@@ -21,6 +21,8 @@ import {
   InvalidRequestBodyError,
   ERROR_CODES,
 } from "../../server/utils/apiErrors.js";
+import { securityMiddleware } from "../../server/middleware/security.js";
+import { sanitizeErrorMessage } from "../../server/utils/sanitize.js";
 
 // Import extracted modules
 import {
@@ -249,6 +251,11 @@ async function resolveCharterExtraction() {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   const requestPath = req?.path || "/api/documents/extract";
 
   if (req.method !== "POST") {
@@ -474,12 +481,16 @@ export default async function handler(req, res) {
     const errorCode = error?.code || ERROR_CODES.INTERNAL_ERROR;
     const errorMessage = error?.message || "Unknown error";
 
-    console.error("doc extract failed", {
+    // HIGH-02: Only log stack traces in development mode
+    const logData = {
       statusCode,
       code: errorCode,
-      message: errorMessage,
-      stack: error?.stack,
-    });
+      message: sanitizeErrorMessage(errorMessage),
+    };
+    if (process.env.NODE_ENV === "development") {
+      logData.stack = error?.stack;
+    }
+    console.error("doc extract failed", logData);
 
     res.status(statusCode).json(formatErrorResponse(error, { path: requestPath }));
   }

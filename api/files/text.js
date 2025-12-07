@@ -3,6 +3,10 @@ import pdfParseModule from "pdf-parse";
 import mammothModule from "mammoth";
 
 import { createStorageClientFromEnv } from "../../lib/storage/index.js";
+import {
+  timingSafeEqual,
+  securityMiddleware,
+} from "../../server/middleware/security.js";
 
 const MAX_TEXT_LENGTH = 20_000;
 
@@ -66,13 +70,14 @@ function readApiKeyFromRequest(req) {
   return undefined;
 }
 
+// HIGH-01: Use timing-safe comparison to prevent timing attacks
 function ensureApiKey(req, res) {
   const expected = process?.env?.FILES_API_KEY;
   if (!expected) {
     return true;
   }
   const provided = readApiKeyFromRequest(req);
-  if (!provided || provided !== expected) {
+  if (!provided || !timingSafeEqual(provided, expected)) {
     res.status(401).json({ ok: false, error: "Unauthorized" });
     return false;
   }
@@ -261,6 +266,11 @@ async function handleGet(req, res) {
 }
 
 export default async function handler(req, res) {
+  // HIGH-03/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({});
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   if (req.method === "GET") {
     await handleGet(req, res);
     return;

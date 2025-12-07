@@ -104,22 +104,45 @@ export class MCPClientManager {
 
   /**
    * Initialize a single server
+   * CRIT-04: Only pass explicitly required environment variables to subprocesses
    */
   private async initializeServer(name: string, config: MCPServerConfig): Promise<void> {
     try {
-      const env = {
-        ...process.env,
-        ...config.env,
+      // CRIT-04: Only include essential runtime env vars and explicitly configured ones
+      // Do NOT spread process.env to prevent credential leakage
+      const safeBaseEnv: Record<string, string> = {
+        // Essential runtime variables only
+        PATH: process.env.PATH || "",
+        NODE_ENV: process.env.NODE_ENV || "production",
+        HOME: process.env.HOME || "",
+        LANG: process.env.LANG || "en_US.UTF-8",
       };
 
-      // Resolve environment variable placeholders
-      const resolvedEnv: Record<string, string> = {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string" && value.startsWith("${") && value.endsWith("}")) {
-          const envVar = value.slice(2, -1);
-          resolvedEnv[key] = process.env[envVar] || "";
-        } else if (value !== undefined) {
-          resolvedEnv[key] = value;
+      // Resolve environment variable placeholders from config.env only
+      const resolvedEnv: Record<string, string> = { ...safeBaseEnv };
+
+      if (config.env) {
+        for (const [key, value] of Object.entries(config.env)) {
+          if (typeof value === "string" && value.startsWith("${") && value.endsWith("}")) {
+            // Resolve placeholder from parent process env
+            const envVar = value.slice(2, -1);
+            const resolvedValue = process.env[envVar];
+            if (resolvedValue !== undefined) {
+              resolvedEnv[key] = resolvedValue;
+            }
+          } else if (value !== undefined) {
+            resolvedEnv[key] = value;
+          }
+        }
+      }
+
+      // Also include any required env vars specified in config
+      if (config.requiredEnv) {
+        for (const envVar of config.requiredEnv) {
+          const value = process.env[envVar];
+          if (value !== undefined) {
+            resolvedEnv[envVar] = value;
+          }
         }
       }
 

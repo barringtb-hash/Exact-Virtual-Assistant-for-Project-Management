@@ -16,6 +16,8 @@ import {
   InvalidRequestBodyError,
   ERROR_CODES,
 } from "../../server/utils/apiErrors.js";
+import { securityMiddleware } from "../../server/middleware/security.js";
+import { sanitizeErrorMessage } from "../../server/utils/sanitize.js";
 
 /**
  * Parse and validate request body
@@ -138,6 +140,11 @@ function createMissingDocumentError() {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   const requestPath = req?.path || "/api/documents/review";
 
   // Only allow POST
@@ -195,14 +202,17 @@ export default async function handler(req, res) {
       return res.status(400).json(formatErrorResponse(error, { path: requestPath }));
     }
 
-    // Log unexpected errors
+    // HIGH-02: Log unexpected errors without stack traces in production
     if (statusCode >= 500) {
-      console.error("Document review failed:", {
+      const logData = {
         statusCode,
         code: error?.code || ERROR_CODES.INTERNAL_ERROR,
-        message: error?.message,
-        stack: error?.stack,
-      });
+        message: sanitizeErrorMessage(error?.message),
+      };
+      if (process.env.NODE_ENV === "development") {
+        logData.stack = error?.stack;
+      }
+      console.error("Document review failed:", logData);
     }
 
     return res.status(statusCode).json(formatErrorResponse(error, { path: requestPath }));

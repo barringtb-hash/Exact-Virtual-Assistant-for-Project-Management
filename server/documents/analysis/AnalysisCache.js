@@ -178,13 +178,16 @@ startCleanupInterval();
 /**
  * Store analysis results in the cache
  *
+ * MED-05: Added sessionId parameter for user/session isolation
+ *
  * @param {Object} params - Analysis data to store
  * @param {Array} params.attachments - Original attachment data
  * @param {Object} params.rawContent - Extracted raw content
  * @param {Object} params.analysis - Analysis results
+ * @param {string} [params.sessionId] - Session ID for user isolation
  * @returns {AnalysisCacheEntry} The stored cache entry (includes signature for serverless fallback)
  */
-export function storeAnalysis({ attachments, rawContent, analysis }) {
+export function storeAnalysis({ attachments, rawContent, analysis, sessionId }) {
   // Note: Cleanup runs on periodic interval (every 60s), not on every write
   // This avoids O(n) iteration through cache on every insert
 
@@ -204,6 +207,8 @@ export function storeAnalysis({ attachments, rawContent, analysis }) {
     analysis: analysis || {},
     status: "pending",
     signature, // Include signature for client-side storage in serverless environments
+    // MED-05: Store session ID for user isolation
+    sessionId: sessionId || null,
   };
 
   cache.set(analysisId, entry);
@@ -214,10 +219,13 @@ export function storeAnalysis({ attachments, rawContent, analysis }) {
 /**
  * Retrieve analysis from cache by ID
  *
+ * MED-05: Added sessionId parameter for user isolation verification
+ *
  * @param {string} analysisId - The analysis ID to retrieve
- * @returns {AnalysisCacheEntry | null} The analysis entry or null if not found/expired
+ * @param {string} [sessionId] - Session ID to verify ownership (optional but recommended)
+ * @returns {AnalysisCacheEntry | null} The analysis entry or null if not found/expired/unauthorized
  */
-export function getAnalysis(analysisId) {
+export function getAnalysis(analysisId, sessionId) {
   if (!analysisId || typeof analysisId !== "string") {
     return null;
   }
@@ -229,6 +237,17 @@ export function getAnalysis(analysisId) {
 
   if (isExpired(entry)) {
     cache.delete(analysisId);
+    return null;
+  }
+
+  // MED-05: Verify session ID if both entry and request have one
+  // This prevents users from accessing other users' cached analyses
+  if (sessionId && entry.sessionId && entry.sessionId !== sessionId) {
+    console.warn("[AnalysisCache] Session ID mismatch - access denied", {
+      analysisId,
+      expectedSession: entry.sessionId?.slice(0, 8) + "...",
+      providedSession: sessionId?.slice(0, 8) + "...",
+    });
     return null;
   }
 

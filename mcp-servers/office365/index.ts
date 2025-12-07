@@ -19,6 +19,101 @@ import { office365Tools } from "./tools.js";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 
+// ============================================================================
+// Security: Input Sanitization (HIGH-07, HIGH-08)
+// ============================================================================
+
+/**
+ * HIGH-07: Escape HTML to prevent HTML injection in Teams messages
+ */
+function escapeHtml(text: string): string {
+  if (typeof text !== "string") return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * HIGH-08: Validate Excel range address format
+ * Returns validated range or throws error if invalid
+ */
+function validateExcelRange(range: string): string {
+  if (typeof range !== "string") {
+    throw new Error("Excel range must be a string");
+  }
+
+  const trimmed = range.trim();
+  if (!trimmed) {
+    throw new Error("Excel range cannot be empty");
+  }
+
+  // Excel range pattern: A1, A1:B2, Sheet1!A1:B2, 'Sheet Name'!A1:B2
+  // Allow column letters A-XFD (Excel max), row numbers 1-1048576
+  const rangePattern = /^(?:'[^']{1,31}'!|[A-Za-z0-9_]{1,31}!)?[A-Za-z]{1,3}[0-9]{1,7}(?::[A-Za-z]{1,3}[0-9]{1,7})?$/;
+
+  if (!rangePattern.test(trimmed)) {
+    throw new Error(`Invalid Excel range format: ${trimmed.slice(0, 50)}`);
+  }
+
+  // Additional length check for safety
+  if (trimmed.length > 100) {
+    throw new Error("Excel range too long");
+  }
+
+  return trimmed;
+}
+
+/**
+ * HIGH-08: Validate worksheet name
+ */
+function validateWorksheetName(name: string | undefined): string {
+  if (name === undefined) {
+    return "Sheet1";
+  }
+
+  if (typeof name !== "string") {
+    throw new Error("Worksheet name must be a string");
+  }
+
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "Sheet1";
+  }
+
+  // Worksheet names can't exceed 31 characters
+  if (trimmed.length > 31) {
+    throw new Error("Worksheet name cannot exceed 31 characters");
+  }
+
+  // Disallow certain characters in worksheet names
+  const invalidChars = /[:\\/?*\[\]]/;
+  if (invalidChars.test(trimmed)) {
+    throw new Error("Worksheet name contains invalid characters");
+  }
+
+  return trimmed;
+}
+
+/**
+ * Sanitize error messages for Graph API errors
+ */
+function sanitizeGraphError(status: number, errorBody: string): string {
+  const statusMessages: Record<number, string> = {
+    400: "Invalid request to Microsoft Graph API",
+    401: "Microsoft Graph authentication failed",
+    403: "Access denied to Microsoft resource",
+    404: "Microsoft resource not found",
+    429: "Microsoft Graph rate limit exceeded",
+    500: "Microsoft Graph service error",
+    503: "Microsoft Graph service unavailable",
+  };
+
+  return statusMessages[status] || `Microsoft Graph API error (${status})`;
+}
+
 /**
  * Microsoft Graph API client with MSAL authentication
  */
@@ -76,10 +171,9 @@ class GraphClient {
     });
 
     if (!response.ok) {
+      // HIGH-07: Sanitize error messages to avoid leaking sensitive info
       const errorBody = await response.text();
-      throw new Error(
-        `Graph API error (${response.status}): ${errorBody}`
-      );
+      throw new Error(sanitizeGraphError(response.status, errorBody));
     }
 
     // Handle empty responses
@@ -157,11 +251,13 @@ class GraphClient {
     channelId: string,
     message: string
   ): Promise<unknown> {
+    // HIGH-07: Escape HTML to prevent HTML injection attacks
+    // Using plain text content type for safety
     return this.request(`/teams/${teamId}/channels/${channelId}/messages`, {
       method: "POST",
       body: JSON.stringify({
         body: {
-          contentType: "html",
+          contentType: "text",
           content: message,
         },
       }),
@@ -200,9 +296,12 @@ class GraphClient {
     worksheetName: string | undefined,
     range: string
   ): Promise<unknown> {
-    const worksheet = worksheetName || "Sheet1";
+    // HIGH-08: Validate worksheet name and range to prevent injection
+    const validatedWorksheet = validateWorksheetName(worksheetName);
+    const validatedRange = validateExcelRange(range);
+
     return this.request(
-      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheet}/range(address='${range}')`
+      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${encodeURIComponent(validatedWorksheet)}/range(address='${encodeURIComponent(validatedRange)}')`
     );
   }
 
@@ -213,8 +312,12 @@ class GraphClient {
     range: string,
     values: unknown[][]
   ): Promise<unknown> {
+    // HIGH-08: Validate worksheet name and range to prevent injection
+    const validatedWorksheet = validateWorksheetName(worksheetName);
+    const validatedRange = validateExcelRange(range);
+
     return this.request(
-      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetName}/range(address='${range}')`,
+      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${encodeURIComponent(validatedWorksheet)}/range(address='${encodeURIComponent(validatedRange)}')`,
       {
         method: "PATCH",
         body: JSON.stringify({ values }),

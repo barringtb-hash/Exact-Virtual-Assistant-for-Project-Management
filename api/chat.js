@@ -11,6 +11,10 @@ import {
   hasToolCalls,
   extractToolCalls,
 } from "../server/mcp/index.js";
+import {
+  securityMiddleware,
+  applySecurityHeaders,
+} from "../server/middleware/security.js";
 
 export class ChatRequestError extends Error {
   constructor(message, status = 400, code = "bad_request") {
@@ -26,10 +30,11 @@ export function __setOpenAIClient(override) {
   OpenAIClient = override || OpenAI;
 }
 
+// HIGH-04: Reduced body size limit from 50MB to 10MB to mitigate DoS attacks
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: "50mb",
+      sizeLimit: "10mb",
     },
   },
 };
@@ -836,6 +841,11 @@ export async function buildChatMessages(client, body, options = {}) {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/03/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;

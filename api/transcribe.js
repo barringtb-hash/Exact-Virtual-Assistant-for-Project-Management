@@ -2,6 +2,7 @@
 import OpenAI from "openai";
 import formidable from "formidable";
 import { createReadStream, promises as fsPromises } from "node:fs";
+import { securityMiddleware } from "../server/middleware/security.js";
 
 const ALLOWED_MIME_TYPES = new Set([
   "audio/webm",
@@ -29,6 +30,11 @@ function mapOpenAIError(err) {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;

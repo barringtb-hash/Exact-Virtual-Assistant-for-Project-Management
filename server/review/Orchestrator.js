@@ -17,6 +17,86 @@ import { executeOpenAIExtraction } from "../documents/openai/client.js";
 const sessions = new Map();
 
 /**
+ * Session cleanup configuration
+ * Sessions expire after 2 hours of inactivity
+ */
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const SESSION_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+let cleanupIntervalId = null;
+
+/**
+ * Start session cleanup interval
+ */
+function startSessionCleanup() {
+  if (cleanupIntervalId !== null) return;
+
+  cleanupIntervalId = setInterval(() => {
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const [sessionId, state] of sessions.entries()) {
+      // Get last activity time from messages or session start
+      const lastActivity = state.messages.length > 0
+        ? state.messages[state.messages.length - 1].timestamp
+        : state.startedAt;
+
+      // Remove completed sessions older than TTL or inactive sessions
+      const isExpired = now - lastActivity > SESSION_TTL_MS;
+      const isOldCompleted = state.status === "complete" && state.completedAt && (now - state.completedAt > SESSION_TTL_MS / 2);
+
+      if (isExpired || isOldCompleted) {
+        sessions.delete(sessionId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`[ReviewOrchestrator] Cleaned up ${cleanedCount} expired session(s). Active sessions: ${sessions.size}`);
+    }
+  }, SESSION_CLEANUP_INTERVAL_MS);
+
+  // Allow process to exit without waiting for cleanup
+  if (typeof cleanupIntervalId.unref === "function") {
+    cleanupIntervalId.unref();
+  }
+}
+
+/**
+ * Stop session cleanup interval (for testing)
+ */
+export function stopSessionCleanup() {
+  if (cleanupIntervalId !== null) {
+    clearInterval(cleanupIntervalId);
+    cleanupIntervalId = null;
+  }
+}
+
+/**
+ * Get count of active sessions (for monitoring)
+ * @returns {number}
+ */
+export function getActiveSessionCount() {
+  return sessions.size;
+}
+
+// Start cleanup on module load
+startSessionCleanup();
+
+/**
+ * Format document type for display in messages
+ * @param {string} docType
+ * @returns {string}
+ */
+function formatDocTypeLabel(docType) {
+  const labels = {
+    charter: "Charter",
+    ddp: "Design & Development Plan",
+    sow: "Statement of Work",
+  };
+  return labels[docType?.toLowerCase()] || docType?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "document";
+}
+
+/**
  * Generate unique session ID
  * @returns {string}
  */
@@ -220,8 +300,11 @@ export function createReviewSession(docType, reviewResult) {
   const pendingCount = getPendingCount(state);
   const currentItem = getCurrentFeedback(state);
 
+  // Use document type label instead of hardcoded "charter"
+  const docLabel = formatDocTypeLabel(docType);
+
   let welcomeMessage = `## Interactive Review Session\n\n`;
-  welcomeMessage += `Your charter scored **${state.overallScore}%** overall.\n\n`;
+  welcomeMessage += `Your ${docLabel} scored **${state.overallScore}%** overall.\n\n`;
 
   if (state.strengths.length > 0) {
     welcomeMessage += `**Strengths:**\n`;
@@ -236,7 +319,7 @@ export function createReviewSession(docType, reviewResult) {
   if (currentItem) {
     welcomeMessage += formatFeedbackMessage(currentItem, 0, pendingCount);
   } else {
-    welcomeMessage += "No feedback items to review. Your charter looks good!";
+    welcomeMessage += `No feedback items to review. Your ${docLabel} looks good!`;
     state.status = "complete";
   }
 

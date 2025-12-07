@@ -119,17 +119,19 @@ export function enhanceSystemPromptWithMCPTools(
 
 When working with Smartsheet data:
 
-1. **Finding sheets by name**: If a user asks about a sheet by name (not ID), FIRST call \`smartsheet_list_sheets\` to get all accessible sheets with their IDs and names. Then find the matching sheet in the results.
+1. **Finding sheets by name**: Use \`smartsheet_search_sheets\` with the sheet name (or part of it) to find matching sheets. This returns sheet IDs and names. This is MUCH faster than listing all sheets.
 
-2. **Getting sheet data**: Once you have the sheet ID (either from the user or from list_sheets), use \`smartsheet_get_sheet\` with the numeric sheet ID.
+2. **Getting sheet data**: Once you have the sheet ID from search results, use \`smartsheet_get_sheet\` with the numeric sheet ID.
 
-3. **Searching**: Use \`smartsheet_search_rows\` to find specific data within a sheet. You need the sheet ID first.
+3. **Searching within a sheet**: Use \`smartsheet_search_rows\` to find specific data within a sheet. You need the sheet ID first.
 
-IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Sheet names are text. Always use the ID for get_sheet, search_rows, and other operations.
+4. **Listing all sheets**: Only use \`smartsheet_list_sheets\` if you need to see ALL accessible sheets. Prefer \`smartsheet_search_sheets\` when looking for specific sheets.
+
+IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for get_sheet, search_rows, and other operations.
 
 Example workflow for "Get me the Project Plan sheet":
-1. Call smartsheet_list_sheets to list all sheets
-2. Find "Project Plan" in the results and note its ID
+1. Call smartsheet_search_sheets with query "Project Plan"
+2. Get the sheet ID from the search results
 3. Call smartsheet_get_sheet with that ID`;
   }
 

@@ -11,7 +11,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
  */
 export const listSheetsTool: Tool = {
   name: "smartsheet_list_sheets",
-  description: "List all Smartsheet sheets accessible to the current user",
+  description: "List all Smartsheet sheets accessible to the current user. Note: Use smartsheet_search_sheets instead if you're looking for a specific sheet by name.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -26,6 +26,25 @@ export const listSheetsTool: Tool = {
         description: "Only return sheets modified after this date",
       },
     },
+  },
+};
+
+/**
+ * Search for sheets by name
+ */
+export const searchSheetsTool: Tool = {
+  name: "smartsheet_search_sheets",
+  description:
+    "Search for Smartsheet sheets by name. Returns sheets whose names contain the search query. This is the PREFERRED way to find a sheet when you know its name (or part of it).",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      query: {
+        type: "string",
+        description: "Text to search for in sheet names",
+      },
+    },
+    required: ["query"],
   },
 };
 
@@ -214,6 +233,7 @@ export const getSheetSummaryTool: Tool = {
  * All Smartsheet tools
  */
 export const smartsheetTools: Tool[] = [
+  searchSheetsTool,  // Preferred for finding sheets by name
   listSheetsTool,
   getSheetTool,
   searchRowsTool,

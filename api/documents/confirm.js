@@ -31,6 +31,7 @@ import { isDocumentAnalysisEnabled } from "../../config/featureFlags.js";
 import { getAnalysis, confirmAnalysis, deleteAnalysis, verifyAnalysisSignature } from "../../server/documents/analysis/AnalysisCache.js";
 import REGISTRY from "../../lib/doc/registry.js";
 import { executeOpenAIExtraction } from "../../server/documents/openai/client.js";
+import { securityMiddleware } from "../../server/middleware/security.js";
 
 /**
  * Valid actions for confirmation
@@ -47,6 +48,35 @@ function parseRequestBody(body) {
     return {};
   }
   return body;
+}
+
+/**
+ * Extract session ID from request headers or cookies
+ * Used for session isolation of cached analyses (MED-05 fix)
+ *
+ * @param {Object} req - Request object
+ * @returns {string|null} Session ID or null
+ */
+function extractSessionId(req) {
+  // Check X-Session-Id header first
+  const headerSessionId = req.headers?.["x-session-id"];
+  if (typeof headerSessionId === "string" && headerSessionId.trim()) {
+    return headerSessionId.trim();
+  }
+
+  // Fall back to sessionId cookie
+  const cookieSessionId = req.cookies?.sessionId;
+  if (typeof cookieSessionId === "string" && cookieSessionId.trim()) {
+    return cookieSessionId.trim();
+  }
+
+  // Check request body for sessionId (some clients may pass it there)
+  const bodySessionId = req.body?.sessionId;
+  if (typeof bodySessionId === "string" && bodySessionId.trim()) {
+    return bodySessionId.trim();
+  }
+
+  return null;
 }
 
 /**
@@ -110,6 +140,12 @@ function buildExtractionPrompt({ docType, analysis, rawContent, action }) {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/02/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  // This endpoint consumes OpenAI API, so apply stricter rate limits
+  const securityCheck = securityMiddleware({ isOpenAI: true });
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   // Only allow POST requests
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -133,6 +169,9 @@ export default async function handler(req, res) {
   try {
     const body = parseRequestBody(req.body);
 
+    // MED-05: Extract session ID for cache isolation verification
+    const sessionId = extractSessionId(req);
+
     // Validate analysisId
     const analysisId = body.analysisId;
     if (!analysisId || typeof analysisId !== "string") {
@@ -145,7 +184,8 @@ export default async function handler(req, res) {
     }
 
     // Retrieve cached analysis (may fail in serverless environments)
-    let cachedAnalysis = getAnalysis(analysisId);
+    // MED-05: Pass sessionId for session isolation verification
+    let cachedAnalysis = getAnalysis(analysisId, sessionId);
 
     // In serverless environments, in-memory cache may not persist between invocations.
     // Fall back to inline data sent by the client if properly signed.

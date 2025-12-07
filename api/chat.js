@@ -437,6 +437,11 @@ async function streamFromOpenAI({ client, messages, signal, send, tools, mcpMana
   let iterations = 0;
   let currentMessages = [...messages];
 
+  // Determine if we should use tools - use chat completions API when tools are available
+  // The responses API doesn't support tools, so fall back to chat completions
+  const hasTools = tools?.length > 0;
+  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL) && !hasTools;
+
   try {
     while (iterations < maxIterations) {
       iterations++;
@@ -1027,16 +1032,18 @@ export default async function handler(req, res) {
     let toolsUsed = [];
     let reply = "";
 
+    // Determine if we should use tools - use chat completions API when tools are available
+    // The responses API doesn't support tools, so fall back to chat completions
+    const hasTools = mcpTools.length > 0;
+    const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL) && !hasTools;
+
     try {
       while (iterations < maxToolIterations) {
         iterations++;
 
-        // Check if we should use the responses API or chat completions
-        const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-
         let completion;
         if (useResponses) {
-          // The responses API doesn't support tool calling yet, fall back to simple request
+          // The responses API doesn't support tool calling, use simple request
           reply = await requestChatText(client, {
             messages,
             temperature: 0.3,

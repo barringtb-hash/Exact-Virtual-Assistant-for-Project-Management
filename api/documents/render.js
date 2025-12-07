@@ -1,6 +1,7 @@
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 
+import { securityMiddleware } from "../../server/middleware/security.js";
 import {
   InvalidDocPayloadError,
   MissingDocAssetError,
@@ -135,6 +136,11 @@ export function __clearDocTemplateCache() {
 }
 
 export default async function handler(req, res) {
+  // CRIT-01/HIGH-05: Apply security middleware (rate limiting, CSRF, headers)
+  const securityCheck = securityMiddleware({});
+  await new Promise((resolve) => securityCheck(req, res, resolve));
+  if (res.headersSent) return;
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }

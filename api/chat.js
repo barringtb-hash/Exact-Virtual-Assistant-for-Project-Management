@@ -419,8 +419,6 @@ function handleOpenAIEvent(rawEvent, useResponses, send, status) {
 }
 
 async function streamFromOpenAI({ client, messages, signal, send, tools, mcpManager, mcpConfig }) {
-  const useResponses = USES_RESPONSES_PATTERN.test(CHAT_MODEL);
-
   const firstNonEmpty = (...candidates) => {
     for (const value of candidates) {
       if (typeof value !== "string") continue;

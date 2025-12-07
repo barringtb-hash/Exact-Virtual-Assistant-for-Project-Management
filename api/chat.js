@@ -139,9 +139,9 @@ function parsePositiveInt(value, fallback) {
  * Retry a function with exponential backoff for rate limit errors
  */
 async function withRetry(fn, options = {}) {
-  const maxRetries = options.maxRetries ?? 3;
-  const baseDelayMs = options.baseDelayMs ?? 1000;
-  const maxDelayMs = options.maxDelayMs ?? 10000;
+  const maxRetries = options.maxRetries ?? 5;
+  const baseDelayMs = options.baseDelayMs ?? 2000;
+  const maxDelayMs = options.maxDelayMs ?? 30000;
 
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -159,8 +159,19 @@ async function withRetry(fn, options = {}) {
         throw error;
       }
 
-      // Calculate delay with exponential backoff and jitter
-      const delay = Math.min(baseDelayMs * Math.pow(2, attempt) + Math.random() * 500, maxDelayMs);
+      // Check for Retry-After header (OpenAI sometimes provides this)
+      const retryAfter = error?.response?.headers?.get?.("retry-after") ||
+                         error?.headers?.["retry-after"];
+      let delay;
+      if (retryAfter) {
+        // Retry-After can be seconds or a date
+        const retryAfterSeconds = parseInt(retryAfter, 10);
+        delay = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : baseDelayMs * Math.pow(2, attempt);
+      } else {
+        // Calculate delay with exponential backoff and jitter
+        delay = Math.min(baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000, maxDelayMs);
+      }
+
       console.log(`Rate limited, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

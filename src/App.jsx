@@ -5221,8 +5221,8 @@ const resolveDocTypeForManualSync = useCallback(
                   ref={messagesContainerRef}
                   className={`flex-1 overflow-y-auto min-h-0 p-4 space-y-4 ${
                     chatIsOverlay
-                      ? "bg-slate-100 dark:bg-slate-900"
-                      : "bg-slate-100 dark:bg-slate-900"
+                      ? "bg-slate-100 dark:bg-slate-950"
+                      : "bg-slate-100 dark:bg-slate-950"
                   }`}
                 >
                   {visibleMessages.map((m) => (
@@ -5816,7 +5816,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
           <span className="whitespace-pre-wrap">{safeText}</span>
         </div>
       ) : (
-        <div className="max-w-[90%] md:max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed bg-white border border-slate-300 text-slate-700 shadow-md dark:bg-slate-700 dark:border-slate-500 dark:text-slate-100">
+        <div className="max-w-[90%] md:max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed bg-white border border-slate-300 text-slate-700 shadow-md dark:bg-slate-600 dark:border-slate-400 dark:text-white">
           {!showStructured ? (
             <span className="whitespace-pre-wrap">{safeText}</span>
           ) : (

@@ -89,18 +89,18 @@
   --color-bg-primary: #020617;      /* Slate-950: darkest base for maximum contrast */
   --color-bg-secondary: #0f172a;    /* Slate-900: panels pop against darker page */
   --color-bg-tertiary: #1e293b;     /* Slate-800: nested elements */
-  --color-bg-elevated: #334155;     /* Slate-700: bubbles/inputs POP against dark bg */
+  --color-bg-elevated: #475569;     /* Slate-600: bubbles/inputs REALLY pop against dark bg */
   --color-bg-muted: #1e293b;        /* Slate-800: muted areas like headers */
 
   --color-text-primary: #f8fafc;
-  --color-text-secondary: #e2e8f0;  /* Lighter for better readability - was #cbd5e1 */
-  --color-text-tertiary: #cbd5e1;   /* Adjusted - was #94a3b8 */
-  --color-text-muted: #94a3b8;      /* Adjusted - was #64748b */
+  --color-text-secondary: #f1f5f9;  /* Even lighter for better readability */
+  --color-text-tertiary: #e2e8f0;   /* Adjusted for contrast */
+  --color-text-muted: #cbd5e1;      /* Adjusted - was #94a3b8 */
   --color-text-inverted: #0f172a;
 
-  --color-border-default: #475569;  /* Slate-600: more visible - was #334155 */
-  --color-border-muted: #334155;    /* Slate-700: subtle borders - was #1e293b */
-  --color-border-strong: #64748b;   /* Slate-500: strong borders - was #475569 */
+  --color-border-default: #64748b;  /* Slate-500: more visible borders */
+  --color-border-muted: #475569;    /* Slate-600: subtle borders */
+  --color-border-strong: #94a3b8;   /* Slate-400: strong borders for maximum visibility */
 
   --color-brand-primary: #818cf8;
   --color-brand-hover: #a5b4fc;

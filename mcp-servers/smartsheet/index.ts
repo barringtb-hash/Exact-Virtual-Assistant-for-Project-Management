@@ -463,6 +463,95 @@ class SmartsheetClient {
 }
 
 // ============================================================================
+// Fuzzy Search Helpers
+// ============================================================================
+
+/**
+ * Extract meaningful keywords from a search query
+ * Removes common words and returns significant terms
+ */
+function extractKeywords(query: string): string[] {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'project', 'plan', 'sheet', 'data', 'info', 'information'
+  ]);
+
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length >= 2 && !stopWords.has(word));
+}
+
+/**
+ * Calculate similarity score between two strings (0-1)
+ * Uses a combination of substring matching and word overlap
+ */
+function calculateSimilarity(query: string, target: string): number {
+  const queryLower = query.toLowerCase();
+  const targetLower = target.toLowerCase();
+
+  // Exact match
+  if (queryLower === targetLower) return 1.0;
+
+  // Contains full query
+  if (targetLower.includes(queryLower)) return 0.9;
+
+  // Query contains target
+  if (queryLower.includes(targetLower)) return 0.85;
+
+  // Word-based matching
+  const queryWords = extractKeywords(query);
+  const targetWords = new Set(extractKeywords(target));
+
+  if (queryWords.length === 0) return 0;
+
+  let matchScore = 0;
+  for (const word of queryWords) {
+    // Check for exact word match
+    if (targetWords.has(word)) {
+      matchScore += 1;
+    } else {
+      // Check for partial word match (word starts with or is contained)
+      for (const targetWord of targetWords) {
+        if (targetWord.startsWith(word) || word.startsWith(targetWord)) {
+          matchScore += 0.7;
+          break;
+        }
+        if (targetWord.includes(word) || word.includes(targetWord)) {
+          matchScore += 0.5;
+          break;
+        }
+      }
+    }
+  }
+
+  return matchScore / queryWords.length;
+}
+
+/**
+ * Find best matching sheets from a list using fuzzy matching
+ */
+function findBestMatches(
+  query: string,
+  sheets: Array<{ id: string; name: string }>,
+  minScore: number = 0.3
+): Array<{ id: string; name: string; score: number }> {
+  const scored = sheets
+    .map(sheet => ({
+      ...sheet,
+      score: calculateSimilarity(query, sheet.name)
+    }))
+    .filter(s => s.score >= minScore)
+    .sort((a, b) => b.score - a.score);
+
+  return scored;
+}
+
+// ============================================================================
 // Tool Response Helpers
 // ============================================================================
 
@@ -547,7 +636,43 @@ function createServer(apiKey: string): Server {
             exactMatch?: boolean;
           };
 
-          // Search for sheets matching the name
+          // Helper to collect sheets from search results
+          const collectSheetsFromSearch = (searchResult: {
+            results?: Array<{
+              objectType: string;
+              objectId: number;
+              text: string;
+              contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+            }>;
+          }): Array<{ id: string; name: string }> => {
+            const sheets: Array<{ id: string; name: string }> = [];
+            if (searchResult.results) {
+              for (const item of searchResult.results) {
+                if (item.objectType === "sheet") {
+                  sheets.push({
+                    id: String(item.objectId),
+                    name: item.text,
+                  });
+                }
+                if (item.contextData) {
+                  for (const ctx of item.contextData) {
+                    if (ctx.objectType === "sheet") {
+                      sheets.push({
+                        id: String(ctx.objectId),
+                        name: ctx.name,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+            return sheets;
+          };
+
+          let sheets: Array<{ id: string; name: string }> = [];
+          let searchStrategy = "direct";
+
+          // Strategy 1: Direct search with full name
           const searchResult = (await client.searchSheets(sheetName)) as {
             results?: Array<{
               objectType: string;
@@ -556,27 +681,43 @@ function createServer(apiKey: string): Server {
               contextData?: Array<{ objectType: string; objectId: number; name: string }>;
             }>;
           };
+          sheets = collectSheetsFromSearch(searchResult);
 
-          // Collect matching sheets
-          const sheets: Array<{ id: string; name: string }> = [];
-          if (searchResult.results) {
-            for (const item of searchResult.results) {
-              if (item.objectType === "sheet") {
-                sheets.push({
-                  id: String(item.objectId),
-                  name: item.text,
-                });
+          // Strategy 2: If no results, try searching for individual keywords
+          if (sheets.length === 0) {
+            searchStrategy = "keyword";
+            const keywords = extractKeywords(sheetName);
+
+            // Search for the most distinctive keywords (longer words first)
+            const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length).slice(0, 3);
+
+            for (const keyword of sortedKeywords) {
+              if (keyword.length >= 3) {
+                const keywordResult = (await client.searchSheets(keyword)) as {
+                  results?: Array<{
+                    objectType: string;
+                    objectId: number;
+                    text: string;
+                    contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+                  }>;
+                };
+                sheets.push(...collectSheetsFromSearch(keywordResult));
               }
-              if (item.contextData) {
-                for (const ctx of item.contextData) {
-                  if (ctx.objectType === "sheet") {
-                    sheets.push({
-                      id: String(ctx.objectId),
-                      name: ctx.name,
-                    });
-                  }
-                }
-              }
+            }
+          }
+
+          // Strategy 3: If still no results, list all sheets and fuzzy match
+          if (sheets.length === 0) {
+            searchStrategy = "fuzzy";
+            const listResult = (await client.listSheets({ pageSize: 100 })) as {
+              data: Array<{ id: string; name: string }>;
+            };
+
+            if (listResult.data) {
+              sheets = listResult.data.map(s => ({
+                id: String(s.id),
+                name: s.name
+              }));
             }
           }
 
@@ -585,24 +726,42 @@ function createServer(apiKey: string): Server {
             new Map(sheets.map((s) => [s.id, s])).values()
           );
 
-          // Apply exact match filter if requested
-          const filteredSheets = exactMatch
-            ? uniqueSheets.filter((s) => s.name.toLowerCase() === sheetName.toLowerCase())
-            : uniqueSheets;
+          // Apply fuzzy matching to rank results
+          let rankedSheets: Array<{ id: string; name: string; score: number }>;
 
-          if (filteredSheets.length === 0) {
+          if (exactMatch) {
+            rankedSheets = uniqueSheets
+              .filter((s) => s.name.toLowerCase() === sheetName.toLowerCase())
+              .map(s => ({ ...s, score: 1.0 }));
+          } else {
+            rankedSheets = findBestMatches(sheetName, uniqueSheets, 0.2);
+          }
+
+          if (rankedSheets.length === 0) {
+            // Return top suggestions even with low scores
+            const suggestions = findBestMatches(sheetName, uniqueSheets, 0.1).slice(0, 5);
+
             return success({
               searchQuery: sheetName,
               found: false,
               matchCount: 0,
               sheets: [],
-              hint: `No sheets found matching "${sheetName}". Try a different search term or use smartsheet_list_sheets to see all sheets.`,
+              searchStrategy,
+              suggestions: suggestions.length > 0 ? suggestions.map(s => ({
+                name: s.name,
+                id: s.id,
+                matchScore: Math.round(s.score * 100) + "%"
+              })) : undefined,
+              hint: suggestions.length > 0
+                ? `No exact match found for "${sheetName}". Did you mean one of these sheets?`
+                : `No sheets found matching "${sheetName}". Use smartsheet_list_sheets to see all available sheets.`,
             });
           }
 
-          // If exactly one match, get its summary
-          if (filteredSheets.length === 1) {
-            const sheet = filteredSheets[0];
+          // If exactly one high-confidence match (score > 0.7), get its summary
+          const bestMatch = rankedSheets[0];
+          if (rankedSheets.length === 1 || bestMatch.score > 0.7) {
+            const sheet = bestMatch;
             const columns = await client.getColumns(sheet.id);
             const sheetData = (await client.getSheet(sheet.id, {
               pageSize: 1,
@@ -612,6 +771,8 @@ function createServer(apiKey: string): Server {
               searchQuery: sheetName,
               found: true,
               matchCount: 1,
+              matchScore: Math.round(sheet.score * 100) + "%",
+              searchStrategy,
               sheet: {
                 sheetId: sheet.id,
                 name: sheet.name,
@@ -629,13 +790,18 @@ function createServer(apiKey: string): Server {
             });
           }
 
-          // Multiple matches - return list for user to choose
+          // Multiple matches - return ranked list
           return success({
             searchQuery: sheetName,
             found: true,
-            matchCount: filteredSheets.length,
-            sheets: filteredSheets,
-            hint: `Found ${filteredSheets.length} sheets matching "${sheetName}". Use exactMatch=true for precise matching, or call this tool with the exact sheet name.`,
+            matchCount: rankedSheets.length,
+            searchStrategy,
+            sheets: rankedSheets.slice(0, 10).map(s => ({
+              id: s.id,
+              name: s.name,
+              matchScore: Math.round(s.score * 100) + "%"
+            })),
+            hint: `Found ${rankedSheets.length} sheets matching "${sheetName}". The best match is "${bestMatch.name}" (${Math.round(bestMatch.score * 100)}% match).`,
           });
         }
 
@@ -656,7 +822,42 @@ function createServer(apiKey: string): Server {
             page?: number;
           };
 
-          // First, find the sheet by name
+          // Helper to collect sheets from search results
+          const collectSheetsFromSearch = (searchResultData: {
+            results?: Array<{
+              objectType: string;
+              objectId: number;
+              text: string;
+              contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+            }>;
+          }): Array<{ id: string; name: string }> => {
+            const sheetsFound: Array<{ id: string; name: string }> = [];
+            if (searchResultData.results) {
+              for (const item of searchResultData.results) {
+                if (item.objectType === "sheet") {
+                  sheetsFound.push({
+                    id: String(item.objectId),
+                    name: item.text,
+                  });
+                }
+                if (item.contextData) {
+                  for (const ctx of item.contextData) {
+                    if (ctx.objectType === "sheet") {
+                      sheetsFound.push({
+                        id: String(ctx.objectId),
+                        name: ctx.name,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+            return sheetsFound;
+          };
+
+          let sheets: Array<{ id: string; name: string }> = [];
+
+          // Strategy 1: Direct search with full name
           const searchResult = (await client.searchSheets(sheetName)) as {
             results?: Array<{
               objectType: string;
@@ -665,63 +866,89 @@ function createServer(apiKey: string): Server {
               contextData?: Array<{ objectType: string; objectId: number; name: string }>;
             }>;
           };
+          sheets = collectSheetsFromSearch(searchResult);
 
-          // Collect matching sheets
-          const sheets: Array<{ id: string; name: string }> = [];
-          if (searchResult.results) {
-            for (const item of searchResult.results) {
-              if (item.objectType === "sheet") {
-                sheets.push({
-                  id: String(item.objectId),
-                  name: item.text,
-                });
-              }
-              if (item.contextData) {
-                for (const ctx of item.contextData) {
-                  if (ctx.objectType === "sheet") {
-                    sheets.push({
-                      id: String(ctx.objectId),
-                      name: ctx.name,
-                    });
-                  }
-                }
+          // Strategy 2: If no results, try searching for individual keywords
+          if (sheets.length === 0) {
+            const keywords = extractKeywords(sheetName);
+            const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length).slice(0, 3);
+
+            for (const keyword of sortedKeywords) {
+              if (keyword.length >= 3) {
+                const keywordResult = (await client.searchSheets(keyword)) as {
+                  results?: Array<{
+                    objectType: string;
+                    objectId: number;
+                    text: string;
+                    contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+                  }>;
+                };
+                sheets.push(...collectSheetsFromSearch(keywordResult));
               }
             }
           }
 
+          // Strategy 3: If still no results, list all sheets and fuzzy match
+          if (sheets.length === 0) {
+            const listResult = (await client.listSheets({ pageSize: 100 })) as {
+              data: Array<{ id: string; name: string }>;
+            };
+
+            if (listResult.data) {
+              sheets = listResult.data.map(s => ({
+                id: String(s.id),
+                name: s.name
+              }));
+            }
+          }
+
+          // Dedupe sheets
           const uniqueSheets = Array.from(
             new Map(sheets.map((s) => [s.id, s])).values()
           );
 
-          if (uniqueSheets.length === 0) {
+          // Apply fuzzy matching to find best match
+          const rankedSheets = findBestMatches(sheetName, uniqueSheets, 0.2);
+
+          if (rankedSheets.length === 0) {
+            const suggestions = findBestMatches(sheetName, uniqueSheets, 0.1).slice(0, 5);
+
             return success({
               searchQuery: sheetName,
               found: false,
               error: `No sheets found matching "${sheetName}"`,
-              hint: "Try a different search term or use smartsheet_list_sheets to see all available sheets.",
+              suggestions: suggestions.length > 0 ? suggestions.map(s => ({
+                name: s.name,
+                id: s.id,
+                matchScore: Math.round(s.score * 100) + "%"
+              })) : undefined,
+              hint: suggestions.length > 0
+                ? "Did you mean one of these sheets?"
+                : "Use smartsheet_list_sheets to see all available sheets.",
             });
           }
 
-          // If multiple matches, try to find exact match or return list
-          let targetSheet = uniqueSheets[0];
-          if (uniqueSheets.length > 1) {
-            const exactMatch = uniqueSheets.find(
-              (s) => s.name.toLowerCase() === sheetName.toLowerCase()
-            );
-            if (exactMatch) {
-              targetSheet = exactMatch;
-            } else {
-              return success({
-                searchQuery: sheetName,
-                found: true,
-                matchCount: uniqueSheets.length,
-                sheets: uniqueSheets,
-                error: "Multiple sheets found. Please specify the exact sheet name.",
-                hint: "Use the exact sheet name from the list above.",
-              });
-            }
+          // Use the best match if it's high confidence, otherwise show options
+          const bestMatch = rankedSheets[0];
+          let targetSheet: { id: string; name: string };
+
+          if (rankedSheets.length > 1 && bestMatch.score < 0.7) {
+            // Multiple matches with no clear winner - ask user to clarify
+            return success({
+              searchQuery: sheetName,
+              found: true,
+              matchCount: rankedSheets.length,
+              sheets: rankedSheets.slice(0, 5).map(s => ({
+                id: s.id,
+                name: s.name,
+                matchScore: Math.round(s.score * 100) + "%"
+              })),
+              error: "Multiple sheets found. Please specify the exact sheet name.",
+              hint: `Best match: "${bestMatch.name}" (${Math.round(bestMatch.score * 100)}% confidence). Use the exact name for better results.`,
+            });
           }
 
+          targetSheet = bestMatch;
           const sheetId = targetSheet.id;
 
           // Get column mapping

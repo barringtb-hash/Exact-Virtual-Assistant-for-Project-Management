@@ -115,24 +115,53 @@ export function enhanceSystemPromptWithMCPTools(
   if (hasSmartsheetTools) {
     smartsheetGuidance = `
 
-### Smartsheet Tool Usage Guide
+### Smartsheet Tool Usage Guide (Optimized for Large Sheets)
 
-When working with Smartsheet data:
+**CRITICAL: Many Smartsheet sheets contain thousands of rows. Follow these guidelines to avoid timeouts:**
 
-1. **Finding sheets by name**: Use \`smartsheet_search_sheets\` with the sheet name (or part of it) to find matching sheets. This returns sheet IDs and names. This is MUCH faster than listing all sheets.
+#### Step 1: Always Start with Metadata
+Before fetching row data, understand the sheet structure:
+- Use \`smartsheet_get_summary\` to see row count, columns, and metadata
+- Use \`smartsheet_get_columns\` to get column names/IDs for targeted queries
 
-2. **Getting sheet data**: Once you have the sheet ID from search results, use \`smartsheet_get_sheet\` with the numeric sheet ID.
+#### Step 2: Choose the Right Tool for Your Task
 
-3. **Searching within a sheet**: Use \`smartsheet_search_rows\` to find specific data within a sheet. You need the sheet ID first.
+| Task | Best Tool | Why |
+|------|-----------|-----|
+| Find a sheet by name | \`smartsheet_search_sheets\` | Fastest way to get sheet ID |
+| Understand sheet structure | \`smartsheet_get_summary\` | No row data, very fast |
+| Get column definitions | \`smartsheet_get_columns\` | Cached, very fast |
+| Find specific rows | \`smartsheet_search_rows\` | Returns only matching rows |
+| Get many rows | \`smartsheet_get_rows_paginated\` | Handles pagination automatically |
+| Get one row by ID | \`smartsheet_get_row\` | Fastest for known row IDs |
+| Get multiple rows by ID | \`smartsheet_get_rows_by_ids\` | Batch retrieval (max 100) |
 
-4. **Listing all sheets**: Only use \`smartsheet_list_sheets\` if you need to see ALL accessible sheets. Prefer \`smartsheet_search_sheets\` when looking for specific sheets.
+#### Step 3: Always Use Column Filtering
+Reduce response size by specifying only the columns you need:
+\`\`\`
+smartsheet_search_rows(sheetId, "Project Alpha", columns=["Name", "Status", "Due Date"])
+smartsheet_get_rows_paginated(sheetId, page=1, columns=["Name", "Owner"])
+\`\`\`
 
-IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for get_sheet, search_rows, and other operations.
+#### Step 4: Paginate Large Results
+For sheets with >100 rows, use pagination:
+\`\`\`
+smartsheet_get_rows_paginated(sheetId, page=1, pageSize=100)
+// Check hasNextPage in response, then call with page=2
+\`\`\`
 
-Example workflow for "Get me the Project Plan sheet":
-1. Call smartsheet_search_sheets with query "Project Plan"
-2. Get the sheet ID from the search results
-3. Call smartsheet_get_sheet with that ID`;
+#### Anti-Patterns to AVOID:
+- DON'T call \`smartsheet_get_sheet\` on large sheets without column filters
+- DON'T search all columns when you only need specific ones
+- DON'T fetch entire sheets when you only need a few rows
+- DON'T ignore pagination hints in truncated responses
+
+#### Example Workflow: "Find Project Alpha data"
+1. \`smartsheet_search_sheets("Project")\` → Get sheet ID
+2. \`smartsheet_get_summary(sheetId)\` → See 5000 rows, 50 columns
+3. \`smartsheet_search_rows(sheetId, "Project Alpha", columns=["Name", "Status", "Budget"], maxResults=10)\` → Get matching rows
+
+IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for all operations.`;
   }
 
   const mcpSection = `

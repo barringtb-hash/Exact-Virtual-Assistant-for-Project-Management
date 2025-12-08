@@ -117,51 +117,60 @@ export function enhanceSystemPromptWithMCPTools(
 
 ### Smartsheet Tool Usage Guide (Optimized for Large Sheets)
 
-**CRITICAL: Many Smartsheet sheets contain thousands of rows. Follow these guidelines to avoid timeouts:**
+**CRITICAL: NEVER ask users for sheet IDs. Always use the sheet NAME to look up the ID automatically.**
 
-#### Step 1: Always Start with Metadata
-Before fetching row data, understand the sheet structure:
-- Use \`smartsheet_get_summary\` to see row count, columns, and metadata
-- Use \`smartsheet_get_columns\` to get column names/IDs for targeted queries
+#### GOLDEN RULE: Use Convenience Tools First
+When a user mentions a sheet by name, use these tools that handle ID lookup automatically:
 
-#### Step 2: Choose the Right Tool for Your Task
+| User Request | Best Tool | Why |
+|--------------|-----------|-----|
+| "Show me the Project Plan sheet" | \`smartsheet_get_by_name("Project Plan")\` | Auto-finds sheet ID and returns summary |
+| "Get data from Budget Tracker" | \`smartsheet_find_and_get_rows("Budget Tracker")\` | Finds sheet AND returns rows in one call |
+| "Search for tasks in Sprint Board" | \`smartsheet_find_and_get_rows("Sprint Board", searchQuery="task")\` | Combined lookup + search |
+
+#### Step-by-Step: How to Handle Sheet Requests
+
+1. **User mentions sheet name** → Use \`smartsheet_get_by_name\` or \`smartsheet_find_and_get_rows\`
+2. **Tool returns sheetId** → Store it for subsequent operations
+3. **Need more data?** → Use the returned sheetId with other tools
+
+#### Tool Selection Guide
 
 | Task | Best Tool | Why |
 |------|-----------|-----|
-| Find a sheet by name | \`smartsheet_search_sheets\` | Fastest way to get sheet ID |
-| Understand sheet structure | \`smartsheet_get_summary\` | No row data, very fast |
+| Find sheet + get summary | \`smartsheet_get_by_name\` | **RECOMMENDED** - Returns ID + structure |
+| Find sheet + get rows | \`smartsheet_find_and_get_rows\` | **RECOMMENDED** - Combined operation |
 | Get column definitions | \`smartsheet_get_columns\` | Cached, very fast |
 | Find specific rows | \`smartsheet_search_rows\` | Returns only matching rows |
 | Get many rows | \`smartsheet_get_rows_paginated\` | Handles pagination automatically |
 | Get one row by ID | \`smartsheet_get_row\` | Fastest for known row IDs |
-| Get multiple rows by ID | \`smartsheet_get_rows_by_ids\` | Batch retrieval (max 100) |
 
-#### Step 3: Always Use Column Filtering
+#### Always Use Column Filtering
 Reduce response size by specifying only the columns you need:
 \`\`\`
-smartsheet_search_rows(sheetId, "Project Alpha", columns=["Name", "Status", "Due Date"])
+smartsheet_find_and_get_rows("Project Plan", columns=["Name", "Status", "Due Date"])
 smartsheet_get_rows_paginated(sheetId, page=1, columns=["Name", "Owner"])
 \`\`\`
 
-#### Step 4: Paginate Large Results
+#### Paginate Large Results
 For sheets with >100 rows, use pagination:
 \`\`\`
-smartsheet_get_rows_paginated(sheetId, page=1, pageSize=100)
+smartsheet_find_and_get_rows("Project Plan", maxRows=50, page=1)
 // Check hasNextPage in response, then call with page=2
 \`\`\`
 
 #### Anti-Patterns to AVOID:
+- **NEVER** ask the user for a sheet ID - look it up by name instead
 - DON'T call \`smartsheet_get_sheet\` on large sheets without column filters
 - DON'T search all columns when you only need specific ones
 - DON'T fetch entire sheets when you only need a few rows
 - DON'T ignore pagination hints in truncated responses
 
-#### Example Workflow: "Find Project Alpha data"
-1. \`smartsheet_search_sheets("Project")\` → Get sheet ID
-2. \`smartsheet_get_summary(sheetId)\` → See 5000 rows, 50 columns
-3. \`smartsheet_search_rows(sheetId, "Project Alpha", columns=["Name", "Status", "Budget"], maxResults=10)\` → Get matching rows
+#### Example Workflow: "Show me the Project Alpha tasks"
+1. \`smartsheet_find_and_get_rows("Project Alpha", columns=["Task", "Status", "Owner"], maxRows=50)\`
+   → Returns sheet ID, sheet info, AND rows in one call!
 
-IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for all operations.`;
+If you need the sheet ID for later operations, it's returned in every response as \`sheetId\`.`;
   }
 
   const mcpSection = `

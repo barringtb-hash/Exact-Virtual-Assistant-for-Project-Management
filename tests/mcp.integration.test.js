@@ -382,15 +382,23 @@ const SMARTSHEET_LIMITS = {
 };
 
 const smartsheetToolsForTesting = [
+  // Convenience tools (RECOMMENDED - combine search + fetch)
+  { name: "smartsheet_get_by_name", description: "Find sheet by name and return summary", inputSchema: { type: "object", properties: { name: { type: "string" }, exactMatch: { type: "boolean" } }, required: ["name"] } },
+  { name: "smartsheet_find_and_get_rows", description: "Find sheet by name and get rows", inputSchema: { type: "object", properties: { sheetName: { type: "string" }, columns: { type: "array" }, searchQuery: { type: "string" }, searchColumns: { type: "array" }, maxRows: { type: "number" }, page: { type: "number" } }, required: ["sheetName"] } },
+  // Search tools (lightweight)
   { name: "smartsheet_search_sheets", description: "Search for sheets", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "smartsheet_search_rows", description: "Search rows", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, query: { type: "string" }, columnNames: { type: "array" }, maxResults: { type: "number" } }, required: ["sheetId", "query"] } },
+  // Metadata tools (no row data)
   { name: "smartsheet_get_summary", description: "Get sheet summary", inputSchema: { type: "object", properties: { sheetId: { type: "string" } }, required: ["sheetId"] } },
   { name: "smartsheet_get_columns", description: "Get columns", inputSchema: { type: "object", properties: { sheetId: { type: "string" } }, required: ["sheetId"] } },
+  // Paginated tools
   { name: "smartsheet_get_rows_paginated", description: "Get paginated rows", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, page: { type: "number" }, pageSize: { type: "number" }, columns: { type: "array" } }, required: ["sheetId"] } },
   { name: "smartsheet_get_row", description: "Get single row", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, rowId: { type: "string" }, columns: { type: "array" } }, required: ["sheetId", "rowId"] } },
   { name: "smartsheet_get_rows_by_ids", description: "Get rows by IDs", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, rowIds: { type: "array" }, columns: { type: "array" } }, required: ["sheetId", "rowIds"] } },
+  // Full sheet (with safety limits)
   { name: "smartsheet_get_sheet", description: "Get full sheet", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, rowNumbers: { type: "array" }, rowIds: { type: "array" }, columns: { type: "array" }, maxRows: { type: "number" } }, required: ["sheetId"] } },
   { name: "smartsheet_list_sheets", description: "List sheets", inputSchema: { type: "object", properties: { pageSize: { type: "number" }, page: { type: "number" } } } },
+  // Write operations
   { name: "smartsheet_create_row", description: "Create row", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, cells: { type: "array" } }, required: ["sheetId", "cells"] } },
   { name: "smartsheet_update_row", description: "Update row", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, rowId: { type: "string" }, cells: { type: "array" } }, required: ["sheetId", "rowId", "cells"] } },
   { name: "smartsheet_delete_row", description: "Delete row", inputSchema: { type: "object", properties: { sheetId: { type: "string" }, rowId: { type: "string" } }, required: ["sheetId", "rowId"] } },
@@ -412,6 +420,9 @@ describe("MCP Tool Definitions", () => {
     const smartsheetTools = smartsheetToolsForTesting;
 
     const requiredTools = [
+      // Convenience tools (RECOMMENDED - combine search + fetch)
+      "smartsheet_get_by_name",
+      "smartsheet_find_and_get_rows",
       // Search tools (lightweight)
       "smartsheet_search_sheets",
       "smartsheet_search_rows",
@@ -445,6 +456,7 @@ describe("MCP Tool Definitions", () => {
     const smartsheetTools = smartsheetToolsForTesting;
 
     const toolsWithColumns = [
+      "smartsheet_find_and_get_rows",
       "smartsheet_get_sheet",
       "smartsheet_get_rows_paginated",
       "smartsheet_get_row",
@@ -502,6 +514,25 @@ describe("MCP Tool Definitions", () => {
     assert.ok(SMARTSHEET_LIMITS.MAX_ROWS_DEFAULT <= 500, "MAX_ROWS_DEFAULT should be <= 500");
     assert.ok(SMARTSHEET_LIMITS.MAX_PAGE_SIZE <= 500, "MAX_PAGE_SIZE should be <= 500");
     assert.ok(SMARTSHEET_LIMITS.DEFAULT_PAGE_SIZE >= 50, "DEFAULT_PAGE_SIZE should be >= 50");
+  });
+
+  it("should have convenience tools for name-based lookups", () => {
+    const smartsheetTools = smartsheetToolsForTesting;
+
+    // smartsheet_get_by_name should accept name, not sheetId
+    const getByName = smartsheetTools.find((t) => t.name === "smartsheet_get_by_name");
+    assert.ok(getByName, "smartsheet_get_by_name not found");
+    assert.ok(getByName.inputSchema.properties.name, "Missing name parameter");
+    assert.ok(!getByName.inputSchema.required.includes("sheetId"), "Should not require sheetId");
+
+    // smartsheet_find_and_get_rows should accept sheetName, not sheetId
+    const findAndGet = smartsheetTools.find((t) => t.name === "smartsheet_find_and_get_rows");
+    assert.ok(findAndGet, "smartsheet_find_and_get_rows not found");
+    assert.ok(findAndGet.inputSchema.properties.sheetName, "Missing sheetName parameter");
+    assert.ok(!findAndGet.inputSchema.required.includes("sheetId"), "Should not require sheetId");
+    assert.ok(findAndGet.inputSchema.properties.columns, "Missing columns parameter for filtering");
+    assert.ok(findAndGet.inputSchema.properties.searchQuery, "Missing searchQuery parameter for filtering");
+    assert.ok(findAndGet.inputSchema.properties.page, "Missing page parameter for pagination");
   });
 
   // Note: office365 tests skipped because the bundled server has MCP SDK dependencies

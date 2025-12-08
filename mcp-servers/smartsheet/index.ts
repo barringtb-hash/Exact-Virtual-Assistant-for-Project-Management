@@ -538,6 +538,270 @@ function createServer(apiKey: string): Server {
     try {
       switch (name) {
         // ================================================================
+        // Convenience Tools (Combine Search + Fetch - RECOMMENDED)
+        // ================================================================
+
+        case "smartsheet_get_by_name": {
+          const { name: sheetName, exactMatch } = args as {
+            name: string;
+            exactMatch?: boolean;
+          };
+
+          // Search for sheets matching the name
+          const searchResult = (await client.searchSheets(sheetName)) as {
+            results?: Array<{
+              objectType: string;
+              objectId: number;
+              text: string;
+              contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+            }>;
+          };
+
+          // Collect matching sheets
+          const sheets: Array<{ id: string; name: string }> = [];
+          if (searchResult.results) {
+            for (const item of searchResult.results) {
+              if (item.objectType === "sheet") {
+                sheets.push({
+                  id: String(item.objectId),
+                  name: item.text,
+                });
+              }
+              if (item.contextData) {
+                for (const ctx of item.contextData) {
+                  if (ctx.objectType === "sheet") {
+                    sheets.push({
+                      id: String(ctx.objectId),
+                      name: ctx.name,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Dedupe sheets
+          const uniqueSheets = Array.from(
+            new Map(sheets.map((s) => [s.id, s])).values()
+          );
+
+          // Apply exact match filter if requested
+          const filteredSheets = exactMatch
+            ? uniqueSheets.filter((s) => s.name.toLowerCase() === sheetName.toLowerCase())
+            : uniqueSheets;
+
+          if (filteredSheets.length === 0) {
+            return success({
+              searchQuery: sheetName,
+              found: false,
+              matchCount: 0,
+              sheets: [],
+              hint: `No sheets found matching "${sheetName}". Try a different search term or use smartsheet_list_sheets to see all sheets.`,
+            });
+          }
+
+          // If exactly one match, get its summary
+          if (filteredSheets.length === 1) {
+            const sheet = filteredSheets[0];
+            const columns = await client.getColumns(sheet.id);
+            const sheetData = (await client.getSheet(sheet.id, {
+              pageSize: 1,
+            })) as SheetData & { totalRowCount?: number };
+
+            return success({
+              searchQuery: sheetName,
+              found: true,
+              matchCount: 1,
+              sheet: {
+                sheetId: sheet.id,
+                name: sheet.name,
+                rowCount: sheetData.totalRowCount || sheetData.rows?.length || 0,
+                columnCount: columns.length,
+                columns: columns.map((col) => ({
+                  id: col.id,
+                  name: col.title,
+                  type: col.type,
+                })),
+                createdAt: sheetData.createdAt,
+                modifiedAt: sheetData.modifiedAt,
+              },
+              hint: `Use sheetId "${sheet.id}" for all subsequent operations on this sheet.`,
+            });
+          }
+
+          // Multiple matches - return list for user to choose
+          return success({
+            searchQuery: sheetName,
+            found: true,
+            matchCount: filteredSheets.length,
+            sheets: filteredSheets,
+            hint: `Found ${filteredSheets.length} sheets matching "${sheetName}". Use exactMatch=true for precise matching, or call this tool with the exact sheet name.`,
+          });
+        }
+
+        case "smartsheet_find_and_get_rows": {
+          const {
+            sheetName,
+            columns,
+            searchQuery,
+            searchColumns,
+            maxRows,
+            page,
+          } = args as {
+            sheetName: string;
+            columns?: string[];
+            searchQuery?: string;
+            searchColumns?: string[];
+            maxRows?: number;
+            page?: number;
+          };
+
+          // First, find the sheet by name
+          const searchResult = (await client.searchSheets(sheetName)) as {
+            results?: Array<{
+              objectType: string;
+              objectId: number;
+              text: string;
+              contextData?: Array<{ objectType: string; objectId: number; name: string }>;
+            }>;
+          };
+
+          // Collect matching sheets
+          const sheets: Array<{ id: string; name: string }> = [];
+          if (searchResult.results) {
+            for (const item of searchResult.results) {
+              if (item.objectType === "sheet") {
+                sheets.push({
+                  id: String(item.objectId),
+                  name: item.text,
+                });
+              }
+              if (item.contextData) {
+                for (const ctx of item.contextData) {
+                  if (ctx.objectType === "sheet") {
+                    sheets.push({
+                      id: String(ctx.objectId),
+                      name: ctx.name,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          const uniqueSheets = Array.from(
+            new Map(sheets.map((s) => [s.id, s])).values()
+          );
+
+          if (uniqueSheets.length === 0) {
+            return success({
+              searchQuery: sheetName,
+              found: false,
+              error: `No sheets found matching "${sheetName}"`,
+              hint: "Try a different search term or use smartsheet_list_sheets to see all available sheets.",
+            });
+          }
+
+          // If multiple matches, try to find exact match or return list
+          let targetSheet = uniqueSheets[0];
+          if (uniqueSheets.length > 1) {
+            const exactMatch = uniqueSheets.find(
+              (s) => s.name.toLowerCase() === sheetName.toLowerCase()
+            );
+            if (exactMatch) {
+              targetSheet = exactMatch;
+            } else {
+              return success({
+                searchQuery: sheetName,
+                found: true,
+                matchCount: uniqueSheets.length,
+                sheets: uniqueSheets,
+                error: "Multiple sheets found. Please specify the exact sheet name.",
+                hint: "Use the exact sheet name from the list above.",
+              });
+            }
+          }
+
+          const sheetId = targetSheet.id;
+
+          // Get column mapping
+          const allColumns = await client.getColumns(sheetId);
+          const columnIdToName = new Map<string, string>();
+          const columnNameToId = new Map<string, string>();
+          for (const col of allColumns) {
+            columnIdToName.set(col.id, col.title);
+            columnNameToId.set(col.title.toLowerCase(), col.id);
+          }
+
+          // Build column filter
+          const columnIds = columns
+            ? columns
+                .map((name) => columnNameToId.get(name.toLowerCase()))
+                .filter((id): id is string => id !== undefined)
+            : undefined;
+
+          // Fetch sheet data
+          const sheetData = (await client.getSheet(sheetId, {
+            columnIds,
+          })) as SheetData;
+
+          let rows = sheetData.rows;
+
+          // Apply text search filter if provided
+          if (searchQuery) {
+            const searchColumnIds = searchColumns
+              ? searchColumns
+                  .map((name) => columnNameToId.get(name.toLowerCase()))
+                  .filter((id): id is string => id !== undefined)
+              : Array.from(columnNameToId.values());
+
+            const searchLower = searchQuery.toLowerCase();
+            rows = rows.filter((row) => {
+              for (const cell of row.cells) {
+                if (!searchColumnIds.includes(cell.columnId)) continue;
+                const cellValue = String(cell.displayValue || cell.value || "").toLowerCase();
+                if (cellValue.includes(searchLower)) {
+                  return true;
+                }
+              }
+              return false;
+            });
+          }
+
+          // Apply pagination
+          const effectiveMaxRows = maxRows || 50;
+          const effectivePage = page || 1;
+          const { rows: pagedRows, truncation } = truncateRows(
+            rows,
+            effectiveMaxRows,
+            effectivePage,
+            effectiveMaxRows
+          );
+
+          // Enrich rows with column names
+          const enrichedRows = pagedRows.map((row) =>
+            enrichRowWithColumnNames(row, columnIdToName)
+          );
+
+          return success({
+            sheetId,
+            sheetName: targetSheet.name,
+            searchQuery: searchQuery || null,
+            pagination: {
+              page: effectivePage,
+              pageSize: effectiveMaxRows,
+              totalRows: truncation.totalRows,
+              totalPages: truncation.totalPages,
+              hasNextPage: truncation.hasMorePages,
+            },
+            columnCount: columns ? columns.length : allColumns.length,
+            returnedRows: enrichedRows.length,
+            rows: enrichedRows,
+            hint: `Sheet ID "${sheetId}" can be used for subsequent operations.`,
+          });
+        }
+
+        // ================================================================
         // Search Tools (Lightweight)
         // ================================================================
 

@@ -25,6 +25,80 @@ export const SMARTSHEET_LIMITS = {
 };
 
 // ============================================================================
+// Convenience Tools (Combine Search + Fetch - RECOMMENDED for Name-Based Access)
+// ============================================================================
+
+/**
+ * Get sheet by name - BEST for when you know the sheet name
+ * Combines search + summary in one call, returns sheet ID for subsequent operations
+ */
+export const getSheetByNameTool: Tool = {
+  name: "smartsheet_get_by_name",
+  description:
+    "Find a Smartsheet by name and return its summary including the sheet ID. This is the RECOMMENDED first step when a user mentions a sheet by name. Returns sheet ID, column info, and row count - use the returned sheetId for all subsequent operations.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      name: {
+        type: "string",
+        description:
+          "The sheet name to search for (partial match supported, e.g., 'Project Plan' will match 'Project Plan - Q4 2024')",
+      },
+      exactMatch: {
+        type: "boolean",
+        default: false,
+        description: "Require exact name match instead of partial match",
+      },
+    },
+    required: ["name"],
+  },
+};
+
+/**
+ * Find sheet and get rows - combines name lookup with row retrieval
+ */
+export const findAndGetRowsTool: Tool = {
+  name: "smartsheet_find_and_get_rows",
+  description:
+    "Find a sheet by name AND retrieve its rows in a single operation. Perfect for when a user asks about data in a specific sheet. Automatically handles the sheet ID lookup.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      sheetName: {
+        type: "string",
+        description: "The sheet name to search for (partial match supported)",
+      },
+      columns: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only return these columns by name (RECOMMENDED - reduces response size)",
+      },
+      searchQuery: {
+        type: "string",
+        description: "Optional: filter rows containing this text",
+      },
+      searchColumns: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional: only search in these columns for searchQuery",
+      },
+      maxRows: {
+        type: "number",
+        default: 50,
+        description: "Maximum rows to return (default: 50)",
+      },
+      page: {
+        type: "number",
+        default: 1,
+        description: "Page number for pagination (default: 1)",
+      },
+    },
+    required: ["sheetName"],
+  },
+};
+
+// ============================================================================
 // Search Tools (Lightweight - Preferred for Finding Data)
 // ============================================================================
 
@@ -422,6 +496,9 @@ export const deleteRowTool: Tool = {
  * All Smartsheet tools - ordered by recommended usage
  */
 export const smartsheetTools: Tool[] = [
+  // Convenience tools (RECOMMENDED - combine search + fetch)
+  getSheetByNameTool,
+  findAndGetRowsTool,
   // Search tools (lightweight, preferred)
   searchSheetsTool,
   searchRowsTool,

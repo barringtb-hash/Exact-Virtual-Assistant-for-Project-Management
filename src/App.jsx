@@ -5281,7 +5281,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
-                <div className="border-t border-slate-300 p-4 bg-white dark:border-slate-600 dark:bg-slate-800">
+                <div className="border-t border-slate-300 p-4 bg-white dark:border-slate-600 dark:bg-slate-700">
                   {isGuidedChatEnabled && isGuidedSessionActive && (
                     <div className="mb-3 space-y-2">
                       {guidedCurrentField ? (
@@ -5733,14 +5733,14 @@ function Panel({ title, icon, right, children, className = "" }) {
     <div
       className={`border shadow-md ${
         isOverlay
-          ? "flex flex-col overflow-hidden rounded-2xl border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-slate-900"
-          : "rounded-xl border-slate-300 bg-slate-100 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          ? "flex flex-col overflow-hidden rounded-2xl border-slate-400 bg-slate-100 dark:border-slate-500 dark:bg-slate-800"
+          : "rounded-xl border-slate-300 bg-slate-100 shadow-lg dark:border-slate-600 dark:bg-slate-800"
       } ${className}`}
     >
       <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
         isOverlay
-          ? "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-800"
-          : "border-slate-200 bg-white dark:border-slate-700/50 dark:bg-slate-800"
+          ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-700"
+          : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-700"
       }`}>
         <div className="flex items-center gap-2">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}

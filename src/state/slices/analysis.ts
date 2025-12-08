@@ -31,6 +31,8 @@ export interface AnalysisSliceState {
   statusBeforeError: AnalysisStatus | null;
   /** Unique identifier for the current analysis session */
   analysisId: string | null;
+  /** HMAC signature for serverless fallback verification */
+  analysisSignature: string | null;
   /** Complete analysis result from the API */
   analysis: AnalysisResult | null;
   /** Raw extracted content (text, tables, metadata) */
@@ -59,6 +61,7 @@ const initialState: AnalysisSliceState = {
   status: "idle",
   statusBeforeError: null,
   analysisId: null,
+  analysisSignature: null,
   analysis: null,
   rawContent: null,
   selectedDocType: null,
@@ -87,6 +90,7 @@ export const analysisSlice = createSlice({
         statusBeforeError: null,
         error: null,
         analysisId: null,
+        analysisSignature: null,
         analysis: null,
         rawContent: null,
         selectedDocType: null,
@@ -115,6 +119,7 @@ export const analysisSlice = createSlice({
       setState({
         status,
         analysisId: response.analysisId,
+        analysisSignature: response.analysisSignature,
         analysis: response.analysis,
         rawContent: response.raw,
         selectedDocType: primaryTarget?.docType ?? null,
@@ -298,6 +303,9 @@ export const useAnalysisStatus = () =>
 
 export const useAnalysisId = () =>
   useStore(analysisSlice.store, (state) => state.analysisId);
+
+export const useAnalysisSignature = () =>
+  useStore(analysisSlice.store, (state) => state.analysisSignature);
 
 export const useAnalysisResult = () =>
   useStore(analysisSlice.store, (state) => state.analysis);

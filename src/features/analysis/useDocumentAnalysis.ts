@@ -15,6 +15,7 @@ import {
   analysisActions,
   useAnalysisStatus,
   useAnalysisId,
+  useAnalysisSignature,
   useAnalysisResult,
   useRawContent,
   useSelectedTarget,
@@ -183,6 +184,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   // State selectors
   const status = useAnalysisStatus();
   const analysisId = useAnalysisId();
+  const analysisSignature = useAnalysisSignature();
   const analysis = useAnalysisResult();
   const rawContent = useRawContent();
   const selectedTarget = useSelectedTarget();
@@ -262,6 +264,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
   const confirm = useCallback(
     async (options?: ConfirmOptions): Promise<void> => {
       const currentAnalysisId = analysisId;
+      const currentAnalysisSignature = analysisSignature;
       const currentAnalysis = analysis;
       const currentRawContent = rawContent;
       const currentSelectedTarget = selectedTarget;
@@ -281,6 +284,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
 
         // Send analysis data inline to work around serverless cache limitations
         // The server will use inline data when in-memory cache lookup fails
+        // Include the HMAC signature for verification in serverless environments
         const response = await fetch("/api/documents/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -289,6 +293,8 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
             // Include cached analysis data for serverless environments
             analysisData: currentAnalysis,
             rawContent: currentRawContent,
+            // HMAC signature for verification when in-memory cache is unavailable
+            analysisSignature: currentAnalysisSignature,
             confirmed: {
               docType,
               action: options?.action ?? "create",
@@ -309,7 +315,7 @@ export function useDocumentAnalysis(): UseDocumentAnalysisReturn {
         throw err;
       }
     },
-    [analysisId, analysis, rawContent, selectedTarget, fieldOverrides]
+    [analysisId, analysisSignature, analysis, rawContent, selectedTarget, fieldOverrides]
   );
 
   /**

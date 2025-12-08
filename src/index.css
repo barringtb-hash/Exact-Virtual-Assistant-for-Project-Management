@@ -9,12 +9,12 @@
    DESIGN SYSTEM TOKENS
    ============================================ */
 :root {
-  /* Color tokens - Light mode (enhanced contrast) */
-  --color-bg-primary: #f8fafc;      /* Off-white base - was #ffffff */
-  --color-bg-secondary: #f1f5f9;    /* Light gray for containers - was #f8fafc */
-  --color-bg-tertiary: #e2e8f0;     /* Visible gray for nested panels - was #f1f5f9 */
-  --color-bg-elevated: #ffffff;     /* Pure white for elements that need to pop */
-  --color-bg-muted: #f1f5f9;        /* Muted background - was #f8fafc */
+  /* Color tokens - Light mode (high contrast layered design) */
+  --color-bg-primary: #e2e8f0;      /* Slate-200: darker page base for dramatic contrast */
+  --color-bg-secondary: #f1f5f9;    /* Slate-100: lighter panels that pop against page */
+  --color-bg-tertiary: #f8fafc;     /* Slate-50: even lighter nested elements */
+  --color-bg-elevated: #ffffff;     /* Pure white for chat bubbles and inputs */
+  --color-bg-muted: #f1f5f9;        /* Slate-100: muted areas */
 
   /* Text colors */
   --color-text-primary: #0f172a;
@@ -141,7 +141,7 @@ html {
 body {
   height: 100%;
   font-family: var(--font-sans);
-  background-color: var(--color-bg-secondary);
+  background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
   line-height: 1.5;
   /* Support safe areas for notched devices */

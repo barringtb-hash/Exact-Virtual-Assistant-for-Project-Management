@@ -5142,7 +5142,7 @@ const resolveDocTypeForManualSync = useCallback(
   return (
     <div
       data-testid="app-ready"
-      className="min-h-screen w-full font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
+      className="min-h-screen w-full font-sans bg-slate-200 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
     >
       {/* Realtime audio element - placed at top level to prevent unmounting during layout changes */}
       {realtimeEnabled && (
@@ -5151,7 +5151,7 @@ const resolveDocTypeForManualSync = useCallback(
       {/* Top Bar */}
       <header
         data-testid="app-header"
-        className="sticky top-0 z-30 bg-slate-50 border-b border-slate-300 shadow-md dark:bg-slate-900 dark:border-slate-800"
+        className="sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md dark:bg-slate-900 dark:border-slate-800"
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -5281,7 +5281,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
-                <div className="border-t border-slate-300 p-4 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                <div className="border-t border-slate-300 p-4 bg-white dark:border-slate-700 dark:bg-slate-800">
                   {isGuidedChatEnabled && isGuidedSessionActive && (
                     <div className="mb-3 space-y-2">
                       {guidedCurrentField ? (
@@ -5733,14 +5733,14 @@ function Panel({ title, icon, right, children, className = "" }) {
     <div
       className={`border shadow-md ${
         isOverlay
-          ? "flex flex-col overflow-hidden rounded-2xl border-slate-400 bg-slate-50 dark:border-slate-600 dark:bg-slate-900"
-          : "rounded-xl border-slate-300 bg-slate-50 shadow-lg dark:border-slate-800 dark:bg-slate-800/50"
+          ? "flex flex-col overflow-hidden rounded-2xl border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-slate-900"
+          : "rounded-xl border-slate-300 bg-slate-100 shadow-lg dark:border-slate-800 dark:bg-slate-800/50"
       } ${className}`}
     >
       <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
         isOverlay
           ? "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-800"
-          : "border-slate-200 bg-white dark:border-slate-700/50"
+          : "border-slate-200 bg-white dark:border-slate-700/50 dark:bg-slate-800"
       }`}>
         <div className="flex items-center gap-2">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}

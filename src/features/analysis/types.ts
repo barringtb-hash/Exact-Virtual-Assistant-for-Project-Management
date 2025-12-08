@@ -115,6 +115,8 @@ export interface AnalyzeResponse {
   status: "analyzed" | "needs_clarification";
   /** Unique identifier for this analysis session */
   analysisId: string;
+  /** HMAC signature for serverless fallback verification */
+  analysisSignature: string;
   /** Complete analysis result */
   analysis: AnalysisResult;
   /** Raw extracted content */

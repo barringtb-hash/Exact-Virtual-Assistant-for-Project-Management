@@ -115,24 +115,62 @@ export function enhanceSystemPromptWithMCPTools(
   if (hasSmartsheetTools) {
     smartsheetGuidance = `
 
-### Smartsheet Tool Usage Guide
+### Smartsheet Tool Usage Guide (Optimized for Large Sheets)
 
-When working with Smartsheet data:
+**CRITICAL: NEVER ask users for sheet IDs. Always use the sheet NAME to look up the ID automatically.**
 
-1. **Finding sheets by name**: Use \`smartsheet_search_sheets\` with the sheet name (or part of it) to find matching sheets. This returns sheet IDs and names. This is MUCH faster than listing all sheets.
+#### GOLDEN RULE: Use Convenience Tools First
+When a user mentions a sheet by name, use these tools that handle ID lookup automatically:
 
-2. **Getting sheet data**: Once you have the sheet ID from search results, use \`smartsheet_get_sheet\` with the numeric sheet ID.
+| User Request | Best Tool | Why |
+|--------------|-----------|-----|
+| "Show me the Project Plan sheet" | \`smartsheet_get_by_name("Project Plan")\` | Auto-finds sheet ID and returns summary |
+| "Get data from Budget Tracker" | \`smartsheet_find_and_get_rows("Budget Tracker")\` | Finds sheet AND returns rows in one call |
+| "Search for tasks in Sprint Board" | \`smartsheet_find_and_get_rows("Sprint Board", searchQuery="task")\` | Combined lookup + search |
 
-3. **Searching within a sheet**: Use \`smartsheet_search_rows\` to find specific data within a sheet. You need the sheet ID first.
+#### Step-by-Step: How to Handle Sheet Requests
 
-4. **Listing all sheets**: Only use \`smartsheet_list_sheets\` if you need to see ALL accessible sheets. Prefer \`smartsheet_search_sheets\` when looking for specific sheets.
+1. **User mentions sheet name** → Use \`smartsheet_get_by_name\` or \`smartsheet_find_and_get_rows\`
+2. **Tool returns sheetId** → Store it for subsequent operations
+3. **Need more data?** → Use the returned sheetId with other tools
 
-IMPORTANT: Sheet IDs are numeric (e.g., "1234567890123"). Always use the ID (not the name) for get_sheet, search_rows, and other operations.
+#### Tool Selection Guide
 
-Example workflow for "Get me the Project Plan sheet":
-1. Call smartsheet_search_sheets with query "Project Plan"
-2. Get the sheet ID from the search results
-3. Call smartsheet_get_sheet with that ID`;
+| Task | Best Tool | Why |
+|------|-----------|-----|
+| Find sheet + get summary | \`smartsheet_get_by_name\` | **RECOMMENDED** - Returns ID + structure |
+| Find sheet + get rows | \`smartsheet_find_and_get_rows\` | **RECOMMENDED** - Combined operation |
+| Get column definitions | \`smartsheet_get_columns\` | Cached, very fast |
+| Find specific rows | \`smartsheet_search_rows\` | Returns only matching rows |
+| Get many rows | \`smartsheet_get_rows_paginated\` | Handles pagination automatically |
+| Get one row by ID | \`smartsheet_get_row\` | Fastest for known row IDs |
+
+#### Always Use Column Filtering
+Reduce response size by specifying only the columns you need:
+\`\`\`
+smartsheet_find_and_get_rows("Project Plan", columns=["Name", "Status", "Due Date"])
+smartsheet_get_rows_paginated(sheetId, page=1, columns=["Name", "Owner"])
+\`\`\`
+
+#### Paginate Large Results
+For sheets with >100 rows, use pagination:
+\`\`\`
+smartsheet_find_and_get_rows("Project Plan", maxRows=50, page=1)
+// Check hasNextPage in response, then call with page=2
+\`\`\`
+
+#### Anti-Patterns to AVOID:
+- **NEVER** ask the user for a sheet ID - look it up by name instead
+- DON'T call \`smartsheet_get_sheet\` on large sheets without column filters
+- DON'T search all columns when you only need specific ones
+- DON'T fetch entire sheets when you only need a few rows
+- DON'T ignore pagination hints in truncated responses
+
+#### Example Workflow: "Show me the Project Alpha tasks"
+1. \`smartsheet_find_and_get_rows("Project Alpha", columns=["Task", "Status", "Owner"], maxRows=50)\`
+   → Returns sheet ID, sheet info, AND rows in one call!
+
+If you need the sheet ID for later operations, it's returned in every response as \`sheetId\`.`;
   }
 
   const mcpSection = `

@@ -5142,7 +5142,7 @@ const resolveDocTypeForManualSync = useCallback(
   return (
     <div
       data-testid="app-ready"
-      className="min-h-screen w-full font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
+      className="min-h-screen w-full font-sans bg-slate-200 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
     >
       {/* Realtime audio element - placed at top level to prevent unmounting during layout changes */}
       {realtimeEnabled && (
@@ -5151,7 +5151,7 @@ const resolveDocTypeForManualSync = useCallback(
       {/* Top Bar */}
       <header
         data-testid="app-header"
-        className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm dark:bg-slate-900 dark:border-slate-800"
+        className="sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md dark:bg-slate-900 dark:border-slate-700"
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -5209,7 +5209,7 @@ const resolveDocTypeForManualSync = useCallback(
                 className={`flex flex-col overflow-hidden ${
                   chatIsOverlay
                     ? "flex-1 min-h-0"
-                    : "h-[520px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
+                    : "h-[520px] rounded-xl border border-slate-300 bg-slate-100 shadow-inner dark:border-slate-600 dark:bg-slate-900"
                 }`}
               >
                 {chatIsOverlay && (
@@ -5221,8 +5221,8 @@ const resolveDocTypeForManualSync = useCallback(
                   ref={messagesContainerRef}
                   className={`flex-1 overflow-y-auto min-h-0 p-4 space-y-4 ${
                     chatIsOverlay
-                      ? "bg-slate-50 dark:bg-slate-900"
-                      : "bg-white dark:bg-slate-900"
+                      ? "bg-slate-100 dark:bg-slate-950"
+                      : "bg-slate-100 dark:bg-slate-950"
                   }`}
                 >
                   {visibleMessages.map((m) => (
@@ -5281,7 +5281,7 @@ const resolveDocTypeForManualSync = useCallback(
                     <AssistantThinkingIndicator status={assistantActivityStatus} />
                   </div>
                 )}
-                <div className="border-t border-slate-200 p-4 bg-white dark:border-slate-700 dark:bg-slate-800">
+                <div className="border-t border-slate-300 p-4 bg-white dark:border-slate-600 dark:bg-slate-700">
                   {isGuidedChatEnabled && isGuidedSessionActive && (
                     <div className="mb-3 space-y-2">
                       {guidedCurrentField ? (
@@ -5731,16 +5731,16 @@ function Panel({ title, icon, right, children, className = "" }) {
 
   return (
     <div
-      className={`border shadow-sm ${
+      className={`border shadow-md ${
         isOverlay
-          ? "flex flex-col overflow-hidden rounded-2xl border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
-          : "rounded-xl border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-800/50"
+          ? "flex flex-col overflow-hidden rounded-2xl border-slate-400 bg-slate-100 dark:border-slate-500 dark:bg-slate-800"
+          : "rounded-xl border-slate-300 bg-slate-100 shadow-lg dark:border-slate-600 dark:bg-slate-800"
       } ${className}`}
     >
       <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
         isOverlay
-          ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"
-          : "border-slate-100 dark:border-slate-700/50"
+          ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-700"
+          : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-700"
       }`}>
         <div className="flex items-center gap-2">
           {icon && <span className="text-slate-500 dark:text-slate-400">{icon}</span>}
@@ -5816,7 +5816,7 @@ function ChatBubble({ role, text, hideEmptySections }) {
           <span className="whitespace-pre-wrap">{safeText}</span>
         </div>
       ) : (
-        <div className="max-w-[90%] md:max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed bg-white border border-slate-200 text-slate-700 shadow-sm dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
+        <div className="max-w-[90%] md:max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed bg-white border border-slate-300 text-slate-700 shadow-md dark:bg-slate-600 dark:border-slate-400 dark:text-white">
           {!showStructured ? (
             <span className="whitespace-pre-wrap">{safeText}</span>
           ) : (

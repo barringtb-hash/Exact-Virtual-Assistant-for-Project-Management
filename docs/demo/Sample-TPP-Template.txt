@@ -1,0 +1,113 @@
+Target Product Profile – [Your Project Name]
+=====================================================
+
+**Product/Project Summary**
+- Program: [Program or Initiative Name]
+- Project Name: [Your Project Name]
+- Department/Business Unit: [Department]
+- Phase: [Planning | Initiation | Execution | Commercial]
+
+**Project Charter Anchors**
+- Project Title: [Your Project Name]
+- Executive Sponsor: [Name, Title]
+- Project Lead/Manager: [Name, Title]
+- Start Date: 2025-01-15
+- End Date: 2025-12-31
+
+**Vision Statement**
+[Describe the desired future state or outcome. What does success look like? How will this project transform the organization or serve customers?]
+
+Example: "To establish a best-in-class digital platform that streamlines operations, reduces manual effort by 50%, and positions the organization as an industry leader in operational efficiency."
+
+**Problem Statement**
+[Clearly articulate the problem or opportunity this project addresses. What pain points exist? What is the business impact of the current state?]
+
+Example: "Current manual processes consume 40+ hours per week across teams, leading to delays, data inconsistencies, and customer complaints. Without intervention, operational costs will continue to rise while customer satisfaction declines."
+
+**Project Description**
+[Provide a detailed description of what this project will deliver. Include key features, capabilities, and the overall approach.]
+
+Example: "This project will design, develop, and implement an integrated workflow automation solution. Key deliverables include a centralized dashboard for task management, automated data validation, API integrations with existing systems, and comprehensive training for end users. The solution will be rolled out in three phases: core platform (Q2), integrations (Q3), and advanced analytics (Q4)."
+
+**Core Team**
+- Sarah Johnson, Project Sponsor (Executive oversight, budget approval, stakeholder alignment)
+- Michael Chen, Project Manager (Day-to-day project coordination, timeline management, risk escalation)
+- Emily Rodriguez, Technical Lead (Architecture design, technical decisions, development oversight)
+- David Kim, Business Analyst (Requirements gathering, process mapping, user acceptance testing)
+- Lisa Thompson, Change Management Lead (Training, communications, adoption tracking)
+
+**Objectives**
+1. Deliver a production-ready platform by end of Q3 2025
+2. Achieve 90% user adoption within 60 days of launch
+3. Reduce manual processing time by at least 50%
+4. Maintain system uptime of 99.5% or higher post-launch
+5. Complete full integration with legacy systems by Q4 2025
+
+**Scope Summary**
+- Included:
+  - Requirements analysis and documentation
+  - Platform design and development
+  - Integration with CRM and ERP systems
+  - User training and documentation
+  - 90-day post-launch support period
+  - Performance monitoring and optimization
+
+- Excluded:
+  - Legacy system replacement (will integrate, not replace)
+  - Hardware procurement (using existing infrastructure)
+  - International deployment (US operations only in Phase 1)
+  - Custom mobile application (web-responsive only)
+
+**Key Milestones**
+- Requirements & Design Complete – 2025-03-15
+- Development Sprint 1 Complete – 2025-05-01
+- Integration Testing Complete – 2025-07-15
+- User Acceptance Testing Sign-off – 2025-08-30
+- Production Launch – 2025-09-30
+- Post-Launch Optimization Complete – 2025-12-15
+
+**Assumptions**
+- Executive sponsorship and funding will remain committed throughout the project
+- Key subject matter experts will be available for requirements gathering and testing
+- Third-party vendors will meet their contractual SLAs for integrations
+- Existing infrastructure can support the new platform without major upgrades
+- Change management activities will receive adequate time and resources
+
+**Risks & Mitigations**
+- Resource availability conflicts → Establish dedicated project team with backfill plan for critical roles
+- Integration complexity with legacy systems → Conduct early technical spikes and proof-of-concept testing
+- User resistance to change → Implement comprehensive change management with early adopter program
+- Scope creep → Implement strict change control process with sponsor approval required
+- Vendor dependency risks → Identify backup vendors and include SLA penalties in contracts
+- Data migration errors → Develop automated validation scripts and conduct parallel running period
+
+**Success Metrics**
+- Operational Efficiency: 50% reduction in manual processing time (measured via time tracking system)
+- User Adoption: 90% of target users actively using system within 60 days (measured via login analytics)
+- Quality Improvement: 30% reduction in data entry errors (measured via error log analysis)
+- Customer Satisfaction: Maintain or improve NPS score of 70+ (measured via quarterly surveys)
+- Cost Savings: $500K annual cost reduction in operational overhead (measured via financial reporting)
+- System Reliability: 99.5% uptime maintained post-launch (measured via monitoring tools)
+
+**Budget Summary** (Optional)
+- Total Budget: $750,000
+- Personnel: $450,000
+- Technology/Infrastructure: $200,000
+- Training & Change Management: $75,000
+- Contingency: $25,000
+
+**Stakeholders**
+- Executive Committee (Quarterly updates)
+- Department Heads (Monthly steering committee)
+- End Users (Weekly status updates during development)
+- IT Operations (Integration and support coordination)
+- Finance (Budget tracking and cost validation)
+
+---
+Instructions for Use:
+1. Replace all [bracketed text] with your project-specific information
+2. Update dates to reflect your actual project timeline (use YYYY-MM-DD format)
+3. Customize metrics and milestones to match your project goals
+4. Remove the example text and optional sections as needed
+5. Save as a .txt file and upload to the Exact Virtual Assistant
+6. Request: "Create a project charter from this document" to trigger extraction
